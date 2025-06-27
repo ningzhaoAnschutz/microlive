@@ -1,6 +1,6 @@
 # MicroLive <img src="docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />
 
-**Authors:** Luis Aguilera
+**Authors:** Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao
 
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-312/)
@@ -246,7 +246,7 @@ For questions about specific research applications or collaborations, please con
 
 If you use Micro in your research, please cite it as follows:
 
-> **Luis Aguilera.** *Micro: A Library for Processing Live-Cell Microscope Images and Performing Single-Molecule Measurements.* GitHub, 2025.  
+> **Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao** *MicrLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* GitHub, 2025.  
 > [https://github.com/luisub/micro](https://github.com/ningzhaoAnschutz/microlive)  
 > Licensed under the BSD 3-Clause License.
 
