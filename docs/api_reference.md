@@ -510,7 +510,7 @@ def export_tracking_video(self) -> None:
     """Export tracking visualization as MP4 or GIF video."""
 
 def export_displayed_video(self) -> None:
-    """Export display tab time-lapse as video."""
+    """Export Import tab time-lapse as video."""
 
 def get_default_export_filename(self, prefix: str = None, extension: str = None) -> str:
     """

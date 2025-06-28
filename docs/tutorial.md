@@ -13,7 +13,7 @@ Before starting, ensure you have:
 
 ---
 
-## Tutorial 1: Display Tab - Image Loading and Visualization
+## Tutorial 1: Import Tab - Image Loading and Visualization
 
 ### Overview
 Learn to load, visualize, and navigate through microscopy data with proper display settings.

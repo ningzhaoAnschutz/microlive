@@ -20,7 +20,7 @@
 
 For users new to MicroLive, follow this basic workflow:
 
-1. **Load Data**: Open LIF or TIFF files via the Display tab
+1. **Load Data**: Open LIF or TIFF files via the Import tab
 2. **Segment Cells**: Define regions of interest in the Segmentation tab  
 3. **Track Particles**: Detect and link spots in the Tracking tab
 4. **Analyze Results**: Generate plots and statistics in Distribution/Correlation tabs
@@ -122,7 +122,7 @@ Each channel has independent intensity controls:
 - **Export Options**: Save current view as PNG or export videos
 
 ### Theme and Appearance
-- **Dark/Light Theme**: Toggle switch in the top-left of Display tab
+- **Dark/Light Theme**: Toggle switch in the top-left of Import tab
 - **Color Schemes**: Consistent color schemes across all analysis modules
 - **Font Sizing**: Optimized for different screen resolutions
 
