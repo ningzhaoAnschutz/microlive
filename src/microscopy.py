@@ -704,16 +704,86 @@ class Photobleaching:
 
         return params
     
+    # def apply_photobleaching_correction(self):
+    #     """
+    #     Applies photobleaching correction normalized to the initial intensity (t=0).
+    #     The correction factor is I_fit(0) / I_fit(t), ensuring the initial frame is unchanged.
+
+    #     For single‐exp model: factor = (b + A) / [b + A * exp(-k * t)]
+    #     For double‐exp model: factor = (b + A1 + A2) / [b + A1 * exp(-k1 * t) + A2 * exp(-k2 * t)]
+    #     For linear model: factor = (b + intercept) / [b + intercept + slope * t]
+    #     """
+
+    #     params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
+    #     T, Z, Y, X, C = self.image_TZYXC.shape
+    #     corrected_image = self.image_TZYXC.astype(np.float32).copy()
+
+    #     start_idx = self.number_removed_initial_points or 0
+    #     time_array = np.arange(T, dtype=float) * self.time_interval_seconds
+
+    #     for ch in range(C):
+    #         if self.model_type == 'exponential':
+    #             # single‐exp => (A, k, b)
+    #             if len(params) != 3 * C:
+    #                 raise ValueError("Expect 3*C parameters for single‐exp model.")
+    #             A_, k_, b_ = params[3*ch:3*ch+3]
+    #             I0 = b_ + A_                      # I_fit(0)
+    #             for i in range(T):
+    #                 dt = time_array[i] - start_idx * self.time_interval_seconds
+    #                 dt = max(dt, 0.0)
+    #                 model_val = b_ + A_ * np.exp(-k_ * dt)
+    #                 model_val = max(model_val, 1e-10)
+    #                 #corrected_image[i, ..., ch] *= (I0 / model_val)
+
+    #                 corrected_image[i, ..., ch] *= (1 / model_val)
+
+    #         elif self.model_type == 'double_exponential':
+    #             # double‐exp => (A1, k1, A2, k2, b)
+    #             if len(params) != 5 * C:
+    #                 raise ValueError("Expect 5*C parameters for double‐exp model.")
+    #             A1_, k1_, A2_, k2_, b_ = params[5*ch:5*ch+5]
+    #             I0 = b_ + A1_ + A2_
+    #             for i in range(T):
+    #                 dt = time_array[i] - start_idx * self.time_interval_seconds
+    #                 dt = max(dt, 0.0)
+    #                 model_val = (
+    #                     b_
+    #                     + A1_ * np.exp(-k1_ * dt)
+    #                     + A2_ * np.exp(-k2_ * dt)
+    #                 )
+    #                 model_val = max(model_val, 1e-10)
+    #                 #corrected_image[i, ..., ch] *= (I0 / model_val)
+    #                 corrected_image[i, ..., ch] *= (1 / model_val)
+
+    #         else:
+    #             # linear => (slope, intercept, b)
+    #             if len(params) != 3 * C:
+    #                 raise ValueError("Expect 3*C parameters for linear model.")
+    #             slope, intercept, b_ = params[3*ch:3*ch+3]
+    #             I0 = b_ + intercept
+    #             for i in range(T):
+    #                 dt = time_array[i] - start_idx * self.time_interval_seconds
+    #                 dt = max(dt, 0.0)
+    #                 model_val = b_ + intercept + slope * dt
+    #                 model_val = max(model_val, 1e-10)
+    #                 #corrected_image[i, ..., ch] *= (I0 / model_val)
+    #                 corrected_image[i, ..., ch] *= (1 / model_val)
+
+    #     # 4) Recompute per‐frame, per‐channel means & errors
+    #     mean_intensities_corr = np.zeros((T, C), dtype=float)
+    #     err_intensities_corr  = np.zeros((T, C), dtype=float)
+    #     for ch in range(C):
+    #         for i in range(T):
+    #             proj = np.max(corrected_image[i, ..., ch], axis=0) * self.mask
+    #             vals = proj[proj != 0]
+    #             if vals.size:
+    #                 mean_intensities_corr[i, ch] = vals.mean()
+    #                 err_intensities_corr[i, ch]  = vals.std()
     def apply_photobleaching_correction(self):
         """
         Applies photobleaching correction normalized to the initial intensity (t=0).
         The correction factor is I_fit(0) / I_fit(t), ensuring the initial frame is unchanged.
-
-        For single‐exp model: factor = (b + A) / [b + A * exp(-k * t)]
-        For double‐exp model: factor = (b + A1 + A2) / [b + A1 * exp(-k1 * t) + A2 * exp(-k2 * t)]
-        For linear model: factor = (b + intercept) / [b + intercept + slope * t]
         """
-
         params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
         T, Z, Y, X, C = self.image_TZYXC.shape
         corrected_image = self.image_TZYXC.astype(np.float32).copy()
@@ -722,54 +792,86 @@ class Photobleaching:
         time_array = np.arange(T, dtype=float) * self.time_interval_seconds
 
         for ch in range(C):
+            # **Threshold check:** compute final intensity for this channel
+            if hasattr(self, 'mean_intensities'):
+                final_intensity = self.mean_intensities[-1, ch]
+            else:
+                # If mean intensities not already calculated, compute it for final frame
+                # Ensure mask is defined (use entire field if no mask provided)
+                if not hasattr(self, 'mask'):
+                    h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
+                    if self.mode == 'use_circular_region':
+                        # Create circular mask centered at cell or image center
+                        if self.user_provided_mask and self.mask_YX.any():
+                            cy, cx = np.mean(np.argwhere(self.mask_YX), axis=0).astype(int)
+                        else:
+                            cy, cx = h // 2, w // 2
+                        Y, X_grid = np.ogrid[:h, :w]
+                        dist = np.sqrt((X_grid - cx) ** 2 + (Y - cy) ** 2)
+                        mask = dist <= self.radius
+                    elif self.mode == 'inside_cell':
+                        mask = self.mask_YX
+                    else:  # mode == 'outside_cell'
+                        mask = ~self.mask_YX
+                    self.mask = mask
+                # Calculate mean intensity of the final frame within the mask
+                final_frame = self.image_TZYXC[-1, :, :, :, ch]  # shape (Z, Y, X)
+                max_proj = np.max(final_frame, axis=0)            # max projection across Z
+                masked_pixels = max_proj[self.mask]               # apply mask
+                final_intensity = np.mean(masked_pixels) if masked_pixels.size > 0 else 0.0
+
+            # **Skip correction if final intensity is below threshold (100)**
+            if final_intensity < 100:
+                try:
+                    QMessageBox.warning(None, "Photobleaching Correction",
+                        f"Photobleaching correction skipped for channel {ch} "
+                        f"(final intensity {final_intensity:.2f} < 100).")
+                except Exception:
+                    print(f"Warning: Photobleaching correction skipped for channel {ch} "
+                          f"(final intensity {final_intensity:.2f} < 100).")
+                # Leave this channel unchanged and continue to the next channel
+                continue
+
+            # Apply photobleaching correction for this channel if above threshold
             if self.model_type == 'exponential':
-                # single‐exp => (A, k, b)
+                # single‐exp model (params: A, k, b)
                 if len(params) != 3 * C:
-                    raise ValueError("Expect 3*C parameters for single‐exp model.")
+                    raise ValueError("Expect 3*C parameters for single-exp model.")
                 A_, k_, b_ = params[3*ch:3*ch+3]
-                I0 = b_ + A_                      # I_fit(0)
+                # (I0 would be b_ + A_, but here we directly use normalization factor 1/model_val)
                 for i in range(T):
                     dt = time_array[i] - start_idx * self.time_interval_seconds
                     dt = max(dt, 0.0)
                     model_val = b_ + A_ * np.exp(-k_ * dt)
                     model_val = max(model_val, 1e-10)
-                    #corrected_image[i, ..., ch] *= (I0 / model_val)
-
-                    corrected_image[i, ..., ch] *= (1 / model_val)
+                    corrected_image[i, ..., ch] *= (1.0 / model_val)
 
             elif self.model_type == 'double_exponential':
-                # double‐exp => (A1, k1, A2, k2, b)
+                # double‐exp model (params: A1, k1, A2, k2, b)
                 if len(params) != 5 * C:
-                    raise ValueError("Expect 5*C parameters for double‐exp model.")
+                    raise ValueError("Expect 5*C parameters for double-exp model.")
                 A1_, k1_, A2_, k2_, b_ = params[5*ch:5*ch+5]
-                I0 = b_ + A1_ + A2_
                 for i in range(T):
                     dt = time_array[i] - start_idx * self.time_interval_seconds
                     dt = max(dt, 0.0)
-                    model_val = (
-                        b_
-                        + A1_ * np.exp(-k1_ * dt)
-                        + A2_ * np.exp(-k2_ * dt)
-                    )
+                    model_val = (b_ 
+                                 + A1_ * np.exp(-k1_ * dt) 
+                                 + A2_ * np.exp(-k2_ * dt))
                     model_val = max(model_val, 1e-10)
-                    #corrected_image[i, ..., ch] *= (I0 / model_val)
-                    corrected_image[i, ..., ch] *= (1 / model_val)
+                    corrected_image[i, ..., ch] *= (1.0 / model_val)
 
-            else:
-                # linear => (slope, intercept, b)
+            else:  # linear model (params: slope, intercept, b)
                 if len(params) != 3 * C:
                     raise ValueError("Expect 3*C parameters for linear model.")
                 slope, intercept, b_ = params[3*ch:3*ch+3]
-                I0 = b_ + intercept
                 for i in range(T):
                     dt = time_array[i] - start_idx * self.time_interval_seconds
                     dt = max(dt, 0.0)
                     model_val = b_ + intercept + slope * dt
                     model_val = max(model_val, 1e-10)
-                    #corrected_image[i, ..., ch] *= (I0 / model_val)
-                    corrected_image[i, ..., ch] *= (1 / model_val)
-
-        # 4) Recompute per‐frame, per‐channel means & errors
+                    corrected_image[i, ..., ch] *= (1.0 / model_val)
+        
+        # Recompute per-frame, per-channel means & errors for the corrected image
         mean_intensities_corr = np.zeros((T, C), dtype=float)
         err_intensities_corr  = np.zeros((T, C), dtype=float)
         for ch in range(C):
@@ -779,7 +881,7 @@ class Photobleaching:
                 if vals.size:
                     mean_intensities_corr[i, ch] = vals.mean()
                     err_intensities_corr[i, ch]  = vals.std()
-
+                    
         if self.show_plot:
             orig = [self.image_TZYXC[i].mean() for i in range(T)]
             corr = [corrected_image[i].mean()    for i in range(T)]

@@ -370,14 +370,17 @@ class Plots:
         ax.grid(True)
         if max_lag_index is not None:
             max_lag_index = int(max_lag_index)
-            # Check that max_lag_index is within range; if not, adjust to last index and warn
             if max_lag_index >= len(lags):
                 max_lag_index = len(lags) - 1
                 print('Warning: max_lag_index is out of range. Setting it to the last index')
             ax.set_xlim(lags[start_lag], lags[max_lag_index])
         computed_y_min = np.nanpercentile(normalized_correlation[start_lag:], y_min_percentile)
         computed_y_max = np.nanpercentile(normalized_correlation[start_lag:], y_max_percentile)
-        ax.set_ylim(computed_y_min, computed_y_max)
+        if not (np.isfinite(computed_y_min) and np.isfinite(computed_y_max)):
+            ax.relim()            # re-compute the data limits
+            ax.autoscale_view()   # autoscale
+        else:
+            ax.set_ylim(computed_y_min, computed_y_max)
         if axes is None:
             fig.tight_layout()
 
@@ -801,7 +804,7 @@ class GUI(QMainWindow):
         self.rect_zoom = None
         self.zoom_layout = QVBoxLayout()
         self.channelDisplayParams = {}
-        self.random_mode_enabled = True
+        self.random_mode_enabled = False
         self.segmentation_mask = None
         self.total_frames = 0
         self.tracking_remove_background_checkbox = False
@@ -3447,7 +3450,7 @@ class GUI(QMainWindow):
             self.df_tracking = pd.DataFrame()
             QMessageBox.information(self, "No Spots Detected", "No spots were detected in any frame.")
         # Optional random-mode run
-        if getattr(self, 'random_mode_enabled', False):
+        if getattr(self, 'random_mode_enabled', True):
             random_tracking = mi.ParticleTracking(
                 image=image_to_use,
                 channels_spots=[self.current_channel],
@@ -4143,7 +4146,7 @@ class GUI(QMainWindow):
         
         # Create checkbox to enable random spot generation
         generate_random_points_checkbox = QCheckBox("Generate Random Spots")
-        generate_random_points_checkbox.setChecked(True)
+        generate_random_points_checkbox.setChecked(False)
         generate_random_points_checkbox.stateChanged.connect(self.generate_random_spots)
         # Create horizontal layout for checkbox and spin box
         hbox = QHBoxLayout()
