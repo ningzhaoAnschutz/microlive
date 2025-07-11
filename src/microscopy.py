@@ -71,7 +71,11 @@ import bigfish.plot as plot
 import bigfish.detection as detection
 #import bigfish.multistack as multistack
 ###  Cellpose imports
-from cellpose import models, denoise
+import contextlib, io
+_f = io.StringIO()
+with contextlib.redirect_stdout(_f), contextlib.redirect_stderr(_f):
+    from cellpose import models, denoise
+#from cellpose import models, denoise
 
 
 ### Matplotlib imports
@@ -100,8 +104,8 @@ from readlif.reader import LifFile
 from bioio import BioImage
 import xml.etree.ElementTree as ET
 try:
-    import napari
-    from napari_animation import Animation
+    #import napari
+    #from napari_animation import Animation
     import torch
 except:
     pass
@@ -339,6 +343,8 @@ class Photobleaching:
             # By default, use the entire field of view
             self.mask_YX = np.ones((image_TZYXC.shape[2], image_TZYXC.shape[3]), dtype=bool)
             self.user_provided_mask = False
+
+
 
     def calculate_photobleaching(self):
         """
@@ -727,7 +733,9 @@ class Photobleaching:
                     dt = max(dt, 0.0)
                     model_val = b_ + A_ * np.exp(-k_ * dt)
                     model_val = max(model_val, 1e-10)
-                    corrected_image[i, ..., ch] *= (I0 / model_val)
+                    #corrected_image[i, ..., ch] *= (I0 / model_val)
+
+                    corrected_image[i, ..., ch] *= (1 / model_val)
 
             elif self.model_type == 'double_exponential':
                 # double‐exp => (A1, k1, A2, k2, b)
@@ -744,7 +752,8 @@ class Photobleaching:
                         + A2_ * np.exp(-k2_ * dt)
                     )
                     model_val = max(model_val, 1e-10)
-                    corrected_image[i, ..., ch] *= (I0 / model_val)
+                    #corrected_image[i, ..., ch] *= (I0 / model_val)
+                    corrected_image[i, ..., ch] *= (1 / model_val)
 
             else:
                 # linear => (slope, intercept, b)
@@ -757,7 +766,8 @@ class Photobleaching:
                     dt = max(dt, 0.0)
                     model_val = b_ + intercept + slope * dt
                     model_val = max(model_val, 1e-10)
-                    corrected_image[i, ..., ch] *= (I0 / model_val)
+                    #corrected_image[i, ..., ch] *= (I0 / model_val)
+                    corrected_image[i, ..., ch] *= (1 / model_val)
 
         # 4) Recompute per‐frame, per‐channel means & errors
         mean_intensities_corr = np.zeros((T, C), dtype=float)
@@ -4364,11 +4374,9 @@ class DataProcessing():
 
 class ParticleMotion:
 
-    def __init__(self, trackpy_dataframe, microns_per_pixel, step_size_in_sec, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None):
-        # Initialization code (as provided)
+    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None):
         self.microns_per_pixel = microns_per_pixel
         self.step_size_in_sec = step_size_in_sec
-        self.max_lagtime = max_lagtime
         self.show_plot = show_plot 
         self.remove_drift = remove_drift
         self.plot_name = plot_name
@@ -4379,7 +4387,14 @@ class ParticleMotion:
                 self.trackpy_dataframe = trackpy_dataframe
         else:
             self.trackpy_dataframe = trackpy_dataframe
-                
+        self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y']].copy()
+
+        # use self.max_lagtime = max_lagtime but test it is not longer than max_lagtime in the dataframe.
+        if max_lagtime is None:
+            self.max_lagtime = int(self.trackpy_dataframe['frame'].max() )
+        else:
+            self.max_lagtime = min(max_lagtime, int(self.trackpy_dataframe['frame'].max()))
+
     def calculate_msd(self):
         # Calculation code (as provided)
         if self.remove_drift == True:
@@ -4391,32 +4406,34 @@ class ParticleMotion:
                 plt.show()
         else:
             trackpy_df = self.trackpy_dataframe.copy()
+        
         # Calculate the MSD
-        em_complete = tp.emsd(trackpy_df, mpp=self.microns_per_pixel, fps=1 / self.step_size_in_sec)
-        em = tp.emsd(trackpy_df, mpp=self.microns_per_pixel, fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
+        em_px = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
         # Calculate the diffusion coefficient
-        slope = np.linalg.lstsq(np.array(em.index)[:, np.newaxis], em.values, rcond=None)[0][0]
-        calculated_diffusion_coefficient = slope / 4
-        print(r'The diffusion constant is {0:.3f} μm²/s'.format(calculated_diffusion_coefficient))
-        time_range_complete = em_complete.index
-        time_range = em.index  # Use the lag times from the MSD data
-        model_fit = slope * time_range
+        slope = np.linalg.lstsq(np.array(em_px.index)[:, np.newaxis], em_px.values, rcond=None)[0][0]
+        D_px2_s = slope / 4
+        time_range = em_px.index  # Use the lag times from the MSD data
+        model_fit = slope * em_px.index
+        D_um2_s = D_px2_s * (self.microns_per_pixel ** 2)
+        # if the user provides microns_per_pixel ==1 , print a warning
+        if self.microns_per_pixel == 1:
+            print("Warning: microns_per_pixel is set to 1. Results are in pixel units.")
         # Plotting
         if self.show_plot:
             plt.style.use(['default', 'fivethirtyeight'])
             fig, ax = plt.subplots(figsize=(6, 4))
-            em_complete.plot(style='o', label='MSD, ' + r'D = {0:.3f} μm²/s'.format(calculated_diffusion_coefficient), ax=ax)
+            em_px.plot(style='o', label= r'D = {0:.3f} px²/s'.format(D_px2_s) + '\n' + r'D = {0:.3f} um²/s'.format(D_um2_s)  , ax=ax)
             # Use em.index directly for plotting the fit
-            ax.plot(em.index, slope * em.index, label='Linear fit')
+            ax.plot(em_px.index, slope * em_px.index, label='Linear fit')
             ax.set(
-                ylabel=r'$\langle \Delta r^2 \rangle$ [$\mu$m$^2$]',
+                ylabel=r'$\langle \Delta r^2 \rangle$ [px$^2$]',
                 xlabel='time (s)'
             )
             ax.legend(loc='upper left')
             if self.plot_name is not None:
                 fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
             plt.show()
-        return calculated_diffusion_coefficient, em_complete, time_range_complete, model_fit, trackpy_df
+        return D_um2_s, D_px2_s, em_px, time_range, model_fit, trackpy_df
 
 
 class CropArray():

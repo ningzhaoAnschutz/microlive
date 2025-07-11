@@ -66,7 +66,11 @@ from fpdf import FPDF
 from IPython.display import Image as IPImage, display
 import ipywidgets as widgets
 import imageio
-from cellpose import models, denoise
+#from cellpose import models, denoise
+import contextlib, io
+_f = io.StringIO()
+with contextlib.redirect_stdout(_f), contextlib.redirect_stderr(_f):
+    from cellpose import models, denoise
 import seaborn as sns
 from dna_features_viewer import GraphicFeature, GraphicRecord, CircularGraphicRecord
 from Bio.Seq import Seq
@@ -81,8 +85,8 @@ from matplotlib.colors import LinearSegmentedColormap
 
 try:
     import torch
-    import napari
-    from napari_animation import Animation
+    #import napari
+    #from napari_animation import Animation
 except ImportError:
     print("Warning: napari and/or napari-animation not found. Some functionality will not be available.")
     napari = None
