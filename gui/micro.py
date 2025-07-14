@@ -373,7 +373,7 @@ class Plots:
             if max_lag_index >= len(lags):
                 max_lag_index = len(lags) - 1
                 print('Warning: max_lag_index is out of range. Setting it to the last index')
-            ax.set_xlim(lags[start_lag], lags[max_lag_index])
+            ax.set_xlim(lags[start_lag]-5, lags[max_lag_index])
         computed_y_min = np.nanpercentile(normalized_correlation[start_lag:], y_min_percentile)
         computed_y_max = np.nanpercentile(normalized_correlation[start_lag:], y_max_percentile)
         if not (np.isfinite(computed_y_min) and np.isfinite(computed_y_max)):
@@ -2907,9 +2907,19 @@ class GUI(QMainWindow):
         number_removed_initial_points = self.num_removed_spinbox.value()
         model_type = self.model_type_combo.currentText().lower()
         self.photobleaching_model = model_type
-        mask_GUI = self.segmentation_mask.copy().astype(int)
-        mask_GUI = np.where(mask_GUI > 0, 1, 0)
-        mask_GUI.setflags(write=1)
+        
+        if self.segmentation_mask is None:
+            if mode != 'entire_image': 
+                QMessageBox.warning(self, "No Segmentation Mask", 
+                                    "Please perform segmentation first.")
+                return
+            else:
+                mask_GUI = None 
+        else:
+            mask_GUI = self.segmentation_mask.copy().astype(int)
+            mask_GUI = np.where(mask_GUI > 0, 1, 0)
+            mask_GUI.setflags(write=1)
+
         photobleaching_obj = mi.Photobleaching(
             image_TZYXC=self.image_stack,
             mask_YX=mask_GUI,
@@ -3115,7 +3125,7 @@ class GUI(QMainWindow):
         controls_layout = QHBoxLayout()
         mode_label = QLabel("Mode:")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["inside_cell", "outside_cell", "use_circular_region"])
+        self.mode_combo.addItems(["inside_cell", "outside_cell", "use_circular_region", "entire_image"])
         controls_layout.addWidget(mode_label)
         controls_layout.addWidget(self.mode_combo)
         radius_label = QLabel("Radius:")

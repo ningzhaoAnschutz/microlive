@@ -313,10 +313,22 @@ class Photobleaching:
         tail_weight_factor=10.0,     # how much extra weight we give the last points
         time_interval_seconds = None,
     ):
-        if mode not in ['inside_cell', 'outside_cell', 'use_circular_region']:
-            raise ValueError("mode must be 'inside_cell','outside_cell','use_circular_region'")
+        
+        if mode not in ['inside_cell', 'outside_cell', 'use_circular_region', 'entire_image']:
+            raise ValueError(
+                "mode must be 'inside_cell', 'outside_cell', 'use_circular_region', or 'entire_image'"
+            )
         if mode == 'outside_cell' and mask_YX is None:
             raise ValueError("When mode='outside_cell', mask_YX must be provided.")
+        
+        #if mode not in ['inside_cell', 'outside_cell', 'use_circular_region']:
+        #    raise ValueError("mode must be 'inside_cell','outside_cell','use_circular_region'")
+        #if mode == 'outside_cell' and mask_YX is None:
+        #    raise ValueError("When mode='outside_cell', mask_YX must be provided.")
+
+        # If entire_image mode, ignore any mask and use full image
+        if mode == 'entire_image':  # **// NEW**
+            mask_YX = None         # **// NEW** (force using full image as mask)
         
         if time_interval_seconds is not None:
             self.time_interval_seconds = float(time_interval_seconds)
@@ -575,8 +587,9 @@ class Photobleaching:
                     pass
 
             return best_params
+        
+        h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
         if self.mode == 'use_circular_region':
-            h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
             if self.user_provided_mask and self.mask_YX.any():
                 indices = np.argwhere(self.mask_YX)
                 cy, cx = indices.mean(axis=0)
@@ -586,8 +599,10 @@ class Photobleaching:
             mask = create_circular_mask(h, w, (cx, cy), self.radius)
         elif self.mode == 'inside_cell':
             mask = self.mask_YX
-        else:
+        elif self.mode == 'outside_cell':
             mask = ~self.mask_YX
+        elif self.mode == 'entire_image': 
+            mask = np.ones((h, w), dtype=bool)
 
         self.mask = mask
         T, Z, Y, X, C = self.image_TZYXC.shape
@@ -811,8 +826,10 @@ class Photobleaching:
                         mask = dist <= self.radius
                     elif self.mode == 'inside_cell':
                         mask = self.mask_YX
-                    else:  # mode == 'outside_cell'
+                    elif self.mode == 'outside_cell':
                         mask = ~self.mask_YX
+                    elif self.mode == 'entire_image':
+                        mask = np.ones((h, w), dtype=bool)
                     self.mask = mask
                 # Calculate mean intensity of the final frame within the mask
                 final_frame = self.image_TZYXC[-1, :, :, :, ch]  # shape (Z, Y, X)
@@ -881,7 +898,7 @@ class Photobleaching:
                 if vals.size:
                     mean_intensities_corr[i, ch] = vals.mean()
                     err_intensities_corr[i, ch]  = vals.std()
-                    
+
         if self.show_plot:
             orig = [self.image_TZYXC[i].mean() for i in range(T)]
             corr = [corrected_image[i].mean()    for i in range(T)]
