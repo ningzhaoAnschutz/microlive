@@ -719,81 +719,6 @@ class Photobleaching:
 
         return params
     
-    # def apply_photobleaching_correction(self):
-    #     """
-    #     Applies photobleaching correction normalized to the initial intensity (t=0).
-    #     The correction factor is I_fit(0) / I_fit(t), ensuring the initial frame is unchanged.
-
-    #     For single‐exp model: factor = (b + A) / [b + A * exp(-k * t)]
-    #     For double‐exp model: factor = (b + A1 + A2) / [b + A1 * exp(-k1 * t) + A2 * exp(-k2 * t)]
-    #     For linear model: factor = (b + intercept) / [b + intercept + slope * t]
-    #     """
-
-    #     params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
-    #     T, Z, Y, X, C = self.image_TZYXC.shape
-    #     corrected_image = self.image_TZYXC.astype(np.float32).copy()
-
-    #     start_idx = self.number_removed_initial_points or 0
-    #     time_array = np.arange(T, dtype=float) * self.time_interval_seconds
-
-    #     for ch in range(C):
-    #         if self.model_type == 'exponential':
-    #             # single‐exp => (A, k, b)
-    #             if len(params) != 3 * C:
-    #                 raise ValueError("Expect 3*C parameters for single‐exp model.")
-    #             A_, k_, b_ = params[3*ch:3*ch+3]
-    #             I0 = b_ + A_                      # I_fit(0)
-    #             for i in range(T):
-    #                 dt = time_array[i] - start_idx * self.time_interval_seconds
-    #                 dt = max(dt, 0.0)
-    #                 model_val = b_ + A_ * np.exp(-k_ * dt)
-    #                 model_val = max(model_val, 1e-10)
-    #                 #corrected_image[i, ..., ch] *= (I0 / model_val)
-
-    #                 corrected_image[i, ..., ch] *= (1 / model_val)
-
-    #         elif self.model_type == 'double_exponential':
-    #             # double‐exp => (A1, k1, A2, k2, b)
-    #             if len(params) != 5 * C:
-    #                 raise ValueError("Expect 5*C parameters for double‐exp model.")
-    #             A1_, k1_, A2_, k2_, b_ = params[5*ch:5*ch+5]
-    #             I0 = b_ + A1_ + A2_
-    #             for i in range(T):
-    #                 dt = time_array[i] - start_idx * self.time_interval_seconds
-    #                 dt = max(dt, 0.0)
-    #                 model_val = (
-    #                     b_
-    #                     + A1_ * np.exp(-k1_ * dt)
-    #                     + A2_ * np.exp(-k2_ * dt)
-    #                 )
-    #                 model_val = max(model_val, 1e-10)
-    #                 #corrected_image[i, ..., ch] *= (I0 / model_val)
-    #                 corrected_image[i, ..., ch] *= (1 / model_val)
-
-    #         else:
-    #             # linear => (slope, intercept, b)
-    #             if len(params) != 3 * C:
-    #                 raise ValueError("Expect 3*C parameters for linear model.")
-    #             slope, intercept, b_ = params[3*ch:3*ch+3]
-    #             I0 = b_ + intercept
-    #             for i in range(T):
-    #                 dt = time_array[i] - start_idx * self.time_interval_seconds
-    #                 dt = max(dt, 0.0)
-    #                 model_val = b_ + intercept + slope * dt
-    #                 model_val = max(model_val, 1e-10)
-    #                 #corrected_image[i, ..., ch] *= (I0 / model_val)
-    #                 corrected_image[i, ..., ch] *= (1 / model_val)
-
-    #     # 4) Recompute per‐frame, per‐channel means & errors
-    #     mean_intensities_corr = np.zeros((T, C), dtype=float)
-    #     err_intensities_corr  = np.zeros((T, C), dtype=float)
-    #     for ch in range(C):
-    #         for i in range(T):
-    #             proj = np.max(corrected_image[i, ..., ch], axis=0) * self.mask
-    #             vals = proj[proj != 0]
-    #             if vals.size:
-    #                 mean_intensities_corr[i, ch] = vals.mean()
-    #                 err_intensities_corr[i, ch]  = vals.std()
     def apply_photobleaching_correction(self):
         """
         Applies photobleaching correction normalized to the initial intensity (t=0).
@@ -889,15 +814,27 @@ class Photobleaching:
                     corrected_image[i, ..., ch] *= (1.0 / model_val)
         
         # Recompute per-frame, per-channel means & errors for the corrected image
+        # mean_intensities_corr = np.zeros((T, C), dtype=float)
+        # err_intensities_corr  = np.zeros((T, C), dtype=float)
+        # for ch in range(C):
+        #     for i in range(T):
+        #         proj = np.max(corrected_image[i, ..., ch], axis=0) * self.mask
+        #         vals = proj[proj != 0]
+        #         if vals.size:
+        #             mean_intensities_corr[i, ch] = vals.mean()
+        #             err_intensities_corr[i, ch]  = vals.std()
+        
+        # Recompute per-frame, per-channel means & errors for the corrected image
         mean_intensities_corr = np.zeros((T, C), dtype=float)
         err_intensities_corr  = np.zeros((T, C), dtype=float)
         for ch in range(C):
             for i in range(T):
-                proj = np.max(corrected_image[i, ..., ch], axis=0) * self.mask
-                vals = proj[proj != 0]
-                if vals.size:
-                    mean_intensities_corr[i, ch] = vals.mean()
-                    err_intensities_corr[i, ch]  = vals.std()
+                # max-projection then mask exactly as in calculate_photobleaching()
+                max_proj_corr       = np.max(corrected_image[i, ..., ch], axis=0)
+                masked_pixels_corr  = max_proj_corr[self.mask]
+                if masked_pixels_corr.size > 0:
+                    mean_intensities_corr[i, ch] = masked_pixels_corr.mean()
+                    err_intensities_corr[i, ch]  = masked_pixels_corr.std()
 
         if self.show_plot:
             orig = [self.image_TZYXC[i].mean() for i in range(T)]
@@ -3177,7 +3114,7 @@ class TrackPyDetection:
             image_flat = rna_filtered.flatten()
             threshold = threshold_otsu(image_flat)
         # Detect spots using TrackPy
-        f = tp.locate(rna_filtered, diameter=self.spot_diameter, minmass=threshold)
+        f = tp.locate(rna_filtered, diameter=self.spot_diameter, minmass=threshold,characterize=False)
         
         # Extract coordinates and intensity
         x = f['x'].values  # x-coordinate

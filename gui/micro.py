@@ -6154,13 +6154,27 @@ class GUI(QMainWindow):
 
     def _export_time_course_image(self, file_path):
         try:
+            #self.figure_time_course.savefig(file_path, dpi=300)
+            for ax in self.figure_time_course.axes:
+                ax.title.set_fontsize(18)
+                ax.xaxis.label.set_size(18)
+                ax.yaxis.label.set_size(18)
+                ax.tick_params(axis='both', labelsize=16)
+            self.figure_time_course.tight_layout()
             self.figure_time_course.savefig(file_path, dpi=300)
         except Exception as e:
             print(f"Failed to export time courses image: {e}")
 
     def _export_correlation_image(self, file_path):
         try:
+            for ax in self.figure_correlation.axes:
+                ax.title.set_fontsize(18)
+                ax.xaxis.label.set_size(18)
+                ax.yaxis.label.set_size(18)
+                ax.tick_params(axis='both', labelsize=16)
+            self.figure_correlation.tight_layout()
             self.figure_correlation.savefig(file_path, dpi=300)
+            #self.figure_correlation.savefig(file_path, dpi=300)
         except Exception as e:
             print(f"Failed to export correlation image: {e}")
 
