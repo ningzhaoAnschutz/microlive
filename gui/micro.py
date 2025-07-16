@@ -109,22 +109,18 @@ def configure_logging_and_styles():
     Set up warnings filters, VisPy logging level, Qt message handler,
     and a logging filter to suppress specific stylesheet parse warnings.
     """
-    # Suppress joblib UserWarnings
     warnings.filterwarnings("ignore", category=UserWarning, module="joblib")
-    # Configure VisPy logging level to error
     try:
         from vispy import logging as vispy_logging
         vispy_logging.set_level('error')
         logging.getLogger('vispy').setLevel(logging.ERROR)
     except ImportError:
         pass
-    # Qt message handler to suppress "parse stylesheet" messages
     def qt_message_handler(msg_type, context, message):
         msg = str(message)
         if "parse stylesheet" not in msg.lower():
             sys.__stderr__.write(msg + "\n")
     qInstallMessageHandler(qt_message_handler)
-    # Logging filter to drop "Could not parse stylesheet" messages
     class StyleParseFilter(logging.Filter):
         def filter(self, record):
             return "Could not parse stylesheet" not in record.getMessage()
@@ -136,8 +132,6 @@ def configure_logging_and_styles():
 class Plots:
     def __init__(self, gui):
         self.gui = gui
-        # Perhaps initialize figure canvases or caches if needed.
-   
     def plot_matrix_pair_crops(self, mean_crop, crop_size=11, plot_name=None, save_plots=False, plot_title=None,
                             max_crops_to_display=None, flag_vector=None, selected_channels=(0, 1), number_columns=20,
                             spacer_size=2, figure=None, show_text_ds=False, crop_spacing=5, flag_color="red"):
@@ -266,7 +260,6 @@ class Plots:
                             normalize_plot_with_g0=False, axes=None, max_lag_index=None,
                             y_min_percentile=None, y_max_percentile=None):
         
-
         def single_exponential_decay(tau, A, tau_c, C):
             return A * np.exp(-tau / tau_c) + C
         if axes is None:
@@ -311,14 +304,19 @@ class Plots:
                     total_lags = np.arange(-1, index_max_lag_for_fit + 1) * time_interval_between_frames_in_seconds
                     line = slope * total_lags + intercept
                     dwell_time = (-intercept / slope)
-                    ax.plot(total_lags, line, 'r-', label='Linear Fit')
+                    dt = time_interval_between_frames_in_seconds
+                    proj_lags = np.arange(start_lag, dwell_time + dt, dt)
+                    proj_vals = slope * proj_lags + intercept
+                    mask = proj_vals >= 0
+                    proj_lags = proj_lags[mask]
+                    proj_vals = proj_vals[mask]
+                    ax.plot(proj_lags, proj_vals, 'r-', label='Linear Fit')
                     max_value = autocorrelations[0] * 0.8
                     text_str = f"Dwell Time: {dwell_time:.1f}"
                     props = dict(boxstyle='round', facecolor='white', alpha=0.9)
                     ax.text(total_lags[-1] / 2, max_value, s=text_str, color='black', bbox=props, fontsize=10)
                 except:
                     pass
-            ax.axvline(x=start_lag, color='r', linestyle='--', linewidth=1)
             ax.axhline(y=de_correlation_threshold_value, color='r', linestyle='--', linewidth=1, label='Decor. Threshold')
             if plot_title is None:
                 plot_title = f'Linear Fit (Signal {channel_label})'
@@ -361,7 +359,6 @@ class Plots:
             except IndexError:
                 print("Could not find a time where G(τ) falls below threshold.")
                 ax.axhline(y=threshold_value, color='r', linestyle='--', linewidth=1)
-        ax.axvline(x=start_lag, color='r', linestyle='--', linewidth=1)
         ax.set_xlabel(r"$\tau$(au)")
         if normalize_plot_with_g0:
             ax.set_ylabel(r"$G(\tau)/G(0)$")
@@ -377,8 +374,8 @@ class Plots:
         computed_y_min = np.nanpercentile(normalized_correlation[start_lag:], y_min_percentile)
         computed_y_max = np.nanpercentile(normalized_correlation[start_lag:], y_max_percentile)
         if not (np.isfinite(computed_y_min) and np.isfinite(computed_y_max)):
-            ax.relim()            # re-compute the data limits
-            ax.autoscale_view()   # autoscale
+            ax.relim()            
+            ax.autoscale_view()   
         else:
             ax.set_ylim(computed_y_min, computed_y_max)
         if axes is None:
@@ -516,7 +513,8 @@ class Metadata:
         ml_threshold_input,
         link_using_3d_coordinates,
         colocalization_method,
-        colocalization_threshold_value
+        colocalization_threshold_value,
+        multi_tau
     ):
         # --- Correlation Tab ---
         self.correct_baseline = correct_baseline
@@ -559,6 +557,7 @@ class Metadata:
         self.image_source_combo = image_source_combo
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
         self.link_using_3d_coordinates = link_using_3d_coordinates
+        self.multi_tau = multi_tau
 
         # --- Photobleaching Tab ---
         self.photobleaching_calculated = photobleaching_calculated
@@ -586,7 +585,6 @@ class Metadata:
         number_spaces_pound_sign = 60  
         try:
             with open(self.file_path, 'w') as fd:
-                # 1) Author / System info
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nAUTHOR INFORMATION')
                 try:
@@ -598,7 +596,7 @@ class Metadata:
                 fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
                 fd.write('\n    Operative System: ' + sys.platform + '\n')
                 fd.write('#' * number_spaces_pound_sign)
-                # 2) General Parameters
+                # General Parameters
                 fd.write('\nGENERAL INFORMATION')
                 fd.write('\n    data_folder_path: ' + str(self.data_folder_path))
                 fd.write('\n    list_images length: ' + str(len(self.list_images) if self.list_images else 0))
@@ -623,7 +621,7 @@ class Metadata:
                 fd.write('\nSEGMENTATION MODE')
                 fd.write('\n    segmentation_mode: ' + str(self.segmentation_mode))
                 fd.write('\n')
-                # 3) Photobleaching Parameters
+                # Photobleaching Parameters
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nPHOTOBLEACHING')
                 fd.write('\n    photobleaching_calculated: ' + str(self.photobleaching_calculated))
@@ -632,7 +630,7 @@ class Metadata:
                 fd.write('\n    photobleaching_radius: ' + str(self.photobleaching_radius))
                 fd.write('\n    photobleaching_number_removed_initial_points: ' + str(self.photobleaching_number_removed_initial_points))
                 fd.write('\n')
-                # 4) Tracking Parameters
+                # Tracking Parameters
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nTRACKING PARAMETERS')
                 fd.write('\n    channels_spots: ' + str(self.channels_spots))
@@ -651,6 +649,7 @@ class Metadata:
                 fd.write('\n    user_selected_threshold: ' + str(self.user_selected_threshold))
                 fd.write('\n    use_fixed_size_for_intensity_calculation: ' + str(self.use_fixed_size_for_intensity_calculation))
                 fd.write('\n    link_using_3d_coordinates: ' + str(self.link_using_3d_coordinates))
+                fd.write('\n    multi_tau: ' + str(self.multi_tau))
                 fd.write('\n    -------------------')
                 if self.use_maximum_projection:
                     fd.write('\n    Using maximum projection (2D image) for tracking. Trackpy is used.')
@@ -659,7 +658,7 @@ class Metadata:
                 using_corrected_image = False if self.image_source_combo == "Original Image" else True
                 fd.write('\n    Using photobleaching corrected image for tracking: ' + str(using_corrected_image))
                 fd.write('\n')
-                # 5) Correlation Parameters
+                # Correlation Parameters
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nCORRELATION PARAMETERS')
                 fd.write('\n    correlation_fit_type: ' + str(self.correlation_fit_type))
@@ -668,14 +667,14 @@ class Metadata:
                 fd.write('\n    min_percentage_data_in_trajectory: ' + str(self.min_percentage_data_in_trajectory))
                 fd.write('\n    index_max_lag_for_fit: ' + str(self.index_max_lag_for_fit))
                 fd.write('\n')
-                # 6) Colocalization / ML PARAMETERS
+                # Colocalization / ML PARAMETERS
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nCOLOCALIZATION / ML PARAMETERS')
                 # Write new colocalization info:
                 fd.write('\n    colocalization method: ' + str(self.colocalization_method))
                 fd.write('\n    colocalization threshold value: ' + str(self.colocalization_threshold_value))
                 fd.write('\n')
-                # 7) Reproducibility / Environment
+                # Reproducibility / Environment
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nREPRODUCIBILITY / ENVIRONMENT')
                 fd.write('\n    Python version: ' + str(sys.version))
@@ -810,6 +809,7 @@ class GUI(QMainWindow):
         self.tracking_remove_background_checkbox = False
         self.tracking_vis_merged = False
         self.plots = Plots(self)
+        self.use_multi = False
         mi.Banner().print_banner()
         self.initUI()
 
@@ -901,17 +901,14 @@ class GUI(QMainWindow):
         # Create the dialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Map Image Dimensions")
-
         # Standard dimension labels and file dimensions list
         standard_labels = ["T", "Z", "Y", "X", "C"]
         file_dims = list(enumerate(file_shape))  # e.g. [(0, size0), (1, size1), ...]
         mapping = [None] * 5  # will store the mapping result
-
         # Set up the form layout
         form_layout = QFormLayout(dialog)
         dimensions_label = QLabel(f"Dimensions: {file_shape}", dialog)
         form_layout.addRow(dimensions_label)
-
         # Create combo boxes for each standard dimension
         combos = []
         for label in standard_labels:
@@ -921,18 +918,16 @@ class GUI(QMainWindow):
                 combo.addItem(f"Dimension {idx} (size: {size})", idx)
             form_layout.addRow(f"{label}:", combo)
             combos.append(combo)
-
         # OK/Cancel buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
         form_layout.addRow(button_box)
-
         # Define validation function for the OK button
         def validate_and_accept():
             selected_indices = []
             current_mapping = []
             # Gather selections from each combo box
             for combo in combos:
-                val = combo.currentData()  # either an int (dimension index) or None
+                val = combo.currentData() 
                 current_mapping.append(val)
                 if val is not None:
                     selected_indices.append(val)
@@ -945,14 +940,12 @@ class GUI(QMainWindow):
                 # Valid mapping: copy to `mapping` and accept the dialog
                 mapping[:] = current_mapping  # preserve the results
                 dialog.accept()
-
         # Connect signals for OK and Cancel
         button_box.accepted.connect(validate_and_accept)
         button_box.rejected.connect(dialog.reject)
-
         # Execute the dialog modally and return the result if accepted
         if dialog.exec_() == QDialog.Accepted:
-            return mapping  # e.g. [T_idx_or_None, Z_idx_or_None, Y_idx_or_None, X_idx_or_None, C_idx_or_None]
+            return mapping
         else:
             return None  
 
@@ -962,7 +955,6 @@ class GUI(QMainWindow):
         controls_widget = QWidget(self)
         layout = QFormLayout(controls_widget)
         params = initial_params.copy()  # copy initial params so we can modify locally
-
         # Min Percentile slider + label
         minSlider = QSlider(Qt.Horizontal)
         minSlider.setMinimum(0); minSlider.setMaximum(80)
@@ -970,7 +962,6 @@ class GUI(QMainWindow):
         minLabel = QLabel(f"{params['min_percentile']:.2f}%")
         minRow = QHBoxLayout(); minRow.addWidget(minSlider); minRow.addWidget(minLabel)
         layout.addRow("Min Percentile:", minRow)
-
         # Max Percentile slider + label
         scale_factor = 100  # to allow two-decimal precision (e.g. 99.95%)
         maxSlider = QSlider(Qt.Horizontal)
@@ -979,7 +970,6 @@ class GUI(QMainWindow):
         maxLabel = QLabel(f"{params['max_percentile']:.2f}%")
         maxRow = QHBoxLayout(); maxRow.addWidget(maxSlider); maxRow.addWidget(maxLabel)
         layout.addRow("Max Percentile:", maxRow)
-
         # High Sigma slider + label
         sigmaSlider = QSlider(Qt.Horizontal)
         sigmaSlider.setMinimum(0); sigmaSlider.setMaximum(50)   # 0.0–5.0 range (step 0.1)
@@ -987,7 +977,6 @@ class GUI(QMainWindow):
         sigmaLabel = QLabel(f"{params['sigma']:.2f}")
         sigmaRow = QHBoxLayout(); sigmaRow.addWidget(sigmaSlider); sigmaRow.addWidget(sigmaLabel)
         layout.addRow("High Sigma:", sigmaRow)
-
         # Low Sigma slider + label
         lowSigmaSlider = QSlider(Qt.Horizontal)
         lowSigmaSlider.setMinimum(0); lowSigmaSlider.setMaximum(50)  # 0.0–5.0 range
@@ -995,7 +984,6 @@ class GUI(QMainWindow):
         lowSigmaLabel = QLabel(f"{params['low_sigma']:.2f}")
         lowSigmaRow = QHBoxLayout(); lowSigmaRow.addWidget(lowSigmaSlider); lowSigmaRow.addWidget(lowSigmaLabel)
         layout.addRow("Low Sigma:", lowSigmaRow)
-
         # Connect slider value changes to update params and call the main handler
         def _update_min(val):
             params['min_percentile'] = float(val)
@@ -1016,12 +1004,10 @@ class GUI(QMainWindow):
             params['low_sigma'] = actual
             lowSigmaLabel.setText(f"{actual:.2f}")
             self.onChannelParamsChanged(channel_index, params)
-
         minSlider.valueChanged.connect(_update_min)
         maxSlider.valueChanged.connect(_update_max)
         sigmaSlider.valueChanged.connect(_update_sigma)
         lowSigmaSlider.valueChanged.connect(_update_low_sigma)
-
         return controls_widget
 
     def applyTheme(self, useDarkTheme: bool):
@@ -1293,7 +1279,6 @@ class GUI(QMainWindow):
         }}
         """
         self.themeToggle.setStyleSheet(toggle_style)
-
         # Enforce uniform spacing & margins on all tabs
         for tab in (
             self.display_tab, self.segmentation_tab, self.photobleaching_tab,
@@ -1633,12 +1618,8 @@ class GUI(QMainWindow):
             else:
                 # Already in standard order
                 raw = data
-            # target_axes = ["T", "Z", "Y", "X", "C"]
-            # perm = [current_axes.index(ax) for ax in target_axes]
-            # raw = np.transpose(data, perm)
         # Convert raw image data to standard internal format
         self.image_stack = self.convert_to_standard_format(raw)
-
         # Update dimensions and channel count
         dims = self.image_stack.shape
         T = dims[0]
@@ -1653,7 +1634,6 @@ class GUI(QMainWindow):
             self.channel_names = detected_channel_names
         else:
             self.channel_names = [f"Channel {i}" for i in range(C)]
-
         # Populate various UI elements with image info
         p = Path(file_path)
         self.data_folder_path = p
@@ -1681,7 +1661,6 @@ class GUI(QMainWindow):
         self.voxel_z_nm_label.setText(f"{self.voxel_z_nm:.0f} nm" if self.voxel_z_nm is not None else "N/A")
         self.bit_depth_label.setText(str(self.bit_depth))
         self.time_interval_label.setText(f"{self.time_interval_value} s" if self.time_interval_value is not None else "N/A")
-
         # Reset and clear various tabs and controls for new data
         self.display_min_percentile = 1.0
         self.display_max_percentile = 99.5
@@ -1695,7 +1674,7 @@ class GUI(QMainWindow):
         self.reset_time_course_tab()
         self.reset_correlation_tab()
         self.reset_colocalization_tab()
-        self.reset_crops_tab()  # Reset crops tab (if this clears previous crop data or selections)
+        self.reset_crops_tab()  
         self.reset_export_comment()
         # Reset manual tracking/colocalization stats
         self.manual_scroll_area.setWidget(QWidget())
@@ -1704,7 +1683,6 @@ class GUI(QMainWindow):
         self.df_manual_colocalization = pd.DataFrame()
         self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
         self.has_tracked = False
-
         # Initialize current frame and channel
         self.current_frame = 0
         self.current_channel = 0
@@ -1715,25 +1693,20 @@ class GUI(QMainWindow):
         self.time_slider_tracking_vis.setMaximum(T - 1)
         self.time_slider_tracking_vis.setValue(0)
         self.segmentation_time_slider.setMaximum(T - 1)
-
         # Create channel buttons/controls for various tabs
         self.create_channel_buttons()                   # Main display tab channel buttons
         self.create_segmentation_channel_buttons()      # Segmentation tab channel buttons/selection
         self.create_correlation_channel_checkboxes()    # Correlation tab channel checkboxes
         self.populate_colocalization_channels()         # Colocalization tab channel selections
-
-        # **Remove any existing channel buttons from the Crops tab to avoid duplication**
         for btn in getattr(self, 'channel_buttons_crops', []):
             btn.setParent(None)
-        # **Create new channel buttons for the Crops tab**
         self.channel_buttons_crops = []
         for idx in range(C):
             button = QPushButton(f"Channel {idx}", self)
             button.clicked.connect(partial(self.update_channel_crops, idx))
             self.channel_buttons_layout_crops.addWidget(button)
             self.channel_buttons_crops.append(button)
-
-        # Clear and repopulate the channel visualization controls (tabs for each channel's display settings)
+        # Clear and repopulate the channel visualization controls
         self.channelControlsTabs.clear()
         for ch in range(C):
             init = self.channelDisplayParams.get(ch, {
@@ -1744,8 +1717,7 @@ class GUI(QMainWindow):
             })
             widget = self.create_channel_visualization_controls(ch, init)
             self.channelControlsTabs.addTab(widget, f"Ch {ch}")
-
-        # Update intensity channel combo boxes in other UI elements (if applicable)
+        # Update intensity channel combo boxes in other UI elements
         self.intensity_channel_combo.clear()
         for ch in range(self.number_color_channels):
             self.intensity_channel_combo.addItem(str(ch), ch)
@@ -1756,11 +1728,9 @@ class GUI(QMainWindow):
         self.time_course_channel_combo.setCurrentIndex(0)
         if hasattr(self, 'min_percentile_spinbox_tracking'):
             self.update_tracking_sliders()
-        
         if self.playing:
-            self.play_pause()  # This will stop the timer and update button text
+            self.play_pause() 
         self.current_frame = 0
-
         # Finalize by plotting the first frame and initializing tracking overlay if needed
         self.plot_image()
         self.plot_tracking()
@@ -1788,9 +1758,9 @@ class GUI(QMainWindow):
         # Configure the Z-slider range and default position (max -> max projection)
         self.z_slider_display.setMinimum(0)
         if Z > 1:
-            self.z_slider_display.setMaximum(Z)      # extra top value for max projection
+            self.z_slider_display.setMaximum(Z) 
         else:
-            self.z_slider_display.setMaximum(0)      # single-plane image
+            self.z_slider_display.setMaximum(0) 
         self.z_slider_display.setValue(Z if Z > 1 else 0)
         self.y_pixels_label.setText(str(Y))
         self.x_pixels_label.setText(str(X))
@@ -1861,10 +1831,6 @@ class GUI(QMainWindow):
                 'sigma': self.display_sigma,
                 'low_sigma': self.low_display_sigma
             })
-            #widget = ChannelVisualizationControlWidget(ch, init_params, parent=self)
-            #widget.paramsChanged.connect(self.onChannelParamsChanged)
-            #self.channelControlsTabs.addTab(widget, f"Ch {ch}")
-
             widget = self.create_channel_visualization_controls(ch, init_params)
             self.channelControlsTabs.addTab(widget, f"Ch {ch}")
 
@@ -1879,7 +1845,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'min_percentile_spinbox_tracking'):
             self.update_tracking_sliders()
         if self.playing:
-            self.play_pause()  # This will stop the timer and update button text
+            self.play_pause() 
         self.current_frame = 0
         
         self.plot_image()
@@ -1904,8 +1870,8 @@ class GUI(QMainWindow):
         self.current_channel = channel
         self.merged_mode = False
         if hasattr(self, 'channelControlsTabs'):
-            self.channelControlsTabs.blockSignals(True)        # prevent triggering tab-change signal
-            self.channelControlsTabs.setCurrentIndex(channel)  # select the same channel tab
+            self.channelControlsTabs.blockSignals(True)   
+            self.channelControlsTabs.setCurrentIndex(channel) 
             self.channelControlsTabs.blockSignals(False)
         self.plot_image()
         self.plot_tracking()
@@ -1946,81 +1912,62 @@ class GUI(QMainWindow):
         if self.image_stack is not None:
             # Determine Z dimension size
             _, Z, _, _, _ = self.image_stack.shape  # shape is [T, Z, Y, X, C]
-            # Get current slider value (if slider exists)
             z_val = self.z_slider_display.value() if hasattr(self, 'z_slider_display') else Z
-
             if self.merged_mode:
-                # Multi-channel (merged) view
                 if z_val == Z:
-                    # Slider at max -> show max projection (all z)
                     merged_img = self.compute_merged_image()
                     if merged_img is not None:
                         img_to_show = merged_img
-                        # Apply background mask if requested
                         if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
                             mask = (self.segmentation_mask > 0).astype(float)
-                            img_to_show = img_to_show * mask[..., None]  # apply mask to all RGB channels
+                            img_to_show = img_to_show * mask[..., None] 
                         self.ax_display.imshow(img_to_show, vmin=0, vmax=1)
                     else:
-                        # Fallback text if merged image unavailable
                         self.ax_display.text(0.5, 0.5, 'Merged image not available.',
                                             horizontalalignment='center', verticalalignment='center',
                                             fontsize=12, color='white', transform=self.ax_display.transAxes)
                 else:
-                    # Slider on specific plane -> compute merged image for that z-slice
                     plane_idx = int(z_val)
-                    frame_image = self.image_stack[self.current_frame]      # shape: (Z, Y, X, C)
-                    plane_img = frame_image[plane_idx]                     # shape: (Y, X, C)
+                    frame_image = self.image_stack[self.current_frame] 
+                    plane_img = frame_image[plane_idx]                 
                     Y, X, channels = plane_img.shape if plane_img.ndim == 3 else (*plane_img.shape, 1)
                     if channels < 2:
-                        # If only one channel (not typical in merged mode), show grayscale plane
                         img_to_show = plane_img.astype(float)
                     else:
-                        # Normalize and merge up to 3 channels for the plane
                         num_channels_to_merge = min(channels, 3)
                         combined_image = np.zeros((Y, X, 3), dtype=np.float32)
-                        # Define color mappings for up to 3 channels (Green, Magenta, Yellow)
                         def green_cmap(x):   return np.dstack((np.zeros_like(x), x, np.zeros_like(x)))
                         def magenta_cmap(x): return np.dstack((x, np.zeros_like(x), x))
                         def yellow_cmap(x):  return np.dstack((x, x, np.zeros_like(x)))
                         cmap_funcs = [green_cmap, magenta_cmap, yellow_cmap][:num_channels_to_merge]
                         for ch in range(num_channels_to_merge):
                             channel_img = plane_img[:, :, ch]
-                            # Get per-channel display params or defaults
                             params = self.channelDisplayParams.get(ch, {
                                 'min_percentile': self.display_min_percentile,
                                 'max_percentile': self.display_max_percentile,
                                 'sigma': self.display_sigma,
                                 'low_sigma': self.low_display_sigma
                             })
-                            # Intensity normalization for this channel
                             min_val = np.percentile(channel_img, params['min_percentile'])
                             max_val = np.percentile(channel_img, params['max_percentile'])
                             norm = (np.clip(channel_img, min_val, max_val) - min_val) / (max_val - min_val + 1e-8)
-                            # Apply Gaussian filters if specified
                             if params['low_sigma'] > 0:
                                 norm = gaussian_filter(norm, sigma=params['low_sigma'])
                             if params['sigma'] > 0:
                                 norm = gaussian_filter(norm, sigma=params['sigma'])
-                            # Colorize and accumulate into RGB image
                             combined_image += cmap_funcs[ch](norm)
                         img_to_show = np.clip(combined_image, 0, 1)
-                    # Apply background mask if requested (for RGB or grayscale)
                     if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
                         mask = (self.segmentation_mask > 0).astype(float)
                         img_to_show = img_to_show * (mask[..., None] if img_to_show.ndim == 3 else mask)
                     self.ax_display.imshow(img_to_show, vmin=0, vmax=1)
             else:
-                # Single-channel view
                 image_channel = self.image_stack[self.current_frame, :, :, :, self.current_channel]  # shape: (Z, Y, X)
                 if z_val == Z:
-                    # Max projection across all z-planes
                     data_img = np.max(image_channel, axis=0)
                 else:
-                    # Specific z-plane selected
                     plane_idx = int(z_val)
                     data_img = image_channel[plane_idx]
-                # Apply intensity rescaling to 8-bit using current channel params
                 params = self.channelDisplayParams.get(self.current_channel, {
                     'min_percentile': self.display_min_percentile,
                     'max_percentile': self.display_max_percentile,
@@ -2030,39 +1977,30 @@ class GUI(QMainWindow):
                 rescaled = mi.Utilities().convert_to_int8(data_img, rescale=True,
                                                         min_percentile=params['min_percentile'],
                                                         max_percentile=params['max_percentile'])
-                # Apply Gaussian blur filters if specified
                 if params['low_sigma'] > 0:
                     rescaled = gaussian_filter(rescaled, sigma=params['low_sigma'])
                 if params['sigma'] > 0:
                     rescaled = gaussian_filter(rescaled, sigma=params['sigma'])
-                # Normalize to [0,1] float for display
                 normalized = rescaled.astype(float) / 255.0
-                normalized = normalized[..., 0]  # take first channel if padded
+                normalized = normalized[..., 0]  
                 img_to_show = normalized
-                # Optional background removal
                 if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
                     mask = (self.segmentation_mask > 0).astype(float)
                     img_to_show = img_to_show * mask
-                # Display the image using the channel's colormap (ImageJ style)
                 cmap_imagej = cmap_list_imagej[self.current_channel]
                 self.ax_display.imshow(img_to_show, cmap=cmap_imagej, vmin=0, vmax=1)
-
-            # If time overlay is enabled, add timestamp text
             if self.display_time_text_checkbox.isChecked():
                 current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
                 time_str = f"{current_time:.2f} s"
                 self.ax_display.text(0.05, 0.95, time_str, transform=self.ax_display.transAxes,
                                     verticalalignment='top', color='white', fontsize=12,
                                     bbox=dict(facecolor='black', alpha=0.5, pad=2))
-            # If pixel size known, add scale bar
             if hasattr(self, 'voxel_yx_nm') and self.voxel_yx_nm is not None:
                 microns_per_pixel = self.voxel_yx_nm / 1000.0
                 scalebar = ScaleBar(microns_per_pixel, units='um', length_fraction=0.2,
                                     location='lower right', box_color='black', color='white', font_properties={'size': 10})
                 self.ax_display.add_artist(scalebar)
-
             self.figure_display.tight_layout()
-        # Draw the updated figure
         self.canvas_display.draw_idle()
 
     def update_z(self, value):
@@ -2267,10 +2205,6 @@ class GUI(QMainWindow):
                 'sigma': self.display_sigma,
                 'low_sigma': self.low_display_sigma
             })
-            #widget = ChannelVisualizationControlWidget(ch, init_params, parent=self)
-            #widget.paramsChanged.connect(self.onChannelParamsChanged)
-            #self.channelControlsTabs.addTab(widget, f"Channel {ch}")
-
             widget = self.create_channel_visualization_controls(ch, init_params)
             self.channelControlsTabs.addTab(widget, f"Ch {ch}")
         parent_layout.addWidget(self.channelControlsTabs)
@@ -2439,11 +2373,6 @@ class GUI(QMainWindow):
         export_buttons_layout.addWidget(self.export_displayed_image_button)
         export_buttons_layout.addWidget(self.export_video_button)
         display_right_layout.addLayout(export_buttons_layout)
-        # Ignore frames input
-        # display_right_layout.addWidget(QLabel("Ignore Frames (comma separated):"))
-        # self.ignore_frames_line_edit = QLineEdit(self)
-        # self.ignore_frames_line_edit.setPlaceholderText("e.g., 2,4,7")
-        # display_right_layout.addWidget(self.ignore_frames_line_edit)
         # Time & background checkboxes
         options_layout = QHBoxLayout()
         self.display_time_text_checkbox = QCheckBox("Time")
@@ -2554,30 +2483,24 @@ class GUI(QMainWindow):
             self.photobleaching_calculated = False
         else:
             print("No points selected")
-        # Disconnect the segmentation click handler if it was connected
         if hasattr(self, 'cid'):
             try:
                 self.canvas_segmentation.mpl_disconnect(self.cid)
             except Exception:
                 pass
             del self.cid
-        # Clear the selected points list for future use
         self.selected_points = []
 
     def next_frame(self):
-        # Advance frame and wrap around
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
-        # Sync sliders without emitting
         for slider in (self.time_slider_display, self.time_slider_tracking, getattr(self, 'time_slider_tracking_vis', None)):
             if slider is not None:
                 slider.blockSignals(True)
                 slider.setValue(self.current_frame)
                 slider.blockSignals(False)
-        # Always update the main image
         self.plot_image()
-        # Only draw tracking overlays on their tabs when data exists
         current_tab = self.tabs.currentIndex()
         if current_tab == self.tabs.indexOf(self.tracking_tab):
             self.plot_tracking()
@@ -2630,11 +2553,9 @@ class GUI(QMainWindow):
             QMessageBox.critical(self, "Cellpose Segmentation Failed", str(e))
 
     def create_segmentation_channel_buttons(self):
-        # Clear old buttons
         for btn in self.segmentation_channel_buttons:
             btn.setParent(None)
         self.segmentation_channel_buttons = []
-        # Create new buttons based on channel_names
         for idx, channel_name in enumerate(self.channel_names):
             btn = QPushButton(f"Channel {idx}", self)
             btn.clicked.connect(partial(self.update_segmentation_channel, idx))
@@ -3029,7 +2950,6 @@ class GUI(QMainWindow):
                     b_ = params[i0+2]
                     data_norm = data / np.max(data)
                     y_fit = b_ + A_*np.exp(-k_*t)
-                    #label_fit = f'I_0={A_:.3f}, \tau={k_:.4g}, C={b_:.3f}'
                     label_fit = rf"$I_0={A_:.3f}, \tau={k_:.4g}, C={b_:.3f}$"
                     
                     axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
@@ -3041,7 +2961,6 @@ class GUI(QMainWindow):
                     A1, k1, A2, k2 = params[i0], params[i0+1], params[i0+2], params[i0+3]
                     data_norm = data / np.max(data)
                     y_fit = A1*np.exp(-k1*t) + A2*np.exp(-k2*t)
-                    #label_fit = f'A1={A1:.3f},k1={k1:.3g}\nA2={A2:.3f},k2={k2:.3g}'
                     label_fit = (rf"$\tau_1={1/k1:.3g}\,$, $\tau_2={1/k2:.3g}\,$\n"
                                 rf"$A_1={A1:.3g},\ A_2={A2:.3g}$\n" 
                             )
@@ -3053,7 +2972,6 @@ class GUI(QMainWindow):
                     A1, k1, A2, k2, b_ = params[i0], params[i0+1], params[i0+2], params[i0+3], params[i0+4]
                     data_norm = data / np.max(data)
                     y_fit = b_ + A1*np.exp(-k1*t) + A2*np.exp(-k2*t)
-                    #label_fit = f'A1={A1:.3f},k1={k1:.3g},\nA2={A2:.3f},k2={k2:.3g},b={b_:.3f}'
                     label_fit = (
                         f"$\\tau_1={1/k1:.3g}$ , $\\tau_2={1/k2:.3g}$ \n"
                         f"$A_1={A1:.3g}, A_2={A2:.3g}$\n"
@@ -3401,7 +3319,6 @@ class GUI(QMainWindow):
         self.tracking_max_percentile = params['max_percentile']
 
     def generate_random_spots(self, state):
-        # state is int: Qt.Checked (2) when enabled, Qt.Unchecked (0) otherwise.
         self.random_mode_enabled = (state == Qt.Checked)
         num_points = self.random_points_input.value()
         if self.random_mode_enabled:
@@ -3681,7 +3598,6 @@ class GUI(QMainWindow):
                         font_properties=font_props
                     )
                     self.ax_tracking.add_artist(scalebar)
-        
         self.figure_tracking.tight_layout()
         self.canvas_tracking.draw_idle()
 
@@ -3727,6 +3643,7 @@ class GUI(QMainWindow):
                 calculate_intensity=False,
             ).get_dataframe()[0]
         return dataframe
+
 
     def perform_particle_tracking(self):
         if self.image_stack is None:
@@ -3849,13 +3766,11 @@ class GUI(QMainWindow):
             if hasattr(self, 'channel_checkboxes') and self.channel_checkboxes:
                 for idx, cb in enumerate(self.channel_checkboxes):
                     cb.setChecked(idx == 0)
-                        # ensure enough data for MSD: at least min_msd_particles with at least min_msd_frames each
             if (not self.df_tracking.empty) and self.has_tracked: 
                 traj_counts = self.df_tracking.groupby('particle')['frame'].nunique()
                 if ('particle' in self.df_tracking.columns
                     and traj_counts.min() >= self.MIN_FRAMES_MSD
                     and traj_counts.size >= self.MIN_PARTICLES_MSD):
-                    # Instantiate ParticleMotion with tracking data
                     pm = mi.ParticleMotion(
                         self.df_tracking,
                         microns_per_pixel=self.voxel_yx_nm / 1000.0,    # convert nm to microns
@@ -4153,7 +4068,6 @@ class GUI(QMainWindow):
         self.random_points_input.setMinimum(1)
         self.random_points_input.setMaximum(100)
         self.random_points_input.setValue(20)
-        
         # Create checkbox to enable random spot generation
         generate_random_points_checkbox = QCheckBox("Generate Random Spots")
         generate_random_points_checkbox.setChecked(False)
@@ -4165,13 +4079,11 @@ class GUI(QMainWindow):
         # Add horizontal layout as a row in form layout (label empty since group title is descriptive)
         random_points_layout.addRow("", hbox)
         tracking_right_main_layout.addStretch()
-
         # Create a horizontal layout for the MSD display at the bottom of the right panel.
         self.msd_layout = QHBoxLayout()
         self.msd_label = QLabel("Mean Square Displacement: Not Calculated")
         self.msd_label.setStyleSheet("color: white; font-weight: bold;")
         self.msd_layout.addWidget(self.msd_label)
-
         # Add this MSD layout to the right panel layout
         tracking_right_main_layout.addLayout(self.msd_layout)
 
@@ -4326,52 +4238,136 @@ class GUI(QMainWindow):
 # TIME COURSE TAB
 # =============================================================================
 # =============================================================================
+    def on_data_type_changed(self, new_data_type: str):
+        """
+        Enable the 'Show Individual Traces' checkbox for all data types
+        except 'particles'.
+        """
+        if new_data_type == "particles":
+            self.show_traces_checkbox.setChecked(False)
+            self.show_traces_checkbox.setEnabled(False)
+        else:
+            self.show_traces_checkbox.setEnabled(True)
+
+    # def setup_time_course_tab(self):
+    #     """
+    #     Initialize and configure the "Time Course" tab in the GUI.
+    #     This method sets up the layout and widgets for displaying time‐course plots
+    #     of selected imaging data. It constructs:
+    #       - A vertical main layout (`time_course_layout`) attached to `self.time_course_tab`.
+    #       - A top row of controls (`controls_layout`) including:
+    #         • Channel selection combo box (`time_course_channel_combo`).
+    #         • Data type combo box (`data_type_combo`) with options:
+    #           ["particles", "spot_int", "spot_size", "psf_amplitude",
+    #            "psf_sigma", "total_spot_int", "snr"].
+    #         • Minimum and maximum percentile spin boxes (`min_percentile_spinbox`,
+    #           `max_percentile_spinbox`) for range filtering.
+    #         • A "Plot Time Course" button (`plot_time_course_button`) that
+    #           triggers `self.plot_intensity_time_course`.
+    #       - A Matplotlib figure and axes (`figure_time_course`, `ax_time_course`)
+    #         with a black background, embedded in a `FigureCanvas`.
+    #       - A bottom horizontal layout (`bottom_layout`) containing:
+    #         • A Matplotlib navigation toolbar (`toolbar_time_course`).
+    #         • A stretch to align controls.
+    #         • An "Export Time Courses Image" button
+    #           (`export_time_course_button`) that triggers
+    #           `self.export_time_course_image`.
+    #     It also applies consistent black/white styling to the axes, ticks,
+    #     spines, labels, and grid lines, and calls `tight_layout` for proper spacing.
+    #     Returns
+    #     -------
+    #     None
+    #     """
+    #     time_course_layout = QVBoxLayout(self.time_course_tab)
+    #     # Top row of controls
+    #     controls_layout = QHBoxLayout()
+    #     time_course_layout.addLayout(controls_layout)
+    #     # Channel selection
+    #     channel_label = QLabel("Select Channel:")
+    #     self.time_course_channel_combo = QComboBox()
+    #     controls_layout.addWidget(channel_label)
+    #     controls_layout.addWidget(self.time_course_channel_combo)
+    #     # Data type selection
+    #     data_type_label = QLabel("Data Type:")
+    #     self.data_type_combo = QComboBox()
+    #     self.data_type_combo.addItems(["particles", "spot_int", "spot_size", "psf_amplitude", "psf_sigma", "total_spot_int", "snr"])
+    #     controls_layout.addWidget(data_type_label)
+    #     controls_layout.addWidget(self.data_type_combo)
+    #     # Percentile controls
+    #     min_percentile_label = QLabel("Min Percentile:")
+    #     self.min_percentile_spinbox = QDoubleSpinBox()
+    #     self.min_percentile_spinbox.setRange(0.0, 50.0)
+    #     self.min_percentile_spinbox.setValue(5.0)
+    #     self.min_percentile_spinbox.setSuffix("%")
+    #     controls_layout.addWidget(min_percentile_label)
+    #     controls_layout.addWidget(self.min_percentile_spinbox)
+    #     max_percentile_label = QLabel("Max Percentile:")
+    #     self.max_percentile_spinbox = QDoubleSpinBox()
+    #     self.max_percentile_spinbox.setRange(50.0, 100.0)
+    #     self.max_percentile_spinbox.setValue(95.0)
+    #     self.max_percentile_spinbox.setSuffix("%")
+    #     controls_layout.addWidget(max_percentile_label)
+    #     controls_layout.addWidget(self.max_percentile_spinbox)
+    #     # Plot button
+    #     self.plot_time_course_button = QPushButton("Plot Time Course", self)
+    #     self.plot_time_course_button.clicked.connect(self.plot_intensity_time_course)
+    #     controls_layout.addWidget(self.plot_time_course_button)
+    #     # Main figure for time courses
+    #     self.figure_time_course, self.ax_time_course = plt.subplots(figsize=(8, 10))
+    #     self.figure_time_course.patch.set_facecolor('black')
+    #     self.canvas_time_course = FigureCanvas(self.figure_time_course)
+    #     time_course_layout.addWidget(self.canvas_time_course)
+    #     # Navigation toolbar + export button at bottom
+    #     bottom_layout = QHBoxLayout()
+    #     self.toolbar_time_course = NavigationToolbar(self.canvas_time_course, self)
+    #     bottom_layout.addWidget(self.toolbar_time_course)
+    #     # Spacer to push the button to right
+    #     bottom_layout.addStretch()
+    #     # Export button
+    #     self.export_time_course_button = QPushButton("Export Time Courses Image", self)
+    #     self.export_time_course_button.clicked.connect(self.export_time_course_image)
+    #     bottom_layout.addWidget(self.export_time_course_button)
+    #     time_course_layout.addLayout(bottom_layout)
+    #     # Set up axis appearance
+    #     self.ax_time_course.set_facecolor('black')
+    #     self.ax_time_course.tick_params(colors='white', which='both')
+    #     self.ax_time_course.spines['bottom'].set_color('white')
+    #     self.ax_time_course.spines['top'].set_color('white')
+    #     self.ax_time_course.spines['left'].set_color('white')
+    #     self.ax_time_course.spines['right'].set_color('white')
+    #     self.ax_time_course.xaxis.label.set_color('white')
+    #     self.ax_time_course.yaxis.label.set_color('white')
+    #     self.ax_time_course.title.set_color('white')
+    #     self.ax_time_course.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
+    #     self.figure_time_course.tight_layout()
 
     def setup_time_course_tab(self):
         """
         Initialize and configure the "Time Course" tab in the GUI.
-        This method sets up the layout and widgets for displaying time‐course plots
-        of selected imaging data. It constructs:
-          - A vertical main layout (`time_course_layout`) attached to `self.time_course_tab`.
-          - A top row of controls (`controls_layout`) including:
-            • Channel selection combo box (`time_course_channel_combo`).
-            • Data type combo box (`data_type_combo`) with options:
-              ["particles", "spot_int", "spot_size", "psf_amplitude",
-               "psf_sigma", "total_spot_int", "snr"].
-            • Minimum and maximum percentile spin boxes (`min_percentile_spinbox`,
-              `max_percentile_spinbox`) for range filtering.
-            • A "Plot Time Course" button (`plot_time_course_button`) that
-              triggers `self.plot_intensity_time_course`.
-          - A Matplotlib figure and axes (`figure_time_course`, `ax_time_course`)
-            with a black background, embedded in a `FigureCanvas`.
-          - A bottom horizontal layout (`bottom_layout`) containing:
-            • A Matplotlib navigation toolbar (`toolbar_time_course`).
-            • A stretch to align controls.
-            • An "Export Time Courses Image" button
-              (`export_time_course_button`) that triggers
-              `self.export_time_course_image`.
-        It also applies consistent black/white styling to the axes, ticks,
-        spines, labels, and grid lines, and calls `tight_layout` for proper spacing.
-        Returns
-        -------
-        None
+        ...
         """
-        
         time_course_layout = QVBoxLayout(self.time_course_tab)
+
         # Top row of controls
         controls_layout = QHBoxLayout()
         time_course_layout.addLayout(controls_layout)
+
         # Channel selection
         channel_label = QLabel("Select Channel:")
         self.time_course_channel_combo = QComboBox()
         controls_layout.addWidget(channel_label)
         controls_layout.addWidget(self.time_course_channel_combo)
+
         # Data type selection
         data_type_label = QLabel("Data Type:")
         self.data_type_combo = QComboBox()
-        self.data_type_combo.addItems(["particles", "spot_int", "spot_size", "psf_amplitude", "psf_sigma", "total_spot_int", "snr"])
+        self.data_type_combo.addItems([
+            "particles", "spot_int", "spot_size", "psf_amplitude",
+            "psf_sigma", "total_spot_int", "snr"
+        ])
         controls_layout.addWidget(data_type_label)
         controls_layout.addWidget(self.data_type_combo)
+
         # Percentile controls
         min_percentile_label = QLabel("Min Percentile:")
         self.min_percentile_spinbox = QDoubleSpinBox()
@@ -4380,6 +4376,7 @@ class GUI(QMainWindow):
         self.min_percentile_spinbox.setSuffix("%")
         controls_layout.addWidget(min_percentile_label)
         controls_layout.addWidget(self.min_percentile_spinbox)
+
         max_percentile_label = QLabel("Max Percentile:")
         self.max_percentile_spinbox = QDoubleSpinBox()
         self.max_percentile_spinbox.setRange(50.0, 100.0)
@@ -4387,35 +4384,43 @@ class GUI(QMainWindow):
         self.max_percentile_spinbox.setSuffix("%")
         controls_layout.addWidget(max_percentile_label)
         controls_layout.addWidget(self.max_percentile_spinbox)
-       
+
+        # **New: Show Individual Traces checkbox**
+        self.show_traces_checkbox = QCheckBox("Show Individual Traces")
+        self.show_traces_checkbox.setChecked(False)
+        controls_layout.addWidget(self.show_traces_checkbox)
 
         # Plot button
         self.plot_time_course_button = QPushButton("Plot Time Course", self)
         self.plot_time_course_button.clicked.connect(self.plot_intensity_time_course)
         controls_layout.addWidget(self.plot_time_course_button)
+
+        # Connect data_type changes to enable/disable the checkbox
+        self.data_type_combo.currentTextChanged.connect(self.on_data_type_changed)
+        # Initialize checkbox enabled state
+        self.on_data_type_changed(self.data_type_combo.currentText())
+
         # Main figure for time courses
         self.figure_time_course, self.ax_time_course = plt.subplots(figsize=(8, 10))
         self.figure_time_course.patch.set_facecolor('black')
         self.canvas_time_course = FigureCanvas(self.figure_time_course)
         time_course_layout.addWidget(self.canvas_time_course)
+
         # Navigation toolbar + export button at bottom
         bottom_layout = QHBoxLayout()
         self.toolbar_time_course = NavigationToolbar(self.canvas_time_course, self)
         bottom_layout.addWidget(self.toolbar_time_course)
-        # Spacer to push the button to right
         bottom_layout.addStretch()
-        # Export button
         self.export_time_course_button = QPushButton("Export Time Courses Image", self)
         self.export_time_course_button.clicked.connect(self.export_time_course_image)
         bottom_layout.addWidget(self.export_time_course_button)
         time_course_layout.addLayout(bottom_layout)
-        # Set up axis appearance
+
+        # Style the axes for dark theme
         self.ax_time_course.set_facecolor('black')
         self.ax_time_course.tick_params(colors='white', which='both')
-        self.ax_time_course.spines['bottom'].set_color('white')
-        self.ax_time_course.spines['top'].set_color('white')
-        self.ax_time_course.spines['left'].set_color('white')
-        self.ax_time_course.spines['right'].set_color('white')
+        for spine in self.ax_time_course.spines.values():
+            spine.set_color('white')
         self.ax_time_course.xaxis.label.set_color('white')
         self.ax_time_course.yaxis.label.set_color('white')
         self.ax_time_course.title.set_color('white')
@@ -4465,14 +4470,17 @@ class GUI(QMainWindow):
     def update_max_lag(self, value):
         self.max_lag = value
         self.display_correlation_plot()
+    
+    def update_multi_tau(self, state):
+        self.multiTauCheck.setChecked(state)
+        self.use_multi = state
+        self.display_correlation_plot()
 
     def create_correlation_channel_checkboxes(self):
-        # Clear existing checkboxes
         for cb in self.channel_checkboxes:
             self.channel_selection_layout.removeWidget(cb)
             cb.setParent(None)
         self.channel_checkboxes = []
-        # Create new checkboxes for each channel
         for idx, channel_name in enumerate(self.channel_names):
             checkbox = QCheckBox(f"Channel {idx}")
             if idx == 0:
@@ -4496,163 +4504,6 @@ class GUI(QMainWindow):
                                  fontsize=12, color='white', transform=self.ax_correlation.transAxes)
         self.canvas_correlation.draw()
 
-    # def compute_correlations(self):
-    #     if not getattr(self, 'has_tracked', False):
-    #         QMessageBox.warning(self, "Correlation Unavailable", "You must run particle tracking before computing correlations.")
-    #         return
-    #     self.correlation_results = []
-    #     if self.df_tracking.empty:
-    #         return
-    #     correlation_type = 'autocorrelation' if self.auto_corr_radio.isChecked() else 'crosscorrelation'
-    #     selected_channels = []
-    #     for idx, checkbox in enumerate(self.channel_checkboxes):
-    #         if checkbox.isChecked():
-    #             selected_channels.append(idx)
-    #     # if correlation_type == 'autocorrelation':
-    #     #     if not selected_channels:
-    #     #         QMessageBox.warning(self, "No Channels Selected", "Please select one channel for autocorrelation.")
-    #     #         return
-
-    #     normalize_plot_with_g0 = self.normalize_g0_checkbox.isChecked()
-    #     index_max_lag_for_fit = self.index_max_lag_for_fit_input.value()
-    #     self.index_max_lag_for_fit = index_max_lag_for_fit
-    #     start_lag = self.start_lag_input.value()
-    #     field_name_base = self.selected_field_name_for_correlation if hasattr(self, 'selected_field_name_for_correlation') else 'spot_int'
-    #     intensity_arrays = {}
-
-
-    #     if correlation_type == 'crosscorrelation':
-    #         if len(selected_channels) != 2:
-    #             QMessageBox.warning(self, "Invalid Channel Selection", "Please select exactly two channels for crosscorrelation.")
-    #             return
-    #     elif correlation_type == 'autocorrelation':
-    #         if not selected_channels:
-    #             QMessageBox.warning(self, "No Channels Selected", "Please select at least one channel for autocorrelation.")
-    #             return
-    #         # Compute autocorrelation for each selected channel
-    #         for ch in selected_channels:
-    #             intensity_array = intensity_arrays.get(ch)
-    #             if intensity_array is None:
-    #                 continue  # skip if no data for this channel
-    #             corr = mi.Correlation(
-    #                 primary_data=intensity_array,
-    #                 nan_handling='ignore',
-    #                 time_interval_between_frames_in_seconds=step_size_in_sec,
-    #                 start_lag=start_lag,
-    #                 show_plot=False,
-    #                 return_full=False,
-    #                 use_linear_projection_for_lag_0=True,
-    #                 fit_type=self.correlation_fit_type,
-    #                 de_correlation_threshold=self.de_correlation_threshold,
-    #                 correct_baseline=self.correct_baseline,
-    #                 remove_outliers=self.remove_outliers,
-    #             )
-    #             mean_corr, std_corr, lags, _, _ = corr.run()
-    #             self.correlation_results.append({
-    #                 'type': 'autocorrelation',
-    #                 'channel': ch,
-    #                 'intensity_array': intensity_array,
-    #                 'mean_corr': mean_corr,
-    #                 'std_corr': std_corr,
-    #                 'lags': lags,
-    #                 'step_size_in_sec': step_size_in_sec,
-    #                 'normalize_plot_with_g0': normalize_plot_with_g0,
-    #                 'index_max_lag_for_fit': index_max_lag_for_fit,
-    #                 'start_lag': start_lag
-    #             })
-    #         #elif len(selected_channels) > 1:
-    #         #    QMessageBox.warning(self, "Multiple Channels Selected", "Please select only one channel for autocorrelation.")
-            #    return
-        
-        
-                
-        # for ch in selected_channels:
-        #     field_name = f'{field_name_base}_ch_{ch}'
-        #     if field_name in self.df_tracking.columns:
-        #         array = mi.Utilities().df_trajectories_to_array(
-        #             dataframe=self.df_tracking,
-        #             selected_field=field_name,
-        #             fill_value=np.nan,
-        #             total_frames=self.total_frames
-        #         )
-        #         try:
-        #             intensity_array = mi.Utilities().shift_trajectories(
-        #                 array,
-        #                 min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
-        #             )
-        #         except ValueError as e:
-        #             QMessageBox.warning(self, "Correlation Error", str(e))
-        #             return
-        #         intensity_arrays[ch] = intensity_array
-        
-        # step_size_in_sec = float(self.list_time_intervals[self.selected_image_index]) if hasattr(self, 'list_time_intervals') and self.list_time_intervals else 1.0
-        
-        # if correlation_type == 'autocorrelation':
-        #     ch = selected_channels[0]
-        #     intensity_array = intensity_arrays.get(ch)
-        #     if intensity_array is None:
-        #         return
-        #     corr = mi.Correlation(
-        #         primary_data=intensity_array,
-        #         nan_handling='ignore',
-        #         time_interval_between_frames_in_seconds=step_size_in_sec,
-        #         start_lag=start_lag,
-        #         show_plot=False,
-        #         return_full=False,
-        #         use_linear_projection_for_lag_0=True,
-        #         fit_type=self.correlation_fit_type,
-        #         de_correlation_threshold=self.de_correlation_threshold,
-        #         correct_baseline=self.correct_baseline,
-        #         remove_outliers=self.remove_outliers,
-        #     )
-        #     mean_corr, std_corr, lags, _, _ = corr.run()
-        #     self.correlation_results.append({
-        #         'type': 'autocorrelation',
-        #         'channel': ch,
-        #         'intensity_array': intensity_array,
-        #         'mean_corr': mean_corr,
-        #         'std_corr': std_corr,
-        #         'lags': lags,
-        #         'step_size_in_sec': step_size_in_sec,
-        #         'normalize_plot_with_g0': normalize_plot_with_g0,
-        #         'index_max_lag_for_fit': index_max_lag_for_fit,
-        #         'start_lag': start_lag
-        #     })
-        # elif correlation_type == 'crosscorrelation':
-        #     ch1, ch2 = selected_channels
-        #     intensity_array1 = intensity_arrays.get(ch1)
-        #     intensity_array2 = intensity_arrays.get(ch2)
-        #     if intensity_array1 is None or intensity_array2 is None:
-        #         return
-        #     corr = mi.Correlation(
-        #         primary_data=intensity_array1,
-        #         secondary_data=intensity_array2,
-        #         nan_handling='ignore',
-        #         time_interval_between_frames_in_seconds=step_size_in_sec,
-        #         show_plot=False,
-        #         return_full=True,
-        #         de_correlation_threshold=self.de_correlation_threshold,
-        #         correct_baseline=self.correct_baseline,
-        #         fit_type=self.correlation_fit_type,
-        #         remove_outliers=self.remove_outliers,
-        #     )
-        #     mean_corr, std_corr, lags, _, _ = corr.run()
-        #     self.correlation_results.append({
-        #         'type': 'crosscorrelation',
-        #         'channel1': ch1,
-        #         'channel2': ch2,
-        #         'intensity_array1': intensity_array1,
-        #         'intensity_array2': intensity_array2,
-        #         'mean_corr': mean_corr,
-        #         'std_corr': std_corr,
-        #         'lags': lags,
-        #         'step_size_in_sec': step_size_in_sec,
-        #         'normalize_plot_with_g0': normalize_plot_with_g0,
-        #         'index_max_lag_for_fit': index_max_lag_for_fit,
-        #         'start_lag': start_lag
-        #     })
-        # self.current_total_plots = None
-        # self.display_correlation_plot()
 
     def compute_correlations(self):
         # 1) sanity checks
@@ -4662,8 +4513,6 @@ class GUI(QMainWindow):
             return
         if self.df_tracking.empty:
             return
-
-        # 2) determine mode & channels
         correlation_type = ('autocorrelation'
                             if self.auto_corr_radio.isChecked()
                             else 'crosscorrelation')
@@ -4679,8 +4528,6 @@ class GUI(QMainWindow):
             QMessageBox.warning(self, "No Channels Selected",
                                 "Please select at least one channel for autocorrelation.")
             return
-
-        # 3) build intensity arrays for each selected channel
         field_base = getattr(self, 'selected_field_name_for_correlation', 'spot_int')
         intensity_arrays = {}
         for ch in selected_channels:
@@ -4702,24 +4549,18 @@ class GUI(QMainWindow):
                 QMessageBox.warning(self, "Correlation Error", str(e))
                 return
             intensity_arrays[ch] = arr
-
-        # Apply SNR threshold filter if threshold > 0
         threshold = getattr(self, 'snr_threshold_for_acf_value', 0)
         if threshold > 0:
             for ch, arr_int in list(intensity_arrays.items()):
                 col = f'snr_ch_{ch}'
-                # skip if no SNR data for this channel
                 if col not in self.df_tracking.columns:
                     continue
-
-                # build the per-trajectory SNR array
                 arr_snr = mi.Utilities().df_trajectories_to_array(
                     dataframe=self.df_tracking,
                     selected_field=col,
                     fill_value=np.nan,
                     total_frames=self.total_frames
                 )
-                # apply the same shift mask as for intensities
                 try:
                     arr_snr = mi.Utilities().shift_trajectories(
                         arr_snr,
@@ -4733,16 +4574,16 @@ class GUI(QMainWindow):
                 mean_snr = np.nanmean(arr_snr, axis=1)
                 valid_idx = np.where(mean_snr >= threshold)[0]
                 intensity_arrays[ch] = arr_int[valid_idx]
-
-
-        # 4) gather correlation settings
         step_size_in_sec = (float(self.list_time_intervals[self.selected_image_index])
                             if getattr(self, 'list_time_intervals', None) else 1.0)
         normalize_g0 = self.normalize_g0_checkbox.isChecked()
         start_lag = self.start_lag_input.value()
         index_max = self.index_max_lag_for_fit_input.value()
-
-        # 5) compute correlations
+        use_multi = self.multiTauCheck.isChecked()
+        self.correlation_fit_type = 'linear' if self.linear_radio.isChecked() else 'exponential'
+        self.correct_baseline = self.correct_baseline_checkbox.isChecked()
+        self.remove_outliers = self.remove_outliers_checkbox.isChecked()
+        self.index_max_lag_for_fit = index_max
         self.correlation_results = []
         if correlation_type == 'autocorrelation':
             for ch, data in intensity_arrays.items():
@@ -4758,8 +4599,17 @@ class GUI(QMainWindow):
                     de_correlation_threshold=self.de_correlation_threshold,
                     correct_baseline=self.correct_baseline,
                     remove_outliers=self.remove_outliers,
+                    multi_tau=use_multi,
                 )
                 mean_corr, std_corr, lags, _, _ = corr.run()
+                if index_max >= len(lags):
+                    QMessageBox.warning(
+                        self, "Max-Lag Adjusted",
+                        f"Requested lag {index_max} exceeds available {len(lags)-1} "
+                        f"for {'multi-tau' if use_multi else 'linear'} mode.\n"
+                        f"Using {len(lags)-1} instead.")
+                    index_max = len(lags) - 1
+                    self.index_max_lag_for_fit_input.setValue(index_max)
                 self.correlation_results.append({
                     'type': 'autocorrelation',
                     'channel': ch,
@@ -4770,7 +4620,8 @@ class GUI(QMainWindow):
                     'step_size_in_sec': step_size_in_sec,
                     'normalize_plot_with_g0': normalize_g0,
                     'index_max_lag_for_fit': index_max,
-                    'start_lag': start_lag
+                    'start_lag': start_lag,
+                    'multi_tau': use_multi,
                 })
 
         else:  # crosscorrelation
@@ -4804,10 +4655,9 @@ class GUI(QMainWindow):
                 'step_size_in_sec': step_size_in_sec,
                 'normalize_plot_with_g0': normalize_g0,
                 'index_max_lag_for_fit': index_max,
-                'start_lag': start_lag
+                'start_lag': start_lag,
+                'multi_tau': use_multi,
             })
-
-        # 6) redraw combined plot
         self.display_correlation_plot()
 
 
@@ -4885,7 +4735,7 @@ class GUI(QMainWindow):
         self.max_percentage_spin.valueChanged.connect(self.update_min_percentage_data_in_trajectory)
         right_panel_layout.addRow(max_percentage_label, self.max_percentage_spin)
         # Threshold
-        threshold_label = QLabel("Threshold:")
+        threshold_label = QLabel("Decorrelation Threshold:")
         self.de_correlation_threshold_input = QDoubleSpinBox()
         self.de_correlation_threshold_input.setDecimals(3)
         self.de_correlation_threshold_input.setMinimum(0.0)
@@ -4909,11 +4759,11 @@ class GUI(QMainWindow):
         # Index Max Lag for Fit
         self.index_max_lag_for_fit_input = QSpinBox()
         self.index_max_lag_for_fit_input.setMinimum(1)
-        self.index_max_lag_for_fit_input.setValue(50)
+        self.index_max_lag_for_fit_input.setValue(1000)
         if hasattr(self, 'max_lag') and self.max_lag is not None:
             self.index_max_lag_for_fit_input.setMaximum(self.max_lag - 1)
         else:
-            self.index_max_lag_for_fit_input.setMaximum(500)
+            self.index_max_lag_for_fit_input.setMaximum(1000)
         right_panel_layout.addRow(QLabel("Index Max Lag for Fit:"), self.index_max_lag_for_fit_input)
         # Start Lag
         self.start_lag_input = QSpinBox()
@@ -4923,7 +4773,7 @@ class GUI(QMainWindow):
         # Min and max percentile for correlation
         self.correlation_min_percentile_input = QDoubleSpinBox()
         self.correlation_min_percentile_input.setDecimals(1)
-        self.correlation_min_percentile_input.setMinimum(0.0)
+        self.correlation_min_percentile_input.setMinimum(0)
         self.correlation_min_percentile_input.setMaximum(50.0)
         self.correlation_min_percentile_input.setSingleStep(0.5)
         self.correlation_min_percentile_input.setValue(0.0)  # default
@@ -4934,24 +4784,21 @@ class GUI(QMainWindow):
         self.correlation_max_percentile_input.setMinimum(90.0)
         self.correlation_max_percentile_input.setMaximum(100.0)
         self.correlation_max_percentile_input.setSingleStep(0.1)
-        self.correlation_max_percentile_input.setValue(99.95)  # default
+        self.correlation_max_percentile_input.setValue(100)  # default
         self.correlation_max_percentile_input.valueChanged.connect(self.on_correlation_percentile_changed)
         right_panel_layout.addRow(QLabel("Max Percentile:"), self.correlation_max_percentile_input)
-
-        
-
+        # SNR Threshold for ACF
         self.snr_threshold_for_acf = QDoubleSpinBox()
         self.snr_threshold_for_acf.setRange(0.0, 5.0)
-        self.snr_threshold_for_acf.setValue(0.0)
+        self.snr_threshold_for_acf.setValue(0.1)
         self.snr_threshold_for_acf.setSingleStep(0.1)
         self.snr_threshold_for_acf.valueChanged.connect(self.update_snr_threshold_for_acf)
-        right_panel_layout.addRow(QLabel("SNR Threshold for ACF:"), self.snr_threshold_for_acf)
-        # initialize the attribute
-        self.snr_threshold_for_acf_value = self.snr_threshold_for_acf.value()
 
+        right_panel_layout.addRow(QLabel("SNR Threshold for ACF:"), self.snr_threshold_for_acf)
+        self.snr_threshold_for_acf_value = self.snr_threshold_for_acf.value()
         # Normalize with G(0) checkbox
         self.normalize_g0_checkbox = QCheckBox("")
-        self.normalize_g0_checkbox.setChecked(True)
+        self.normalize_g0_checkbox.setChecked(False)
         right_panel_layout.addRow(QLabel("Normalize:"), self.normalize_g0_checkbox)
         # Correct Baseline checkbox
         self.correct_baseline_checkbox = QCheckBox("")
@@ -4963,6 +4810,11 @@ class GUI(QMainWindow):
         self.remove_outliers_checkbox.setChecked(True)
         self.remove_outliers_checkbox.stateChanged.connect(self.update_remove_outliers)
         right_panel_layout.addRow(QLabel("Remove outliers:"), self.remove_outliers_checkbox)
+        # Multi-Tau checkbox
+        self.multiTauCheck = QCheckBox("")
+        self.multiTauCheck.setChecked(False)  # default unchecked (linear correlation)
+        self.multiTauCheck.stateChanged.connect(self.update_multi_tau)
+        right_panel_layout.addRow(QLabel("Multi-Tau:"), self.multiTauCheck)
         # Compute Correlations Button
         self.compute_correlations_button = QPushButton("Run")
         self.compute_correlations_button.clicked.connect(self.compute_correlations)
@@ -5116,8 +4968,8 @@ class GUI(QMainWindow):
             plot_title=title
         )
         try:
-            self.plot_image()               # redraw Display tab
-            self.plot_segmentation()   # redraw Segmentation tab
+            self.plot_image()          
+            self.plot_segmentation() 
         except Exception:
             pass
         self.canvas_colocalization.draw()
@@ -5703,7 +5555,6 @@ class GUI(QMainWindow):
         self.figure_tracking_vis, self.ax_tracking_vis = plt.subplots(figsize=(8, 8))
         self.figure_tracking_vis.patch.set_facecolor('black')
         self.canvas_tracking_vis = FigureCanvas(self.figure_tracking_vis)
-        
         left_layout.addWidget(self.canvas_tracking_vis)
         self.canvas_tracking_vis.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Percentile spinboxes for intensity scaling
@@ -5763,16 +5614,16 @@ class GUI(QMainWindow):
         right_layout.addWidget(self.tracked_particles_list)
         self.checkbox_remove_bg = QCheckBox("Remove Background")    
         self.checkbox_remove_bg.setChecked(False)
-        
+        # Add checkbox for background removal
         right_layout.addWidget(self.checkbox_remove_bg)                    
         self.checkbox_scalebar = QCheckBox("Show Scalebar")     
         self.checkbox_scalebar.setChecked(False)    
-        
+        # Add checkbox for scalebar
         right_layout.addWidget(self.checkbox_scalebar)     
         self.checkbox_show_timestamp = QCheckBox("Show Time Stamp")
         self.checkbox_show_timestamp.setChecked(False) 
         right_layout.addWidget(self.checkbox_show_timestamp)
-        # 
+        # Connect checkboxes to update visualization    
         self.checkbox_remove_bg.stateChanged.connect(self.display_tracking_visualization)
         self.checkbox_scalebar.stateChanged.connect(self.display_tracking_visualization)   
         self.checkbox_show_timestamp.stateChanged.connect(self.display_tracking_visualization)           
@@ -6237,7 +6088,8 @@ class GUI(QMainWindow):
             ml_threshold_input=self.ml_threshold_input,
             link_using_3d_coordinates=self.link_using_3d_coordinates,
             colocalization_method="ML" if self.method_ml_radio.isChecked() else "Intensity",
-            colocalization_threshold_value=self.ml_threshold_input.value() if self.method_ml_radio.isChecked() else self.snr_threshold_input.value()
+            colocalization_threshold_value=self.ml_threshold_input.value() if self.method_ml_radio.isChecked() else self.snr_threshold_input.value(),
+            multi_tau=self.use_multi
         )
         try:
             meta.write_metadata()
@@ -6304,6 +6156,7 @@ class GUI(QMainWindow):
             use_ml_checkbox=self.use_ml_checkbox,
             ml_threshold_input=self.ml_threshold_input,
             link_using_3d_coordinates=self.link_using_3d_coordinates,
+            multi_tau=self.use_multi
         )
         meta.write_metadata()
         QMessageBox.information(self, "Export Success", f"Metadata saved to:\n{file_path}")
@@ -6357,10 +6210,8 @@ class GUI(QMainWindow):
         frames = []
         total_frames = self.image_stack.shape[0]
         for i in range(total_frames):
-            # Update the current frame index and redraw the tracking plot (which uses colormaps, overlays, etc.)
             self.current_frame = i
             self.plot_tracking()
-            # If a scalebar is desired (voxel size provided), add it to ax_tracking
             if hasattr(self, 'voxel_yx_nm') and self.voxel_yx_nm is not None:
                 microns_per_pixel = self.voxel_yx_nm / 1000.0
                 font_props = {'size': 10}
@@ -6370,17 +6221,13 @@ class GUI(QMainWindow):
                     font_properties=font_props
                 )
                 self.ax_tracking.add_artist(scalebar)
-
-            # Render the figure to the canvas, then grab it as an image
             self.canvas_tracking.draw()
             qimg = self.canvas_tracking.grab().toImage()
             ptr = qimg.bits()
             ptr.setsize(qimg.byteCount())
             arr = np.array(ptr).reshape((qimg.height(), qimg.width(), 4))
             frame_img = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
-
             frames.append(frame_img)
-            # Clear the axes so next iteration draws fresh
             self.ax_tracking.cla()
 
         _, ext = os.path.splitext(file_path)
@@ -6827,7 +6674,7 @@ class GUI(QMainWindow):
             ("Export Photobleaching Image", "photobleaching"),
             ("Export Tracking Data", "tracking_data"),
             ("Export Tracking Image", "tracking_image"),
-            ("Export Distribution Image", "distribution"),
+            ("Export Distributions Image", "distribution"),
             ("Export Time Course Image", "time_course"),
             ("Export Correlation Image", "correlation"),
             ("Export Colocalization Image", "colocalization"),
@@ -7090,21 +6937,37 @@ class GUI(QMainWindow):
         self.figure_distribution.tight_layout()
         self.canvas_distribution.draw()
 
+    
     def display_crops_plot(self):
+        # clear & bump DPI for crispness
         self.figure_crops.clear()
+        self.figure_crops.set_dpi(300)
+
+        # early exits
         if self.df_tracking.empty:
             return
         if self.corrected_image is None and self.image_stack is None:
             return
-        image_to_use = self.corrected_image if self.corrected_image is not None else self.image_stack
+
+        # ==== FIXED LINE: choose the image without using `or` on arrays ====
+        if self.corrected_image is not None:
+            image_to_use = self.corrected_image
+        else:
+            image_to_use = self.image_stack
+
+        # compute crop size
         crop_size = int(self.yx_spot_size_in_px) + 5
         if crop_size % 2 == 0:
             crop_size += 1
+
+        # optional max‐projection
         if self.use_maximum_projection:
             image_to_use = np.max(image_to_use, axis=1, keepdims=True)
-        filtered_image = mi.Utilities().log_filter(image_to_use, spot_radius_px=1)
-        croparray_filtered, mean_crop_filtered, first_appearance, crop_size = mi.CropArray(
-            image=filtered_image,
+
+        # filter & build croparray
+        filtered = mi.Utilities().log_filter(image_to_use, spot_radius_px=1)
+        croparray, _, _, crop_size = mi.CropArray(
+            image=filtered,
             df_crops=self.df_tracking,
             crop_size=crop_size,
             remove_outliers=True,
@@ -7112,227 +6975,95 @@ class GUI(QMainWindow):
             selected_time_point=None,
             normalize_each_particle=True
         ).run()
-        selected_channel = self.current_channel
-        self.ax_crops = self.figure_crops.add_subplot(111)
+
+        # render into a single axis
+        ax = self.figure_crops.add_subplot(111)
         mi.Plots().plot_croparray(
-            croparray=croparray_filtered,
+            croparray=croparray,
             crop_size=crop_size,
-            save_plots=False,
-            plot_name=None,
-            suptitle=None,
             show_particle_labels=True,
             cmap='binary_r',
-            max_percentile=99,
-            selected_channel=selected_channel,
-            axes=[self.ax_crops]
+            max_percentile=99.5,
+            selected_channel=self.current_channel,
+            axes=[ax]
         )
-        self.ax_crops.set_title(f'Crops - Channel {selected_channel}')
-        self.ax_crops.axis('off')
+        ax.set_title(f'Crops — Channel {self.current_channel}')
+        ax.axis('off')
+
         self.figure_crops.tight_layout()
         self.canvas_crops.draw()
 
-    # def display_correlation_plot(self):
-    #     self.figure_correlation.clear()
-    #     self.figure_correlation.patch.set_facecolor('black')
-    #     while self.figure_correlation.axes:
-    #         self.figure_correlation.delaxes(self.figure_correlation.axes[0])
-    #     if hasattr(self, 'correlation_results') and self.correlation_results:
-    #         for result in self.correlation_results:
-    #             result['step_size_in_sec'] = getattr(self, 'time_interval_value', 1.0)
-    #         total_plots = len(self.correlation_results)
-    #         self.ax_correlation = self.figure_correlation.subplots(total_plots, 1, squeeze=False)
-    #         for plot_idx, result in enumerate(self.correlation_results):
-    #             ax = self.ax_correlation[plot_idx][0]
-    #             corr_type = result['type']
-    #             normalize_plot_with_g0 = result.get('normalize_plot_with_g0', False)
-    #             index_max_lag_for_fit = result.get('index_max_lag_for_fit', None)
-    #             start_lag = result.get('start_lag', 0)
-    #             if corr_type == 'autocorrelation':
-    #                 ch = result['channel']
-    #                 mean_corr = result['mean_corr']
-    #                 std_corr = result['std_corr']
-    #                 lags = result['lags']
-    #                 self.plots.plot_autocorrelation(
-    #                     mean_correlation=mean_corr,
-    #                     error_correlation=std_corr,
-    #                     lags=lags,
-    #                     time_interval_between_frames_in_seconds=result['step_size_in_sec'],
-    #                     channel_label=ch,
-    #                     axes=ax,
-    #                     plot_title=f'Autocorrelation Channel {ch}',
-    #                     fit_type=self.correlation_fit_type,
-    #                     normalize_plot_with_g0=normalize_plot_with_g0,
-    #                     line_color='cyan',
-    #                     de_correlation_threshold=self.de_correlation_threshold,
-    #                     max_lag_index=self.max_lag_input.value(),
-    #                     index_max_lag_for_fit=index_max_lag_for_fit,
-    #                     start_lag=start_lag,
-    #                     y_min_percentile=self.correlation_min_percentile_input.value(),
-    #                     y_max_percentile=self.correlation_max_percentile_input.value(),
-    #                 )
-    #             elif corr_type == 'crosscorrelation':
-    #                 mean_corr = result['mean_corr']
-    #                 std_corr = result['std_corr']
-    #                 lags = result['lags']
-    #                 self.plots.plot_crosscorrelation(
-    #                     mean_correlation=mean_corr,
-    #                     error_correlation=std_corr,
-    #                     lags=lags,
-    #                     axes=ax,
-    #                     normalize_plot_with_g0=normalize_plot_with_g0,
-    #                     line_color='cyan',
-    #                     max_lag_index=self.max_lag_input.value(),
-    #                     y_min_percentile=self.correlation_min_percentile_input.value(),
-    #                     y_max_percentile=self.correlation_max_percentile_input.value(),
-    #                 )
-    #             ax.set_facecolor('black')
-    #             ax.tick_params(colors='white', which='both')
-    #             ax.spines['bottom'].set_color('white')
-    #             ax.spines['top'].set_color('white')
-    #             ax.spines['left'].set_color('white')
-    #             ax.spines['right'].set_color('white')
-    #             ax.xaxis.label.set_color('white')
-    #             ax.yaxis.label.set_color('white')
-    #             ax.title.set_color('white')
-    #             ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-    #         self.figure_correlation.tight_layout()
-    #         self.canvas_correlation.draw_idle()
-    #     else:
-    #         self.ax_correlation = self.figure_correlation.add_subplot(111)
-    #         self.ax_correlation.set_facecolor('black')
-    #         self.ax_correlation.axis('off')
-    #         self.ax_correlation.text(0.5, 0.5, 'Press "Compute Correlations" to perform calculations.',
-    #                                  horizontalalignment='center', verticalalignment='center',
-    #                                  fontsize=12, color='white', transform=self.ax_correlation.transAxes)
-    #         self.canvas_correlation.draw()
+
 
     # def display_correlation_plot(self):
-
-    #     # 1) clear & reset
     #     fig = self.figure_correlation
     #     fig.clear()
     #     fig.patch.set_facecolor('black')
-    #     # remove any lingering axes
     #     for ax in fig.axes:
     #         fig.delaxes(ax)
-
     #     results = getattr(self, 'correlation_results', [])
-    #     # 2) empty state
     #     if not results:
     #         ax = fig.add_subplot(111)
     #         ax.set_facecolor('black')
     #         ax.axis('off')
-    #         ax.text(0.5, 0.5,
-    #                 'Press "Compute Correlations" to perform calculations.',
-    #                 horizontalalignment='center',
-    #                 verticalalignment='center',
-    #                 fontsize=12,
-    #                 color='white',
-    #                 transform=ax.transAxes)
-    #         self.canvas_correlation.draw()
+    #         ax.text(
+    #             0.5, 0.5,
+    #             'Press "Compute Correlations" to perform calculations.',
+    #             horizontalalignment='center',
+    #             verticalalignment='center',
+    #             fontsize=12,
+    #             color='white',
+    #             transform=ax.transAxes
+    #         )
+    #         self.canvas_correlation.draw_idle()
     #         return
-
-    #     # 3) MULTI-CHANNEL AUTOCORRELATION OVERLAY
     #     is_multi_auto = (
     #         len(results) > 1
     #         and all(r['type'] == 'autocorrelation' for r in results)
     #     )
     #     if is_multi_auto:
     #         ax = fig.add_subplot(111)
-    #         # plot each channel’s curve
     #         for idx, r in enumerate(results):
-    #             ch = r['channel']
-    #             lags = np.array(r['lags']) * r['step_size_in_sec']
-    #             g = np.array(r['mean_corr'])
-    #             s = np.array(r['std_corr'])
-    #             start = r.get('start_lag', 0)
-    #             # normalize if requested
-    #             if r.get('normalize_plot_with_g0', False):
-    #                 g = g / g[start]
-
-    #             color = self.cmap_list_imagej[idx % len(self.cmap_list_imagej)]
-    #             ax.plot(lags[start:], g[start:], 'o-', color=color,
-    #                     linewidth=2, label=f'Ch {ch}')
-    #             ax.fill_between(lags[start:], g[start:] - s[start:],
-    #                             g[start:] + s[start:], alpha=0.2,
-    #                             color=color)
-
-    #             # fit (linear or exponential) exactly as before, but in this color
-    #             if self.correlation_fit_type == 'linear':
-    #                 # linear fit on [start+1 : start+index_max]
-    #                 imax = int(r.get('index_max_lag_for_fit', len(g) - start))
-    #                 xs = lags[start+1 : start+imax]
-    #                 ys = g[start+1 : start+imax]
-    #                 if len(xs) > 1:
-    #                     slope, intercept, *_ = linregress(xs, ys)
-    #                     fit_x = np.linspace(xs[0], xs[-1], 100)
-    #                     fit_y = slope * fit_x + intercept
-    #                     ax.plot(fit_x, fit_y, linestyle='--', color=color)
-    #                     # decorrelation threshold line
-    #                     thr = g[start + imax - 1]
-    #                     ax.axhline(thr, linestyle=':', color=color)
-    #             else:
-    #                 # define basic single‐exponential decay: A·exp(–t/τ) + C
-    #                 def _exp_decay(t, A, tau, C):
-    #                     return A * np.exp(-t / tau) + C
-
-    #                 # select data range for fitting
-    #                 fit_t = lags[start:]  # time axis already scaled by step_size
-    #                 fit_g = g[start:]
-
-    #                 # initial guesses: A≈G(0), τ≈half of max lag, C≈min(G)
-    #                 p0 = [fit_g[0], fit_t[-1] / 2, fit_g.min()]
-    #                 try:
-    #                     popt, _ = curve_fit(_exp_decay, fit_t, fit_g, p0=p0)
-    #                     A_fit, tau_fit, C_fit = popt
-
-    #                     # build smooth fit curve
-    #                     t_smooth = np.linspace(fit_t[0], fit_t[-1], 200)
-    #                     g_fit = _exp_decay(t_smooth, *popt)
-    #                     ax.plot(t_smooth, g_fit, linestyle='--', color=color)
-
-    #                     # horizontal line at decorrelation threshold
-    #                     thresh = A_fit * np.exp(-0 / tau_fit) * self.de_correlation_threshold + C_fit
-    #                     ax.axhline(thresh, linestyle=':', color=color)
-
-    #                     # vertical line at the time where fit crosses threshold
-    #                     # find first index where fit < thresh
-    #                     below = np.where(g_fit < thresh)[0]
-    #                     if below.size:
-    #                         t_cross = t_smooth[below[0]]
-    #                         ax.axvline(t_cross, linestyle='--', color=color)
-    #                         ax.text(
-    #                             t_cross,
-    #                             thresh,
-    #                             f"τₑ={tau_fit:.2f}s",
-    #                             color=color,
-    #                             fontsize=8,
-    #                             bbox=dict(facecolor='white', alpha=0.6, edgecolor='none')
-    #                         )
-    #                 except Exception:
-    #                     # fit failed; skip
-    #                     pass
-
-    #         # apply percentile cropping
+    #             color = list_colors_default[idx % len(list_colors_default)]
+    #             self.plots.plot_autocorrelation(
+    #                 mean_correlation                  = r['mean_corr'],
+    #                 error_correlation                 = r['std_corr'],
+    #                 lags                              = np.array(r['lags']) * r['step_size_in_sec'],
+    #                 time_interval_between_frames_in_seconds = r['step_size_in_sec'],
+    #                 channel_label                     = r['channel'],
+    #                 axes                              = ax,
+    #                 fit_type                          = self.correlation_fit_type,
+    #                 normalize_plot_with_g0            = r.get('normalize_plot_with_g0', False),
+    #                 line_color                        = color,
+    #                 de_correlation_threshold          = self.de_correlation_threshold,
+    #                 start_lag                         = r.get('start_lag', 0),
+    #                 index_max_lag_for_fit             = r.get('index_max_lag_for_fit'),
+    #                 max_lag_index                     = self.max_lag_input.value(),
+    #                 y_min_percentile                  = self.correlation_min_percentile_input.value(),
+    #                 y_max_percentile                  = self.correlation_max_percentile_input.value(),
+    #                 plot_title                        = None,  # title set globally below
+    #             )
     #         all_vals = np.hstack([
-    #             (r['mean_corr'] / r['mean_corr'][r['start_lag']])[r['start_lag']:]
-    #             if r.get('normalize_plot_with_g0') else
-    #             r['mean_corr'][r['start_lag']:]
+    #             (
+    #                 (np.array(r['mean_corr']) / np.array(r['mean_corr'])[r['start_lag']])
+    #                 if r.get('normalize_plot_with_g0', False)
+    #                 else np.array(r['mean_corr'])
+    #             )[r['start_lag']:]
     #             for r in results
     #         ])
     #         ymin = np.nanpercentile(all_vals,
     #                                 self.correlation_min_percentile_input.value())
     #         ymax = np.nanpercentile(all_vals,
     #                                 self.correlation_max_percentile_input.value())
-    #         ax.set_ylim(ymin, ymax)
-
-    #         # styling & legend
+    #         ax.set_ylim(ymin, ymax * 1.1)
     #         ax.set_facecolor('black')
     #         ax.tick_params(colors='white', which='both')
     #         for spine in ax.spines.values():
     #             spine.set_color('white')
     #         ax.set_xlabel(r'$\tau$ (s)', color='white')
-    #         ylabel = r"$G(\tau)/G(0)$" if any(r.get('normalize_plot_with_g0') for r in results) else r"$G(\tau)$"
+    #         ylabel = (r"$G(\tau)/G(0)$"
+    #                 if any(r.get('normalize_plot_with_g0') for r in results)
+    #                 else r"$G(\tau)$")
     #         ax.set_ylabel(ylabel, color='white')
     #         ax.set_title('Autocorrelation (all channels)', color='white')
     #         leg = ax.legend(fontsize=8)
@@ -7341,52 +7072,44 @@ class GUI(QMainWindow):
     #         for txt in leg.get_texts():
     #             txt.set_color('white')
     #         ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-
     #         fig.tight_layout()
     #         self.canvas_correlation.draw_idle()
     #         return
-
-    #     # 4) FALLBACK: one subplot per result
-    #     total = len(results)
-    #     axes = fig.subplots(total, 1, squeeze=False)
+    #     axes = fig.subplots(len(results), 1, squeeze=False)
     #     for i, r in enumerate(results):
     #         ax = axes[i][0]
-    #         ctype = r['type']
-    #         color = None
-    #         if ctype == 'autocorrelation':
-    #             color = self.cmap_list_imagej[r['channel'] % len(self.cmap_list_imagej)]
+    #         if r['type'] == 'autocorrelation':
+    #             color = list_colors_default[r['channel'] % len(list_colors_default)]
     #             self.plots.plot_autocorrelation(
-    #                 mean_correlation=r['mean_corr'],
-    #                 error_correlation=r['std_corr'],
-    #                 lags=r['lags'],
-    #                 time_interval_between_frames_in_seconds=r['step_size_in_sec'],
-    #                 channel_label=r['channel'],
-    #                 axes=ax,
-    #                 plot_title=f'Autocorrelation Channel {r["channel"]}',
-    #                 fit_type=self.correlation_fit_type,
-    #                 normalize_plot_with_g0=r.get('normalize_plot_with_g0', False),
-    #                 line_color=color,
-    #                 de_correlation_threshold=self.de_correlation_threshold,
-    #                 max_lag_index=self.max_lag_input.value(),
-    #                 index_max_lag_for_fit=r.get('index_max_lag_for_fit'),
-    #                 start_lag=r.get('start_lag', 0),
-    #                 y_min_percentile=self.correlation_min_percentile_input.value(),
-    #                 y_max_percentile=self.correlation_max_percentile_input.value(),
+    #                 mean_correlation                  = r['mean_corr'],
+    #                 error_correlation                 = r['std_corr'],
+    #                 lags                              = r['lags'],
+    #                 time_interval_between_frames_in_seconds = r['step_size_in_sec'],
+    #                 channel_label                     = r['channel'],
+    #                 axes                              = ax,
+    #                 plot_title                        = f'Autocorrelation Channel {r["channel"]}',
+    #                 fit_type                          = self.correlation_fit_type,
+    #                 normalize_plot_with_g0            = r.get('normalize_plot_with_g0', False),
+    #                 line_color                        = color,
+    #                 de_correlation_threshold          = self.de_correlation_threshold,
+    #                 max_lag_index                     = self.max_lag_input.value(),
+    #                 index_max_lag_for_fit             = r.get('index_max_lag_for_fit'),
+    #                 start_lag                         = r.get('start_lag', 0),
+    #                 y_min_percentile                  = self.correlation_min_percentile_input.value(),
+    #                 y_max_percentile                  = self.correlation_max_percentile_input.value(),
     #             )
-    #         else:  # crosscorrelation
+    #         else:
     #             self.plots.plot_crosscorrelation(
-    #                 mean_correlation=r['mean_corr'],
-    #                 error_correlation=r['std_corr'],
-    #                 lags=r['lags'],
-    #                 axes=ax,
-    #                 normalize_plot_with_g0=r.get('normalize_plot_with_g0', False),
-    #                 line_color='cyan',
-    #                 max_lag_index=self.max_lag_input.value(),
-    #                 y_min_percentile=self.correlation_min_percentile_input.value(),
-    #                 y_max_percentile=self.correlation_max_percentile_input.value(),
+    #                 mean_correlation      = r['mean_corr'],
+    #                 error_correlation     = r['std_corr'],
+    #                 lags                  = r['lags'],
+    #                 axes                  = ax,
+    #                 normalize_plot_with_g0= r.get('normalize_plot_with_g0', False),
+    #                 line_color            = 'cyan',
+    #                 max_lag_index         = self.max_lag_input.value(),
+    #                 y_min_percentile      = self.correlation_min_percentile_input.value(),
+    #                 y_max_percentile      = self.correlation_max_percentile_input.value(),
     #             )
-
-    #         # common dark-theme styling
     #         ax.set_facecolor('black')
     #         ax.tick_params(colors='white', which='both')
     #         for spine in ax.spines.values():
@@ -7395,35 +7118,33 @@ class GUI(QMainWindow):
     #         ax.yaxis.label.set_color('white')
     #         ax.title.set_color('white')
     #         ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-
     #     fig.tight_layout()
     #     self.canvas_correlation.draw_idle()
 
     def display_correlation_plot(self):
-        # 1) clear & reset
         fig = self.figure_correlation
         fig.clear()
         fig.patch.set_facecolor('black')
         for ax in fig.axes:
             fig.delaxes(ax)
-
         results = getattr(self, 'correlation_results', [])
-        # 2) empty state
         if not results:
             ax = fig.add_subplot(111)
             ax.set_facecolor('black')
             ax.axis('off')
-            ax.text(0.5, 0.5,
-                    'Press "Compute Correlations" to perform calculations.',
-                    horizontalalignment='center',
-                    verticalalignment='center',
-                    fontsize=12,
-                    color='white',
-                    transform=ax.transAxes)
+            ax.text(
+                0.5, 0.5,
+                'Press "Compute Correlations" to perform calculations.',
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=12,
+                color='white',
+                transform=ax.transAxes
+            )
             self.canvas_correlation.draw_idle()
             return
 
-        # 3) MULTI-CHANNEL AUTOCORRELATION OVERLAY
+        # If multiple autocorrelation results, plot all on one axes for comparison
         is_multi_auto = (
             len(results) > 1
             and all(r['type'] == 'autocorrelation' for r in results)
@@ -7431,89 +7152,37 @@ class GUI(QMainWindow):
         if is_multi_auto:
             ax = fig.add_subplot(111)
             for idx, r in enumerate(results):
-                ch    = r['channel']
-                lags  = np.array(r['lags']) * r['step_size_in_sec']
-                g     = np.array(r['mean_corr'])
-                s     = np.array(r['std_corr'])
-                start = r.get('start_lag', 0)
-
-                # normalize by G(0)
-                if r.get('normalize_plot_with_g0', False):
-                    g = g / g[start]
-
-                #color = cmap_list_imagej[idx % len(cmap_list_imagej)]
                 color = list_colors_default[idx % len(list_colors_default)]
-
-                ax.plot(lags[start:], g[start:], 'o-', color=color,
-                        linewidth=2, label=f'Ch {ch}')
-                ax.fill_between(lags[start:], g[start:] - s[start:],
-                                g[start:] + s[start:], alpha=0.2, color=color)
-                
-                # maximum number of points we can fit on
-                max_points = len(g) - start
-                # requested fit length
-                requested = int(r.get('index_max_lag_for_fit', max_points))
-                # clamp so we never go past the end
-                imax = min(requested, max_points)
-
-                if self.correlation_fit_type == 'linear':
-                    #imax = int(r.get('index_max_lag_for_fit', len(g) - start))
-                    xs, ys = lags[start+1:start+imax], g[start+1:start+imax]
-                    if len(xs) > 1:
-                        slope, intercept, *_ = linregress(xs, ys)
-                        fit_x = np.linspace(xs[0], xs[-1], 100)
-                        fit_y = slope * fit_x + intercept
-                        ax.plot(fit_x, fit_y, '--', color=color)
-                        # horizontal decorrelation threshold
-                        thr = g[start + imax - 1]
-                        if np.isfinite(thr):
-                            #ax.axhline(thr, ':', color=color)
-                            ax.axhline(y=thr, linestyle=':', color=color)
-
-                else:
-                    def _exp_decay(t, A, tau, C):
-                        return A * np.exp(-t / tau) + C
-                    # limit fit to the user-specified range
-                    fit_t = lags[start:start+imax]
-                    fit_g = g[start:start+imax]
-                    p0    = [fit_g[0], fit_t[-1]/2, fit_g.min()]
-                    try:
-                        popt, _ = curve_fit(_exp_decay, fit_t, fit_g, p0=p0)
-                        A_fit, tau_fit, C_fit = popt
-                        t_smooth = np.linspace(fit_t[0], fit_t[-1], 200)
-                        g_fit    = _exp_decay(t_smooth, *popt)
-                        ax.plot(t_smooth, g_fit, '--', color=color)
-                        # threshold line
-                        thresh = A_fit * self.de_correlation_threshold + C_fit
-                        if np.isfinite(thresh): 
-                            #ax.axhline(thresh, ':', color=color)
-                            ax.axhline(y=thresh, linestyle=':', color=color)    
-                        below = np.where(g_fit < thresh)[0]
-                        if below.size:
-                            t_cross = t_smooth[below[0]]
-                            ax.axvline(t_cross, '--', color=color)
-                            ax.text(t_cross, thresh,
-                                    f"τₑ={tau_fit:.2f}s",
-                                    color=color,
-                                    fontsize=8,
-                                    bbox=dict(facecolor='white', alpha=0.6))
-                    except Exception:
-                        pass
-
-            # percentile cropping
+                self.plots.plot_autocorrelation(
+                    mean_correlation                   = r['mean_corr'],
+                    error_correlation                  = r['std_corr'],
+                    lags                               = np.array(r['lags']) , #* r['step_size_in_sec']
+                    time_interval_between_frames_in_seconds = r['step_size_in_sec'],
+                    channel_label                      = r['channel'],
+                    axes                               = ax,
+                    fit_type                           = self.correlation_fit_type,
+                    normalize_plot_with_g0             = r.get('normalize_plot_with_g0', False),
+                    line_color                         = color,
+                    de_correlation_threshold           = self.de_correlation_threshold,
+                    start_lag                          = r.get('start_lag', 0),
+                    index_max_lag_for_fit              = r.get('index_max_lag_for_fit'),
+                    max_lag_index                      = self.max_lag_input.value(),
+                    y_min_percentile                   = self.correlation_min_percentile_input.value(),
+                    y_max_percentile                   = self.correlation_max_percentile_input.value(),
+                    plot_title                         = None,  # title set globally below
+                )
+            # Combine all autocorrelation values (normalized if needed) to determine y-limits across all channels
             all_vals = np.hstack([
-                (r['mean_corr'] / r['mean_corr'][r['start_lag']])[r['start_lag']:]
-                if r.get('normalize_plot_with_g0') else
-                r['mean_corr'][r['start_lag']:]
+                (
+                    (np.array(r['mean_corr']) / np.array(r['mean_corr'])[r['start_lag']])
+                    if r.get('normalize_plot_with_g0', False)
+                    else np.array(r['mean_corr'])
+                )[r.get('start_lag', 0):]
                 for r in results
             ])
-            ymin = np.nanpercentile(all_vals,
-                                    self.correlation_min_percentile_input.value())
-            ymax = np.nanpercentile(all_vals,
-                                    self.correlation_max_percentile_input.value())
-            ax.set_ylim(ymin, ymax*1.1)
-
-            # styling + legend
+            ymin = np.nanpercentile(all_vals, self.correlation_min_percentile_input.value())
+            ymax = np.nanpercentile(all_vals, self.correlation_max_percentile_input.value())
+            ax.set_ylim(ymin, ymax * 1.1)  # 10% padding on top for clarity
             ax.set_facecolor('black')
             ax.tick_params(colors='white', which='both')
             for spine in ax.spines.values():
@@ -7530,48 +7199,47 @@ class GUI(QMainWindow):
             for txt in leg.get_texts():
                 txt.set_color('white')
             ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-
             fig.tight_layout()
             self.canvas_correlation.draw_idle()
             return
 
-        # 4) FALLBACK: one subplot per result
-        axes = fig.subplots(len(results), 1, squeeze=False)
+        # Otherwise, plot each result (auto or cross-correlation) in its own subplot
+        axes = fig.subplots(nrows=len(results), ncols=1, squeeze=False)
         for i, r in enumerate(results):
             ax = axes[i][0]
             if r['type'] == 'autocorrelation':
-                #color = cmap_list_imagej[r['channel'] % len(cmap_list_imagej)]
                 color = list_colors_default[r['channel'] % len(list_colors_default)]
                 self.plots.plot_autocorrelation(
-                    mean_correlation=r['mean_corr'],
-                    error_correlation=r['std_corr'],
-                    lags=r['lags'],
-                    time_interval_between_frames_in_seconds=r['step_size_in_sec'],
-                    channel_label=r['channel'],
-                    axes=ax,
-                    plot_title=f'Autocorrelation Channel {r["channel"]}',
-                    fit_type=self.correlation_fit_type,
-                    normalize_plot_with_g0=r.get('normalize_plot_with_g0', False),
-                    line_color=color,
-                    de_correlation_threshold=self.de_correlation_threshold,
-                    max_lag_index=self.max_lag_input.value(),
-                    index_max_lag_for_fit=r.get('index_max_lag_for_fit'),
-                    start_lag=r.get('start_lag', 0),
-                    y_min_percentile=self.correlation_min_percentile_input.value(),
-                    y_max_percentile=self.correlation_max_percentile_input.value(),
+                    mean_correlation                   = r['mean_corr'],
+                    error_correlation                  = r['std_corr'],
+                    lags                               = r['lags'],
+                    time_interval_between_frames_in_seconds = r['step_size_in_sec'],
+                    channel_label                      = r['channel'],
+                    axes                               = ax,
+                    plot_title                         = f'Autocorrelation Channel {r["channel"]}',
+                    fit_type                           = self.correlation_fit_type,
+                    normalize_plot_with_g0             = r.get('normalize_plot_with_g0', False),
+                    line_color                         = color,
+                    de_correlation_threshold           = self.de_correlation_threshold,
+                    max_lag_index                      = self.max_lag_input.value(),
+                    index_max_lag_for_fit              = r.get('index_max_lag_for_fit'),
+                    start_lag                          = r.get('start_lag', 0),
+                    y_min_percentile                   = self.correlation_min_percentile_input.value(),
+                    y_max_percentile                   = self.correlation_max_percentile_input.value(),
                 )
-            else:
+            else:  # Cross-correlation case
                 self.plots.plot_crosscorrelation(
-                    mean_correlation=r['mean_corr'],
-                    error_correlation=r['std_corr'],
-                    lags=r['lags'],
-                    axes=ax,
-                    normalize_plot_with_g0=r.get('normalize_plot_with_g0', False),
-                    line_color='cyan',
-                    max_lag_index=self.max_lag_input.value(),
-                    y_min_percentile=self.correlation_min_percentile_input.value(),
-                    y_max_percentile=self.correlation_max_percentile_input.value(),
+                    mean_correlation       = r['mean_corr'],
+                    error_correlation      = r['std_corr'],
+                    lags                   = r['lags'],
+                    axes                   = ax,
+                    normalize_plot_with_g0 = r.get('normalize_plot_with_g0', False),
+                    line_color             = 'cyan',
+                    max_lag_index          = self.max_lag_input.value(),
+                    y_min_percentile       = self.correlation_min_percentile_input.value(),
+                    y_max_percentile       = self.correlation_max_percentile_input.value(),
                 )
+            # Format each subplot with dark theme and grid
             ax.set_facecolor('black')
             ax.tick_params(colors='white', which='both')
             for spine in ax.spines.values():
@@ -7580,9 +7248,9 @@ class GUI(QMainWindow):
             ax.yaxis.label.set_color('white')
             ax.title.set_color('white')
             ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-
         fig.tight_layout()
         self.canvas_correlation.draw_idle()
+
 
     def plot_intensity_time_course(self):
         channel_index = self.time_course_channel_combo.currentIndex()
@@ -7596,7 +7264,8 @@ class GUI(QMainWindow):
             QMessageBox.warning(self, "No Tracking Data", "Please perform particle tracking first.")
             return
         self.ax_time_course.clear()
-        time_interval = float(self.list_time_intervals[self.selected_image_index]) if self.list_time_intervals and len(self.list_time_intervals) > self.selected_image_index else 1.0
+        time_interval = float(self.list_time_intervals[self.selected_image_index]) \
+            if self.list_time_intervals and len(self.list_time_intervals) > self.selected_image_index else 1.0
         total_frames = self.image_stack.shape[0]
         time_points_in_seconds = np.arange(0, total_frames * time_interval, time_interval)
         if data_type == "particles":
@@ -7614,40 +7283,48 @@ class GUI(QMainWindow):
             if field_name not in self.df_tracking.columns:
                 QMessageBox.warning(self, "Data Error", f"No {data_type} data for Channel {channel_index}.")
                 return
-            total_frames = self.image_stack.shape[0]
+            total_frames = self.image_stack.shape[0]  # total frames in the stack
             intensity_array = mi.Utilities().df_trajectories_to_array(
                 dataframe=self.df_tracking,
                 selected_field=field_name,
                 fill_value=np.nan,
                 total_frames=total_frames
             )
+            # **Plot individual traces if option is enabled** 
+            if self.show_traces_checkbox.isChecked():
+                for idx in range(intensity_array.shape[0]):
+                    trace = intensity_array[idx, :]
+                    if np.all(np.isnan(trace)):
+                        continue  # skip if a trace has no data (shouldn't happen if particle exists)
+                    self.ax_time_course.plot(time_points_in_seconds, trace, '-', color='gray',
+                                            linewidth=1, alpha=0.5, label='_nolegend_')
+            # Calculate mean and std dev across all particles at each time point
             mean_time_intensity = np.nanmean(intensity_array, axis=0)
-            std_time_intensity = np.nanstd(intensity_array, axis=0)
+            std_time_intensity  = np.nanstd(intensity_array, axis=0)
+            # Replace NaN (if any frame has all NaNs) with 0 to avoid issues in plotting
             mean_time_intensity = np.nan_to_num(mean_time_intensity)
-            std_time_intensity = np.nan_to_num(std_time_intensity)
-
-            self.ax_time_course.plot(time_points_in_seconds, mean_time_intensity, 'o-', color='cyan', linewidth=2, label='Mean', alpha=0.5)
-            self.ax_time_course.fill_between(
-                time_points_in_seconds,
-                mean_time_intensity - std_time_intensity,
-                mean_time_intensity + std_time_intensity,
-                color='cyan', alpha=0.3, label='Std Dev'
-            )
-            self.ax_time_course.set_title(f"{data_type.capitalize()} vs Time (Channel {channel_index})", fontsize=10, color='white')
+            std_time_intensity  = np.nan_to_num(std_time_intensity)
+            # Plot the mean intensity over time (as a line) 
+            self.ax_time_course.plot(time_points_in_seconds, mean_time_intensity, 'o-',
+                                    color='cyan', linewidth=2, label='Mean', alpha=0.5, zorder=3)
+            self.ax_time_course.fill_between(time_points_in_seconds,
+                                            mean_time_intensity - std_time_intensity,
+                                            mean_time_intensity + std_time_intensity,
+                                            color='cyan', alpha=0.3, label='Std Dev', zorder=1)
+            self.ax_time_course.set_title(f"{data_type.capitalize()} vs Time (Channel {channel_index})",
+                                        fontsize=10, color='white')
             self.ax_time_course.set_xlabel("Time (s)", color='white')
             self.ax_time_course.set_ylabel(f"{data_type.capitalize()} (au)", color='white')
             lower_y = np.nanpercentile(intensity_array, lower_percentile)
             upper_y = np.nanpercentile(intensity_array, upper_percentile)
             y_range = upper_y - lower_y
-            self.ax_time_course.set_ylim([lower_y - 0.1 * y_range,
-                                          upper_y + 0.1 * y_range])
+            self.ax_time_course.set_ylim([lower_y - 0.1 * y_range, upper_y + 0.1 * y_range])
             self.ax_time_course.set_xlim([time_points_in_seconds[0], time_points_in_seconds[-1]])
             self.ax_time_course.legend(loc='upper right', fontsize=10, bbox_to_anchor=(1, 1))
         self.ax_time_course.tick_params(axis='x', colors='white')
         self.ax_time_course.tick_params(axis='y', colors='white')
         self.figure_time_course.tight_layout()
         self.canvas_time_course.draw()
-
 
 # =============================================================================
 # =============================================================================
