@@ -218,7 +218,13 @@ Where:
 **Circular Region**: Define a circular region in the center of the mask with adjustable radius
 - Focuses on specific cellular regions
 - Reduces spatial heterogeneity effects
-- Radius parameter (pixels): Size of analysis region
+- Radius parameter (pixels): Size of analysis region. (1–200 pixels, default: 30)
+
+**Entire Image**: Use all pixels from the full field of view
+-	Measures global fluorescence decay
+-	Does not require any segmentation mask
+-	Captures both specimen and background bleaching
+
 
 #### Model Selection Guidelines:
 
