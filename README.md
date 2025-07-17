@@ -185,7 +185,7 @@ microlive/
 4. **Tracking**: Link particles across time frames
 5. **Export**: Save tracking data and visualizations
 
-<img src="docs/tracking_video_fast.gif" alt="Tracking" width="900" />
+<img src="docs/tracking_video_fast.gif" alt="Tracking" width="400" />
 
 ### Colocalization Analysis
 1. **Complete Tracking**: Perform particle tracking on reference channel
@@ -194,7 +194,7 @@ microlive/
 4. **Manual Verification**: Review and refine results manually
 5. **Export Results**: Save quantitative data and visualization matrices
 
-<img src="docs/tracking_visualization_fast.gif" alt="Tracking" width="900" />
+<img src="docs/tracking_visualization_fast.gif" alt="Tracking" width="600" />
 
 
 ### Correlation Analysis
