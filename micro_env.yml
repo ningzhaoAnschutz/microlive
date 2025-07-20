@@ -13,7 +13,7 @@ dependencies:
   - python=3.12.11=h421de30_0
   - readline=8.2=h1a28f6b_0
   - setuptools=78.1.1=py312hca03da5_0
-  - sqlite=3.45.3=h80987f9_0
+  - sqlite=3.50.2=h79febb2_1
   - tk=8.6.14=h6ba3021_1
   - wheel=0.45.1=py312hca03da5_0
   - xz=5.6.4=h80987f9_1
@@ -23,36 +23,35 @@ dependencies:
       - appnope==0.1.4
       - asttokens==3.0.0
       - big-fish==0.6.2
-      - bioio==2.0.0
-      - bioio-base==2.0.0
+      - bioio==3.0.0
+      - bioio-base==3.0.0
       - bioio-lif==1.2.0
       - biopython==1.85
       - brokenaxes==0.6.2
-      - cellpose==4.0.5
+      - cellpose==3.1.0
       - click==8.2.1
       - cloudpickle==3.1.1
       - comm==0.2.2
       - contourpy==1.3.2
       - cycler==0.12.1
-      - dask==2025.5.1
-      - debugpy==1.8.14
+      - dask==2025.7.0
+      - debugpy==1.8.15
       - decorator==5.2.1
-      - distributed==2025.5.1
+      - distributed==2025.7.0
       - dna-features-viewer==3.1.5
       - et-xmlfile==2.0.0
       - executing==2.2.0
       - fastremap==1.14.2
       - filelock==3.18.0
-      - fill-voids==2.1.0
-      - fonttools==4.58.4
+      - fonttools==4.59.0
       - fpdf==1.7.2
-      - fsspec==2025.5.1
+      - fsspec==2025.7.0
       - html2text==2025.4.15
       - imagecodecs==2025.3.30
       - imageio==2.37.0
       - ipykernel==6.29.5
       - ipympl==0.9.7
-      - ipython==9.3.0
+      - ipython==9.4.0
       - ipython-pygments-lexers==1.1.1
       - ipywidgets==8.1.7
       - jedi==0.19.2
@@ -84,12 +83,12 @@ dependencies:
       - opencv-python-headless==4.11.0.86
       - openpyxl==3.1.5
       - packaging==25.0
-      - pandas==2.3.0
+      - pandas==2.3.1
       - parso==0.8.4
       - partd==1.4.2
       - patsy==1.0.1
       - pexpect==4.9.0
-      - pillow==11.2.1
+      - pillow==11.3.0
       - platformdirs==4.3.8
       - prompt-toolkit==3.0.51
       - psutil==7.0.0
@@ -113,10 +112,9 @@ dependencies:
       - readlif==0.6.5
       - roifile==2025.5.10
       - scikit-image==0.23.2
-      - scikit-learn==1.7.0
+      - scikit-learn==1.7.1
       - scipy==1.16.0
       - seaborn==0.13.2
-      - segment-anything==1.0
       - semver==3.0.4
       - six==1.17.0
       - snapgene-reader==0.1.23
@@ -132,16 +130,15 @@ dependencies:
       - torchvision==0.19.1
       - tornado==6.5.1
       - tqdm==4.67.1
-      - trackpy==0.6.4
+      - trackpy==0.7
       - traitlets==5.14.3
-      - typing-extensions==4.14.0
+      - typing-extensions==4.14.1
       - tzdata==2025.2
       - urllib3==2.5.0
       - wcwidth==0.2.13
       - widgetsnbextension==4.0.14
-      - xarray==2025.6.1
+      - xarray==2025.7.1
       - xmltodict==0.14.2
       - xsdata==24.3.1
       - zict==3.0.0
 prefix: /opt/anaconda3/envs/micro
-

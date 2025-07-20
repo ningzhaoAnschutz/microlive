@@ -775,7 +775,7 @@ class GUI(QMainWindow):
         self.display_max_percentile = 99.95
         self.display_min_percentile = 0.1
         self.tracking_min_percentile = 99.95  # self.display_min_percentile
-        self.tracking_max_percentile = 0.1   # self.display_max_percentile
+        self.tracking_max_percentile = 0.05   # self.display_max_percentile
         self.display_sigma = 0.7
         self.low_display_sigma = 0.15
         self.correlation_fit_type = 'linear'
@@ -3153,6 +3153,7 @@ class GUI(QMainWindow):
                 use_maximum_projection=use_maximum_projection,
                 use_fixed_size_for_intensity_calculation=use_fixed_size_for_intensity_calculation,
                 link_using_3d_coordinates=link_using_3d_coordinates,
+                step_size_in_sec=self.time_interval_value,
             ).run()
         except SubnetOversizeException as e:
             QMessageBox.warning(
@@ -3367,7 +3368,8 @@ class GUI(QMainWindow):
             maximum_range_search_pixels=self.maximum_range_search_pixels,
             use_maximum_projection=self.use_maximum_projection,
             use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
-            link_particles=False
+            link_particles=False,
+            step_size_in_sec=self.time_interval_value,
         ).run()
         progress.close()
         # Store tracking results
@@ -3398,7 +3400,8 @@ class GUI(QMainWindow):
                 use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
                 link_particles=False,
                 generate_random_particles=True,
-                number_of_random_particles_trajectories=self.random_points_input.value()
+                number_of_random_particles_trajectories=self.random_points_input.value(),
+                step_size_in_sec=self.time_interval_value,
             )
             rand_list, _ = random_tracking.run()
             self.df_random_spots = rand_list[0] if rand_list else pd.DataFrame()
@@ -3728,7 +3731,8 @@ class GUI(QMainWindow):
                 use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
                 link_particles=True,
                 generate_random_particles=True,
-                number_of_random_particles_trajectories=self.random_points_input.value()
+                number_of_random_particles_trajectories=self.random_points_input.value(),
+                step_size_in_sec=self.time_interval_value,
             )
             random_df_list, _ = random_tracking.run()
             self.df_random_spots = random_df_list[0] if random_df_list else pd.DataFrame()
@@ -4576,7 +4580,7 @@ class GUI(QMainWindow):
                 intensity_arrays[ch] = arr_int[valid_idx]
         step_size_in_sec = (float(self.list_time_intervals[self.selected_image_index])
                             if getattr(self, 'list_time_intervals', None) else 1.0)
-        normalize_g0 = self.normalize_g0_checkbox.isChecked()
+        normalize_g0 = False # self.normalize_g0_checkbox.isChecked()
         start_lag = self.start_lag_input.value()
         index_max = self.index_max_lag_for_fit_input.value()
         use_multi = self.multiTauCheck.isChecked()
@@ -4793,13 +4797,12 @@ class GUI(QMainWindow):
         self.snr_threshold_for_acf.setValue(0.1)
         self.snr_threshold_for_acf.setSingleStep(0.1)
         self.snr_threshold_for_acf.valueChanged.connect(self.update_snr_threshold_for_acf)
-
         right_panel_layout.addRow(QLabel("SNR Threshold for ACF:"), self.snr_threshold_for_acf)
         self.snr_threshold_for_acf_value = self.snr_threshold_for_acf.value()
         # Normalize with G(0) checkbox
-        self.normalize_g0_checkbox = QCheckBox("")
-        self.normalize_g0_checkbox.setChecked(False)
-        right_panel_layout.addRow(QLabel("Normalize:"), self.normalize_g0_checkbox)
+        # self.normalize_g0_checkbox = QCheckBox("")
+        # self.normalize_g0_checkbox.setChecked(False)
+        # right_panel_layout.addRow(QLabel("Normalize:"), self.normalize_g0_checkbox)
         # Correct Baseline checkbox
         self.correct_baseline_checkbox = QCheckBox("")
         self.correct_baseline_checkbox.setChecked(True)
@@ -6993,133 +6996,6 @@ class GUI(QMainWindow):
         self.figure_crops.tight_layout()
         self.canvas_crops.draw()
 
-
-
-    # def display_correlation_plot(self):
-    #     fig = self.figure_correlation
-    #     fig.clear()
-    #     fig.patch.set_facecolor('black')
-    #     for ax in fig.axes:
-    #         fig.delaxes(ax)
-    #     results = getattr(self, 'correlation_results', [])
-    #     if not results:
-    #         ax = fig.add_subplot(111)
-    #         ax.set_facecolor('black')
-    #         ax.axis('off')
-    #         ax.text(
-    #             0.5, 0.5,
-    #             'Press "Compute Correlations" to perform calculations.',
-    #             horizontalalignment='center',
-    #             verticalalignment='center',
-    #             fontsize=12,
-    #             color='white',
-    #             transform=ax.transAxes
-    #         )
-    #         self.canvas_correlation.draw_idle()
-    #         return
-    #     is_multi_auto = (
-    #         len(results) > 1
-    #         and all(r['type'] == 'autocorrelation' for r in results)
-    #     )
-    #     if is_multi_auto:
-    #         ax = fig.add_subplot(111)
-    #         for idx, r in enumerate(results):
-    #             color = list_colors_default[idx % len(list_colors_default)]
-    #             self.plots.plot_autocorrelation(
-    #                 mean_correlation                  = r['mean_corr'],
-    #                 error_correlation                 = r['std_corr'],
-    #                 lags                              = np.array(r['lags']) * r['step_size_in_sec'],
-    #                 time_interval_between_frames_in_seconds = r['step_size_in_sec'],
-    #                 channel_label                     = r['channel'],
-    #                 axes                              = ax,
-    #                 fit_type                          = self.correlation_fit_type,
-    #                 normalize_plot_with_g0            = r.get('normalize_plot_with_g0', False),
-    #                 line_color                        = color,
-    #                 de_correlation_threshold          = self.de_correlation_threshold,
-    #                 start_lag                         = r.get('start_lag', 0),
-    #                 index_max_lag_for_fit             = r.get('index_max_lag_for_fit'),
-    #                 max_lag_index                     = self.max_lag_input.value(),
-    #                 y_min_percentile                  = self.correlation_min_percentile_input.value(),
-    #                 y_max_percentile                  = self.correlation_max_percentile_input.value(),
-    #                 plot_title                        = None,  # title set globally below
-    #             )
-    #         all_vals = np.hstack([
-    #             (
-    #                 (np.array(r['mean_corr']) / np.array(r['mean_corr'])[r['start_lag']])
-    #                 if r.get('normalize_plot_with_g0', False)
-    #                 else np.array(r['mean_corr'])
-    #             )[r['start_lag']:]
-    #             for r in results
-    #         ])
-    #         ymin = np.nanpercentile(all_vals,
-    #                                 self.correlation_min_percentile_input.value())
-    #         ymax = np.nanpercentile(all_vals,
-    #                                 self.correlation_max_percentile_input.value())
-    #         ax.set_ylim(ymin, ymax * 1.1)
-    #         ax.set_facecolor('black')
-    #         ax.tick_params(colors='white', which='both')
-    #         for spine in ax.spines.values():
-    #             spine.set_color('white')
-    #         ax.set_xlabel(r'$\tau$ (s)', color='white')
-    #         ylabel = (r"$G(\tau)/G(0)$"
-    #                 if any(r.get('normalize_plot_with_g0') for r in results)
-    #                 else r"$G(\tau)$")
-    #         ax.set_ylabel(ylabel, color='white')
-    #         ax.set_title('Autocorrelation (all channels)', color='white')
-    #         leg = ax.legend(fontsize=8)
-    #         leg.get_frame().set_facecolor('black')
-    #         leg.get_frame().set_edgecolor('white')
-    #         for txt in leg.get_texts():
-    #             txt.set_color('white')
-    #         ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-    #         fig.tight_layout()
-    #         self.canvas_correlation.draw_idle()
-    #         return
-    #     axes = fig.subplots(len(results), 1, squeeze=False)
-    #     for i, r in enumerate(results):
-    #         ax = axes[i][0]
-    #         if r['type'] == 'autocorrelation':
-    #             color = list_colors_default[r['channel'] % len(list_colors_default)]
-    #             self.plots.plot_autocorrelation(
-    #                 mean_correlation                  = r['mean_corr'],
-    #                 error_correlation                 = r['std_corr'],
-    #                 lags                              = r['lags'],
-    #                 time_interval_between_frames_in_seconds = r['step_size_in_sec'],
-    #                 channel_label                     = r['channel'],
-    #                 axes                              = ax,
-    #                 plot_title                        = f'Autocorrelation Channel {r["channel"]}',
-    #                 fit_type                          = self.correlation_fit_type,
-    #                 normalize_plot_with_g0            = r.get('normalize_plot_with_g0', False),
-    #                 line_color                        = color,
-    #                 de_correlation_threshold          = self.de_correlation_threshold,
-    #                 max_lag_index                     = self.max_lag_input.value(),
-    #                 index_max_lag_for_fit             = r.get('index_max_lag_for_fit'),
-    #                 start_lag                         = r.get('start_lag', 0),
-    #                 y_min_percentile                  = self.correlation_min_percentile_input.value(),
-    #                 y_max_percentile                  = self.correlation_max_percentile_input.value(),
-    #             )
-    #         else:
-    #             self.plots.plot_crosscorrelation(
-    #                 mean_correlation      = r['mean_corr'],
-    #                 error_correlation     = r['std_corr'],
-    #                 lags                  = r['lags'],
-    #                 axes                  = ax,
-    #                 normalize_plot_with_g0= r.get('normalize_plot_with_g0', False),
-    #                 line_color            = 'cyan',
-    #                 max_lag_index         = self.max_lag_input.value(),
-    #                 y_min_percentile      = self.correlation_min_percentile_input.value(),
-    #                 y_max_percentile      = self.correlation_max_percentile_input.value(),
-    #             )
-    #         ax.set_facecolor('black')
-    #         ax.tick_params(colors='white', which='both')
-    #         for spine in ax.spines.values():
-    #             spine.set_color('white')
-    #         ax.xaxis.label.set_color('white')
-    #         ax.yaxis.label.set_color('white')
-    #         ax.title.set_color('white')
-    #         ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-    #     fig.tight_layout()
-    #     self.canvas_correlation.draw_idle()
 
     def display_correlation_plot(self):
         fig = self.figure_correlation

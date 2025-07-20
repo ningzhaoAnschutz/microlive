@@ -3561,8 +3561,11 @@ class ParticleTracking:
         If True, generate random trajectories (i.e. random spot locations that remain constant over time). Default is False.
     number_of_random_particles_trajectories : int or None, optional
         Number of random trajectories to generate. Default is None.
+    step_size_in_sec : float, optional
+        Time step size in seconds for random trajectories. Default is 1.0.
     '''
     def __init__(self, image, channels_spots, list_voxels, channels_cytosol, channels_nucleus,
+                 
                  remove_clusters=False, maximum_spots_cluster=None, min_length_trajectory=10,
                  threshold_for_spot_detection=100, masks=None, memory=0, yx_spot_size_in_px=5, z_spot_size_in_px=2,
                  cluster_radius_nm=None, link_particles=True, use_trackpy=False,
@@ -3570,7 +3573,7 @@ class ParticleTracking:
                  use_maximum_projection=False, separate_clusters_and_spots=False,
                  maximum_range_search_pixels=10, link_using_3d_coordinates=False,
                  neighbor_strategy='KDTree', generate_random_particles=False,
-                 number_of_random_particles_trajectories=None):
+                 number_of_random_particles_trajectories=None,step_size_in_sec=1.0):
 
         if len(image.shape) != 5:
             raise ValueError('The image must have 5 dimensions [T, Z, Y, X, C].')
@@ -3631,6 +3634,7 @@ class ParticleTracking:
             print("Warning: Number of random particles not specified; defaulting to 50.")
             number_of_random_particles_trajectories = 50
         self.number_of_random_particles_trajectories = number_of_random_particles_trajectories
+        self.step_size_in_sec = step_size_in_sec
 
     def run(self):
         # --- RANDOM MODE: Process frame-by-frame for random spot trajectories ---
@@ -3718,7 +3722,6 @@ class ParticleTracking:
                         }
                         rows.append(row)
                     spot_id += 1
-
             df_random = pd.DataFrame(rows, columns=expected_columns)
             # Prepare image and mask for intensity extraction.
             if self.use_maximum_projection:
@@ -3761,6 +3764,9 @@ class ParticleTracking:
             # Create a 'particle' column based on the original 'spot_id'
             if 'spot_id' in df_complete.columns:
                 df_complete['particle'] = pd.factorize(df_complete['spot_id'])[0]
+            
+            # create the 'time' column
+            df_complete['time'] = df_complete['frame'] * self.step_size_in_sec
             return [df_complete], self.image
 
         # --- NORMAL MODE (unchanged) ---
@@ -3796,6 +3802,7 @@ class ParticleTracking:
             )
             dataframes, list_filtered_images = zip(*results)
             df_all = pd.concat(dataframes, ignore_index=True)
+            df_all['time'] = df_all['frame'] * self.step_size_in_sec
             filtered_image_stack = np.zeros_like(self.image)
             for i in range(self.number_time_points):
                 for ch in range(self.number_color_channels):
@@ -3884,6 +3891,7 @@ class ParticleTracking:
                         mask_dfs.append(linked_df)
                     if mask_dfs:
                         df_traj = pd.concat(mask_dfs, ignore_index=True)
+                        #
                     else:
                         df_traj = pd.DataFrame()
                     if (not df_traj.empty) and (self.maximum_spots_cluster is not None):
