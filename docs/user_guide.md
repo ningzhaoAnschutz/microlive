@@ -158,24 +158,23 @@ The photobleaching correction implements three mathematical models to characteri
 The most commonly used model for photobleaching follows first-order kinetics:
 
 ```
-I(t) = I₀ × exp(-t/τ) + C
+I(t) = I₀ × exp(-τ t) + C
 ```
 
 Where:
 - **I(t)**: Intensity at time t
 - **I₀**: Initial amplitude (intensity at t=0)
-- **τ**: Decay time constant (characteristic bleaching time)
+- **τ**: Decay time constant (characteristic bleaching time,units: 1/time)
 - **C**: Background/baseline intensity
 - **t**: Time
 
-**Decay Rate**: k = 1/τ (rate constant, units: 1/time)
 
 #### 2. Double Exponential Decay
 
 For complex systems with multiple fluorophore populations or bleaching mechanisms:
 
 ```
-I(t) = A₁ × exp(-t/τ₁) + A₂ × exp(-t/τ₂) + C
+I(t) = A₁ × exp(-τ₁ t) + A₂ × exp(-τ₂ t) + C
 ```
 
 Where:
