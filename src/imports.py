@@ -66,7 +66,6 @@ from fpdf import FPDF
 from IPython.display import Image as IPImage, display
 import ipywidgets as widgets
 import imageio
-#from cellpose import models, denoise
 import contextlib, io
 _f = io.StringIO()
 with contextlib.redirect_stdout(_f), contextlib.redirect_stderr(_f):

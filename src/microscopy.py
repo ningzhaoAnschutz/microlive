@@ -13,8 +13,8 @@ import glob
 import itertools
 from itertools import compress
 import math
-import multiprocessing
-from joblib import Parallel, delayed
+#import multiprocessing
+from joblib import Parallel, delayed, cpu_count
 import os; from os import listdir; from os.path import isfile, join
 import pathlib
 from pathlib import Path
@@ -75,9 +75,6 @@ import contextlib, io
 _f = io.StringIO()
 with contextlib.redirect_stdout(_f), contextlib.redirect_stderr(_f):
     from cellpose import models, denoise
-#from cellpose import models, denoise
-
-
 ### Matplotlib imports
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -122,11 +119,10 @@ plt.style.use('ggplot')
 font_props = {'size': 16}
 
 
-number_gpus = multiprocessing.cpu_count()
-if number_gpus >1 : # number_gpus
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] =  str(np.random.randint(0,number_gpus,1)[0])        
-
+#number_gpus = multiprocessing.cpu_count()
+# if number_gpus >1 : # number_gpus
+#     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+#     os.environ["CUDA_VISIBLE_DEVICES"] =  str(np.random.randint(0,number_gpus,1)[0])        
 
 # Define a custom green colormap from black to green
 cdict_green = {
@@ -1166,7 +1162,7 @@ class GaussianFilter():
         # Making the values for the filters are odd numbers
         self.video = video
         self.sigma = sigma
-        self.NUMBER_OF_CORES = multiprocessing.cpu_count()
+        self.NUMBER_OF_CORES = cpu_count()
     def apply_filter(self):
         '''
         This method applies high and low bandpass filters to the video.
@@ -3594,7 +3590,7 @@ class ParticleTracking:
         self.min_length_trajectory = min_length_trajectory
         self.memory = memory
         if number_cores is None:
-            self.NUMBER_OF_CORES = multiprocessing.cpu_count()
+            self.NUMBER_OF_CORES = cpu_count()
         else:
             self.NUMBER_OF_CORES = number_cores
 
@@ -3808,32 +3804,175 @@ class ParticleTracking:
                 for ch in range(self.number_color_channels):
                     filtered_image_stack[i, :, :, :, ch] = list_filtered_images[i][ch]
 
+            # def particle_linking(df, search_range=np.linspace(0.5, 5, 5),
+            #                     min_length_trajectory=10, memory=0, pos_columns=['x', 'y', 'z']):
+            #     list_df = []
+            #     quality_metrics = []
+            #     for search_distance in search_range:
+            #         try:
+            #             linked = tp.link(df, search_distance, pos_columns=pos_columns,
+            #                             memory=memory, neighbor_strategy=self.neighbor_strategy)
+            #             filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
+            #             if 'particle' in filtered.columns:
+            #                 num_trajectories = len(filtered['particle'].unique())
+            #                 avg_length = filtered.groupby('particle').size().mean() if num_trajectories > 0 else 0
+            #                 metric = num_trajectories * avg_length
+            #             else:
+            #                 metric = 0
+            #             list_df.append(filtered)
+            #             quality_metrics.append(metric)
+            #         except Exception:
+            #             list_df.append(pd.DataFrame())
+            #             quality_metrics.append(0)
+            #     return list_df[np.argmax(quality_metrics)]
+
+            # def linking_2D(df, search_distance=10, min_length_trajectory=10, memory=0, pos_columns=['x', 'y']):
+            #     linked = tp.link(df, search_distance, pos_columns=pos_columns,
+            #                     memory=memory, neighbor_strategy=self.neighbor_strategy)
+            #     return tp.filter_stubs(linked, threshold=min_length_trajectory)
+            
+
             def particle_linking(df, search_range=np.linspace(0.5, 5, 5),
-                                min_length_trajectory=10, memory=0, pos_columns=['x', 'y', 'z']):
+                    min_length_trajectory=10, memory=0, pos_columns=['x', 'y', 'z']):
                 list_df = []
                 quality_metrics = []
                 for search_distance in search_range:
                     try:
                         linked = tp.link(df, search_distance, pos_columns=pos_columns,
-                                        memory=memory, neighbor_strategy=self.neighbor_strategy)
-                        filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
-                        if 'particle' in filtered.columns:
-                            num_trajectories = len(filtered['particle'].unique())
-                            avg_length = filtered.groupby('particle').size().mean() if num_trajectories > 0 else 0
-                            metric = num_trajectories * avg_length
-                        else:
-                            metric = 0
-                        list_df.append(filtered)
-                        quality_metrics.append(metric)
+                                        memory=memory, neighbor_strategy=self.neighbor_strategy,
+                                        adaptive_stop=0.5, adaptive_step=0.95, )
                     except Exception:
-                        list_df.append(pd.DataFrame())
-                        quality_metrics.append(0)
+                        try:
+                            linked = tp.link(df, search_distance, pos_columns=pos_columns,
+                                            memory=0, neighbor_strategy=self.neighbor_strategy,
+                                        adaptive_stop=0.5, adaptive_step=0.95, )
+                        except Exception:
+                            list_df.append(pd.DataFrame())
+                            quality_metrics.append(0)
+                            continue
+                    filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
+                    if 'particle' in filtered.columns:
+                        num_trajectories = len(filtered['particle'].unique())
+                        avg_length = (filtered.groupby('particle').size().mean()
+                                    if num_trajectories > 0 else 0)
+                        metric = num_trajectories * avg_length
+                    else:
+                        metric = 0
+                    list_df.append(filtered)
+                    quality_metrics.append(metric)
                 return list_df[np.argmax(quality_metrics)]
 
-            def linking_2D(df, search_distance=10, min_length_trajectory=10, memory=0, pos_columns=['x', 'y']):
-                linked = tp.link(df, search_distance, pos_columns=pos_columns,
-                                memory=memory, neighbor_strategy=self.neighbor_strategy)
+
+            def linking_2D(df, search_distance=10, min_length_trajectory=10,
+                        memory=0, pos_columns=['x', 'y']):
+                try:
+                    linked = tp.link(df, search_distance, pos_columns=pos_columns,
+                                    memory=memory, neighbor_strategy=self.neighbor_strategy,
+                                    adaptive_stop=0.5, adaptive_step=0.95)
+                except Exception:
+                    try:
+                        linked = tp.link(df, search_distance, pos_columns=pos_columns,
+                                        memory=0, neighbor_strategy=self.neighbor_strategy,
+                                        adaptive_stop=0.5, adaptive_step=0.95)
+                    except Exception:
+                        return pd.DataFrame()
                 return tp.filter_stubs(linked, threshold=min_length_trajectory)
+
+
+        # def particle_linking(df,
+        #                     search_range: np.ndarray = np.linspace(0.5, 5, 5),
+        #                     min_length_trajectory: int = 10,
+        #                     memory: int = 0,
+        #                     pos_columns: list = ['x', 'y', 'z']):
+        #     """
+        #     Try linking over a sweep of search distances, pick the result
+        #     with the highest (num_trajectories * avg_length) metric.
+        #     Allows a 1-frame gap if memory > 0, else falls back to memory=0.
+        #     """
+        #     list_df = []
+        #     quality_metrics = []
+
+        #     for search_distance in search_range:
+        #         # first attempt with user memory
+        #         try:
+        #             linked = tp.link_df(
+        #                 df,
+        #                 search_distance,
+        #                 memory=memory,
+        #                 pos_columns=pos_columns,
+        #                 neighbor_strategy=self.neighbor_strategy,
+        #                 adaptive_stop=0.5,
+        #                 adaptive_step=0.95,
+        #             )
+        #         except Exception:
+        #             # fallback: no memory
+        #             try:
+        #                 linked = tp.link_df(
+        #                     df,
+        #                     search_distance,
+        #                     memory=0,
+        #                     pos_columns=pos_columns,
+        #                     neighbor_strategy=self.neighbor_strategy,
+        #                     adaptive_stop=0.5,
+        #                     adaptive_step=0.95,
+        #                 )
+        #             except Exception:
+        #                 list_df.append(pd.DataFrame())
+        #                 quality_metrics.append(0)
+        #                 continue
+
+        #         # filter out short tracks
+        #         filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
+
+        #         # compute quality metric
+        #         if 'particle' in filtered:
+        #             num = filtered['particle'].nunique()
+        #             avg_len = filtered.groupby('particle').size().mean() if num > 0 else 0
+        #             metric = num * avg_len
+        #         else:
+        #             metric = 0
+
+        #         list_df.append(filtered)
+        #         quality_metrics.append(metric)
+
+        #     # return the best result
+        #     best_idx = int(np.argmax(quality_metrics))
+        #     return list_df[best_idx]
+
+
+        # def linking_2D(df,
+        #             search_distance: float = 10,
+        #             min_length_trajectory: int = 10,
+        #             memory: int = 0,
+        #             pos_columns: list = ['x', 'y']):
+        #     """
+        #     Single‐distance 2D linking with fallback to memory=0.
+        #     """
+        #     try:
+        #         linked = tp.link_df(
+        #             df,
+        #             search_distance,
+        #             memory=memory,
+        #             pos_columns=pos_columns,
+        #             neighbor_strategy=self.neighbor_strategy,
+        #             adaptive_stop=0.5,
+        #             adaptive_step=0.95,
+        #         )
+        #     except Exception:
+        #         try:
+        #             linked = tp.link_df(
+        #                 df,
+        #                 search_distance,
+        #                 memory=0,
+        #                 pos_columns=pos_columns,
+        #                 neighbor_strategy=self.neighbor_strategy,
+        #                 adaptive_stop=0.5,
+        #                 adaptive_step=0.95,
+        #             )
+        #         except Exception:
+        #             return pd.DataFrame()
+
+        #     return tp.filter_stubs(linked, threshold=min_length_trajectory)
 
             list_dfs_traj = []
             counter = 0

@@ -19,15 +19,17 @@ import numpy as np
 import tifffile
 from pathlib import Path
 from PIL import Image
-import multiprocessing
+#import multiprocessing
 import xml.etree.ElementTree as ET
-NUMBER_OF_CORES = multiprocessing.cpu_count()
+from joblib import Parallel, delayed, cpu_count
+NUMBER_OF_CORES = cpu_count()
 # importing paths
 gui_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(gui_dir, ".."))
 sys.path.insert(0, os.path.join(repo_root, "src"))
 src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
 sys.path.append(str(src_dir))
+
 from imports import *
 # PyQt5 imports
 from PyQt5.QtCore import (
@@ -594,7 +596,7 @@ class Metadata:
                     pass
                 fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
                 fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
-                fd.write('\n    Operative System: ' + sys.platform + '\n')
+                fd.write('\n    Operating System: ' + sys.platform + '\n')
                 fd.write('#' * number_spaces_pound_sign)
                 # General Parameters
                 fd.write('\nGENERAL INFORMATION')
@@ -1487,15 +1489,17 @@ class GUI(QMainWindow):
             first_path = file_paths[0]
             first_item = self.image_tree.topLevelItem(0)
             self.image_tree.setCurrentItem(first_item)
-            if first_path.lower().endswith('.lif'):
-                self.load_lif_image(first_path, 0)
-            else:
-                self.load_tif_image(first_path)
+            # if first_path.lower().endswith('.lif'):
+            #     self.load_lif_image(first_path, 0)
+            # else:
+            #     self.load_tif_image(first_path)
 
     def on_tree_item_clicked(self, item, column):
         info = item.data(0, Qt.UserRole) or {}
         if info.get('tif'):
             # Load as single-scene TIFF
+            if getattr(self, 'data_folder_path', None) == info['file']:
+                return
             self.load_tif_image(info['file'])
         elif info.get('index') is not None:
             # Load .lif scene by index
@@ -1668,6 +1672,7 @@ class GUI(QMainWindow):
         self.reset_display_tab()
         self.reset_segmentation_tab()
         self.reset_photobleaching_tab()
+        self.reset_tracking_tab() 
         if hasattr(self, 'min_percentile_slider_tracking'):
             self.update_tracking_sliders()
         self.reset_distribution_tab()
@@ -3153,7 +3158,7 @@ class GUI(QMainWindow):
                 use_maximum_projection=use_maximum_projection,
                 use_fixed_size_for_intensity_calculation=use_fixed_size_for_intensity_calculation,
                 link_using_3d_coordinates=link_using_3d_coordinates,
-                step_size_in_sec=self.time_interval_value,
+                step_size_in_sec=float(self.time_interval_value),
             ).run()
         except SubnetOversizeException as e:
             QMessageBox.warning(
@@ -3369,7 +3374,7 @@ class GUI(QMainWindow):
             use_maximum_projection=self.use_maximum_projection,
             use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
             link_particles=False,
-            step_size_in_sec=self.time_interval_value,
+            step_size_in_sec=float(self.time_interval_value),
         ).run()
         progress.close()
         # Store tracking results
@@ -3401,7 +3406,7 @@ class GUI(QMainWindow):
                 link_particles=False,
                 generate_random_particles=True,
                 number_of_random_particles_trajectories=self.random_points_input.value(),
-                step_size_in_sec=self.time_interval_value,
+                step_size_in_sec=float(self.time_interval_value),
             )
             rand_list, _ = random_tracking.run()
             self.df_random_spots = rand_list[0] if rand_list else pd.DataFrame()
@@ -3732,7 +3737,7 @@ class GUI(QMainWindow):
                 link_particles=True,
                 generate_random_particles=True,
                 number_of_random_particles_trajectories=self.random_points_input.value(),
-                step_size_in_sec=self.time_interval_value,
+                step_size_in_sec=self(self.time_interval_value),
             )
             random_df_list, _ = random_tracking.run()
             self.df_random_spots = random_df_list[0] if random_df_list else pd.DataFrame()
@@ -3778,7 +3783,7 @@ class GUI(QMainWindow):
                     pm = mi.ParticleMotion(
                         self.df_tracking,
                         microns_per_pixel=self.voxel_yx_nm / 1000.0,    # convert nm to microns
-                        step_size_in_sec=self.time_interval_value,      # time interval between frames (seconds)
+                        step_size_in_sec=float(self.time_interval_value),      # time interval between frames (seconds)
                         show_plot=False, 
                         remove_drift=False
                     )
@@ -4001,7 +4006,7 @@ class GUI(QMainWindow):
         self.detect_spots_button.clicked.connect(self.detect_spots_in_current_frame)
         spot_det_track_layout.addWidget(self.detect_spots_button)
         # Button for detecting spots in all frames, renamed "All Frames"
-        self.detect_all_spots_button = QPushButton("All Frames", self)
+        self.detect_all_spots_button = QPushButton("Detection", self)
         self.detect_all_spots_button.clicked.connect(self.detect_spots_all_frames)
         spot_det_track_layout.addWidget(self.detect_all_spots_button)
         # Button for performing particle tracking, renamed "Tracking"
@@ -4573,11 +4578,25 @@ class GUI(QMainWindow):
                 except ValueError as e:
                     QMessageBox.warning(self, "Correlation Error", str(e))
                     return
-
                 # compute mean SNR per trajectory, then filter
+                #mean_snr = np.nanmean(arr_snr, axis=1)
+                #valid_idx = np.where(mean_snr >= threshold)[0]
+                #intensity_arrays[ch] = arr_int[valid_idx]
                 mean_snr = np.nanmean(arr_snr, axis=1)
                 valid_idx = np.where(mean_snr >= threshold)[0]
+                valid_idx = np.array(valid_idx, dtype=int)
+                if valid_idx.size > 0:
+                    arr_len = arr_int.shape[0]
+                    invalid = valid_idx[(valid_idx < 0) | (valid_idx >= arr_len)]
+                    if invalid.size > 0:
+                        bad = int(invalid[0])
+                        raise IndexError(
+                            f"Index {bad} out of bounds for intensity array "
+                            f"of length {arr_len} (channel {ch}). "
+                            "Please adjust your SNR threshold or data filtering."
+                        )
                 intensity_arrays[ch] = arr_int[valid_idx]
+
         step_size_in_sec = (float(self.list_time_intervals[self.selected_image_index])
                             if getattr(self, 'list_time_intervals', None) else 1.0)
         normalize_g0 = False # self.normalize_g0_checkbox.isChecked()
@@ -6040,7 +6059,7 @@ class GUI(QMainWindow):
 
     def _export_crops_image(self, file_path):
         try:
-            self.figure_crops.savefig(file_path, dpi=300)
+            self.figure_crops.savefig(file_path, dpi=600)
         except Exception as e:
             print(f"Failed to export crops image: {e}")
 
@@ -6271,19 +6290,19 @@ class GUI(QMainWindow):
         if not file_path:
             return
         # Parse ignore-frames list from the line edit
-        ignore_text = self.ignore_frames_line_edit.text()
-        ignore_frames = []
-        if ignore_text:
-            try:
-                ignore_frames = [int(x.strip()) for x in ignore_text.split(",") if x.strip().isdigit()]
-            except Exception:
-                QMessageBox.warning(self, "Input Error", "Invalid ignore frames format. Please provide comma-separated integers.")
-                return
+        #ignore_text = self.ignore_frames_line_edit.text()
+        #ignore_frames = []
+        # if ignore_text:
+        #     try:
+        #         ignore_frames = [int(x.strip()) for x in ignore_text.split(",") if x.strip().isdigit()]
+        #     except Exception:
+        #         QMessageBox.warning(self, "Input Error", "Invalid ignore frames format. Please provide comma-separated integers.")
+        #         return
         frames = []
         total_frames = self.image_stack.shape[0]
         for i in range(total_frames):
-            if i in ignore_frames:
-                continue
+            # if i in ignore_frames:
+            #     continue
             # Update the current frame and let plot_image() redraw everything (colormaps, segmentation overlay, etc.)
             self.current_frame = i
             self.plot_image()
@@ -6608,7 +6627,7 @@ class GUI(QMainWindow):
         if not file_path:
             return
         try:
-            self.figure_crops.savefig(file_path, dpi=300)
+            self.figure_crops.savefig(file_path, dpi=600)
             QMessageBox.information(self, "Success", f"Crops image exported successfully to:\n{file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")

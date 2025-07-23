@@ -621,7 +621,7 @@ class SpotDetection:
     5. Intensity measurements with background correction
     6. Quality metric calculation (SNR, PSF fitting)
     
-    This corresponds to the "Single Frame" and "All Frames" buttons
+    This corresponds to the "Single Frame" and "Detection" buttons
     in the Tracking tab GUI.
     """
     

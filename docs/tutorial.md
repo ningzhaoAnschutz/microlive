@@ -318,7 +318,7 @@ Detect particles and link them into trajectories for dynamic analysis.
    - Adjust threshold if too few/many detections
 
 2. **Detect All Frames**
-   - Click "All Frames" for complete detection
+   - Click "Detection" for complete detection
    - Progress dialog shows processing status
    - Review detection overlay across time
 
