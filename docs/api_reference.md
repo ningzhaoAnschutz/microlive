@@ -121,7 +121,6 @@ index_max_lag_for_fit: int       # Maximum lag for fitting
 ```python
 photobleaching_calculated: bool  # Correction applied flag
 photobleaching_mode: str         # "inside_cell", "outside_cell", "use_circular_region"
-photobleaching_model: str        # "exponential", "linear", "double_exponential"
 photobleaching_radius: int       # Circular region radius (default: 20)
 photobleaching_number_removed_initial_points: int # Excluded initial points
 photobleaching_data: dict        # Photobleaching analysis results

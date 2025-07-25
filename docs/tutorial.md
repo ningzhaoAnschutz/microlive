@@ -206,8 +206,6 @@ Correct for photobleaching artifacts that affect quantitative fluorescence measu
    - **Remove Time Points**: Exclude initial frames if needed (typically 0-5)
    - **Model Type**: Choose appropriate decay model
      - **Exponential**: Most common, single exponential decay
-     - **Linear**: For approximately linear bleaching
-     - **Double Exponential**: Two-component decay (complex systems)
 
 ### Step 3: Execute Correction
 

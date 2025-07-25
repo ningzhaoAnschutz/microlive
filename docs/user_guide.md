@@ -168,38 +168,6 @@ Where:
 - **C**: Background/baseline intensity
 - **t**: Time
 
-
-#### 2. Double Exponential Decay
-
-For complex systems with multiple fluorophore populations or bleaching mechanisms:
-
-```
-I(t) = A₁ × exp(-τ₁ t) + A₂ × exp(-τ₂ t) + C
-```
-
-Where:
-- **A₁, A₂**: Amplitudes of fast and slow components
-- **τ₁, τ₂**: Fast and slow decay time constants (τ₁ < τ₂)
-- **C**: Baseline intensity
-
-**Component Analysis**:
-- Fast component: A₁/(A₁ + A₂) × 100% (percentage)
-- Slow component: A₂/(A₁ + A₂) × 100% (percentage)
-
-#### 3. Linear Decay
-
-For cases where bleaching appears linear over the observation period:
-
-```
-I(t) = I₀ - k × t + C
-```
-
-Where:
-- **I₀**: Initial intensity
-- **k**: Linear decay rate (intensity units/time)
-- **C**: Baseline intensity
-- **t**: Time
-- **b**: Is the intercept. **b** = **I₀** + **C**
 ### Correction Methods
 
 #### Region Selection:
