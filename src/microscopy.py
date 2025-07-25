@@ -57,7 +57,7 @@ from skimage.feature import peak_local_max, blob_log
 
 ### Scipy imports
 from scipy import signal, ndimage
-from scipy.ndimage import gaussian_filter, binary_dilation
+from scipy.ndimage import gaussian_filter, binary_dilation, gaussian_filter1d
 from scipy.optimize import curve_fit
 #import scipy.stats as stats
 from scipy.spatial.distance import cdist
@@ -293,6 +293,8 @@ class Banner:
             t   = self.text_lines[i]  if i < len(self.text_lines)  else ""
             img = self.image_lines[i] if i < len(self.image_lines) else ""
             print(t.ljust(text_width) + self.padding + img)
+
+
 class Photobleaching:
     def __init__(
         self,
@@ -302,11 +304,7 @@ class Photobleaching:
         mode='inside_cell',
         precalulated_list_decay_rates=None,
         plot_name=None,
-        number_removed_initial_points=None,
         radius=50,
-        using_gui=False,
-        model_type='exponential',  # "exponential", "double_exponential", or "linear"
-        tail_weight_factor=10.0,     # how much extra weight we give the last points
         time_interval_seconds = None,
     ):
         
@@ -316,65 +314,33 @@ class Photobleaching:
             )
         if mode == 'outside_cell' and mask_YX is None:
             raise ValueError("When mode='outside_cell', mask_YX must be provided.")
-        
-        #if mode not in ['inside_cell', 'outside_cell', 'use_circular_region']:
-        #    raise ValueError("mode must be 'inside_cell','outside_cell','use_circular_region'")
-        #if mode == 'outside_cell' and mask_YX is None:
-        #    raise ValueError("When mode='outside_cell', mask_YX must be provided.")
 
         # If entire_image mode, ignore any mask and use full image
-        if mode == 'entire_image':  # **// NEW**
-            mask_YX = None         # **// NEW** (force using full image as mask)
+        if mode == 'entire_image':  
+            mask_YX = None      
         
         if time_interval_seconds is not None:
             self.time_interval_seconds = float(time_interval_seconds)
         else:
-            self.time_per_frame = 1.0
+            self.time_interval_seconds = 1.0
         self.image_TZYXC = image_TZYXC
         self.show_plot = show_plot
         self.mode = mode
         self.precalculated_list_decay_rates = precalulated_list_decay_rates
         self.plot_name = plot_name
-        self.number_removed_initial_points = number_removed_initial_points
         self.radius = radius
-        self.using_gui = using_gui
-        self.model_type = model_type.lower()
-        self.tail_weight_factor = tail_weight_factor  # how strongly to weight the last frames
-
-        if self.model_type not in ['exponential','double_exponential','linear']:
-            raise ValueError("model_type must be 'exponential', 'double_exponential', or 'linear'.")
-
         if mask_YX is not None:
             self.mask_YX = (mask_YX > 0)
             self.user_provided_mask = True
         else:
-            # By default, use the entire field of view
             self.mask_YX = np.ones((image_TZYXC.shape[2], image_TZYXC.shape[3]), dtype=bool)
             self.user_provided_mask = False
-
-
-
+    
     def calculate_photobleaching(self):
         """
-        Fits one of three models with an added baseline:
-          - Single Exp:    y(t) = baseline + A  * exp(-k * t)
-          - Double Exp:    y(t) = baseline + A1 * exp(-k1 * t) + A2 * exp(-k2 * t)
-          - Linear:        y(t) = baseline + intercept + slope * t
-
-        We give extra weight to the tail of the time series by passing a custom `sigma` to curve_fit.
+        Fits a simple exponential decay model: I(t) = I0 * exp(-k * t)
+        Uses log-linear fitting exactly like the working reference code.
         """
-        # Force a new random seed so that each run tries new random guesses
-        random.seed(None)
-
-        def single_exponential_baseline(t, A, k, baseline):
-            return baseline + A * np.exp(-k * t)
-
-        def double_exponential_baseline(t, A1, k1, A2, k2, baseline):
-            return baseline + A1*np.exp(-k1*t) + A2*np.exp(-k2*t)
-
-        def linear_baseline(t, slope, intercept, baseline):
-            return baseline + intercept + slope * t
-
         def create_circular_mask(h, w, center=None, radius=None):
             if center is None:
                 center = (w // 2, h // 2)
@@ -383,207 +349,6 @@ class Photobleaching:
             Y, X = np.ogrid[:h, :w]
             dist = np.sqrt((X - center[0]) ** 2 + (Y - center[1]) ** 2)
             return dist <= radius
-
-        def multi_start_single_exp_baseline(t, y_norm, n_starts=20):
-            best_params = (1.0, 0.01, 0.0)
-            best_loss = np.inf
-
-            # Build a weighting array so tail has more weight:
-            # from 1 up to self.tail_weight_factor in the last frame
-            N = len(t)
-            if N < 2:
-                return best_params
-            weights = np.linspace(1.0, self.tail_weight_factor, N)
-            sigma_array = 1.0 / weights
-
-            def _model(tt, A, k, baseline):
-                return single_exponential_baseline(tt, A, k, baseline)
-
-            def loss(p):
-                return np.sum(((y_norm - _model(t, *p)) / sigma_array)**2)
-
-            # 1) baseline guess from last points
-            baseline_guess = np.mean(y_norm[-5:]) if len(y_norm) >= 5 else y_norm[-1]
-            # 2) A guess
-            A_guess = y_norm[0] - baseline_guess
-            if A_guess < 0:
-                A_guess = 0.3
-            # 3) k guess
-            k_guess = 0.01
-            log_y = np.log(np.clip(y_norm - baseline_guess, 1e-9, None))
-            valid = np.isfinite(log_y)
-            if np.sum(valid) >= 2:
-                slope_lr, _, _, _, _ = linregress(t[valid], log_y[valid])
-                k_guess = max(1e-5, -slope_lr)
-
-            # attempt a direct fit
-            try:
-                popt, _ = curve_fit(
-                    _model, t, y_norm,
-                    p0=[A_guess, k_guess, baseline_guess],
-                    bounds=([0, 1e-6, baseline_guess], [1-baseline_guess, 2, 1]),
-                    sigma=sigma_array,
-                    absolute_sigma=False,
-                    maxfev=20000
-                )
-                c_loss = loss(popt)
-                if c_loss < best_loss:
-                    best_loss = c_loss
-                    best_params = tuple(popt)
-            except:
-                pass
-
-            # random multi-start
-            for _ in range(n_starts):
-                A_init = random.uniform(0, 2)
-                k_init = random.uniform(1e-5, 2)
-                b_init = random.uniform(0, 1)
-                guess = [A_init, k_init, b_init]
-                try:
-                    popt, _ = curve_fit(
-                        _model, t, y_norm,
-                        p0=guess,
-                        bounds=([0, 1e-6, baseline_guess], [1-baseline_guess, 2, 1]),
-                        sigma=sigma_array,
-                        absolute_sigma=False,
-                        maxfev=20000
-                    )
-                    c_loss = loss(popt)
-                    if c_loss < best_loss:
-                        best_loss = c_loss
-                        best_params = tuple(popt)
-                except:
-                    pass
-
-            return best_params
-
-        def multi_start_double_exp_baseline(t, y_norm, n_starts=20):
-            best_params = (0.5, 0.01, 0.3, 0.005, 0.0)
-            best_loss = np.inf
-            # weighting array
-            N = len(t)
-            if N < 2:
-                return best_params
-            weights = np.linspace(1.0, self.tail_weight_factor, N)
-            sigma_array = 1.0 / weights
-            def _model(tt, A1, k1, A2, k2, bline):
-                return double_exponential_baseline(tt, A1, k1, A2, k2, bline)
-            def loss(p):
-                return np.sum(((y_norm - _model(t, *p)) / sigma_array)**2)
-            baseline_guess = np.mean(y_norm[-5:]) if len(y_norm) >= 5 else y_norm[-1]
-            total_amp = y_norm[0] - baseline_guess
-            if total_amp < 0:
-                total_amp = 0.3
-            A1_guess = 0.6 * total_amp
-            A2_guess = 0.4 * total_amp
-            k1_guess, k2_guess = 0.02, 0.005
-            # direct fit
-            try:
-                popt, _ = curve_fit(
-                    _model, t, y_norm,
-                    p0=[A1_guess, k1_guess, A2_guess, k2_guess, baseline_guess],
-                    bounds=([0, 1e-6, 0, 1e-6, baseline_guess], [1-baseline_guess, 2, 1, 2, 1]),
-                    sigma=sigma_array,
-                    absolute_sigma=False,
-                    maxfev=30000
-                )
-                c_loss = loss(popt)
-                if c_loss < best_loss:
-                    best_loss = c_loss
-                    best_params = tuple(popt)
-            except:
-                pass
-
-            # random multi-start
-            for _ in range(n_starts):
-                b_init = random.uniform(0, 1)
-                A1_init = random.uniform(0, 2)
-                A2_init = random.uniform(0, 2)
-                k1_init = random.uniform(1e-5, 2)
-                k2_init = random.uniform(1e-5, 2)
-                guess = [A1_init, k1_init, A2_init, k2_init, b_init]
-
-                try:
-                    popt, _ = curve_fit(
-                        _model, t, y_norm,
-                        p0=guess,
-                        bounds=([0, 1e-6, 0, 1e-6, baseline_guess], [1-baseline_guess, 2, 1, 2, 1]),
-                        sigma=sigma_array,
-                        absolute_sigma=False,
-                        maxfev=30000
-                    )
-                    c_loss = loss(popt)
-                    if c_loss < best_loss:
-                        best_loss = c_loss
-                        best_params = tuple(popt)
-                except:
-                    pass
-
-            return best_params
-        def multi_start_linear_baseline(t, y_norm, n_starts=20):
-            best_params = (0.0, 0.0, 0.0)
-            best_loss = np.inf
-
-            # weighting array
-            N = len(t)
-            if N < 2:
-                return best_params
-            weights = np.linspace(1.0, self.tail_weight_factor, N)
-            sigma_array = 1.0 / weights
-
-            def _model(tt, slope, intercept, bline):
-                return linear_baseline(tt, slope, intercept, bline)
-
-            def loss(p):
-                return np.sum(((y_norm - _model(t, *p)) / sigma_array)**2)
-
-            baseline_guess = np.mean(y_norm[-5:]) if len(y_norm) >= 5 else y_norm[-1]
-            slope_guess = (y_norm[-1] - y_norm[0]) / max(1, (len(t)-1))
-            intercept_guess = y_norm[0] - baseline_guess
-            if intercept_guess < 0:
-                intercept_guess = 0.1
-
-            # direct guess
-            try:
-                popt, _ = curve_fit(
-                    _model, t, y_norm,
-                    p0=[slope_guess, intercept_guess, baseline_guess],
-                    bounds=([-1, 0, baseline_guess], [1-baseline_guess, 2, 1]),
-                    sigma=sigma_array,
-                    absolute_sigma=False,
-                    maxfev=10000
-                )
-                c_loss = loss(popt)
-                if c_loss < best_loss:
-                    best_loss = c_loss
-                    best_params = tuple(popt)
-            except:
-                pass
-
-            # random multi-start
-            for _ in range(n_starts):
-                slope_init = random.uniform(-1, 1)
-                intercept_init = random.uniform(0, 2)
-                b_init = random.uniform(0, 1)
-                guess = [slope_init, intercept_init, b_init]
-                try:
-                    popt, _ = curve_fit(
-                        _model, t, y_norm,
-                        p0=guess,
-                        bounds=([-1, 0, baseline_guess], [1-baseline_guess, 2, 1]),
-                        sigma=sigma_array,
-                        absolute_sigma=False,
-                        maxfev=10000
-                    )
-                    c_loss = loss(popt)
-                    if c_loss < best_loss:
-                        best_loss = c_loss
-                        best_params = tuple(popt)
-                except:
-                    pass
-
-            return best_params
-        
         h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
         if self.mode == 'use_circular_region':
             if self.user_provided_mask and self.mask_YX.any():
@@ -599,7 +364,6 @@ class Photobleaching:
             mask = ~self.mask_YX
         elif self.mode == 'entire_image': 
             mask = np.ones((h, w), dtype=bool)
-
         self.mask = mask
         T, Z, Y, X, C = self.image_TZYXC.shape
         mean_intensities = np.zeros((T, C), dtype=np.float64)
@@ -609,112 +373,54 @@ class Photobleaching:
                 stack_ch = self.image_TZYXC[i, :, :, :, ch]
                 max_proj = np.max(stack_ch, axis=0)
                 masked_pixels = max_proj[mask]
+                masked_pixels = masked_pixels[masked_pixels != 0]
                 if masked_pixels.size > 0:
                     mean_intensities[i, ch] = np.mean(masked_pixels)
                     err_intensities[i, ch] = np.std(masked_pixels)
         self.mean_intensities = mean_intensities
-        self.err_intensities = err_intensities
-        start_idx = self.number_removed_initial_points or 0
-        t_all = np.arange(T, dtype=float) * self.time_interval_seconds
-        t_fit = t_all[start_idx:]
+        self.err_intensities = err_intensities/ np.sqrt(np.sum(mask))  # Standard error of the mean
+        time_array = np.arange(T, dtype=float) * self.time_interval_seconds
         params = []
-        list_fits = []
-        list_norm_data = []
-
         for ch in range(C):
-            data = mean_intensities[start_idx:, ch]
-            # Check if photobleaching correction is not necessary:
-            # If the intensity decreases less than 5% overall OR the average difference is non-negative.
-            if (data[0] - data[-1]) / data[0] < 0.05 or np.mean(np.diff(data)) >= 0:
-                # Use flat parameters for no correction.
-                if self.model_type == 'exponential':
-                    params.extend([0.0, 0.01, 1.0])
-                    flat_fit = np.ones_like(data)
-                elif self.model_type == 'double_exponential':
-                    params.extend([0.0, 0.01, 0.0, 0.01, 1.0])
-                    flat_fit = np.ones_like(data)
-                else:  # linear model
-                    params.extend([0.0, 0.0, 1.0])
-                    flat_fit = np.ones_like(data)
-                list_fits.append(flat_fit)
-                list_norm_data.append(np.ones_like(data))
-                try:
-                    QMessageBox.warning(None, "Photobleaching Correction",
-                        f"Photobleaching correction was not necessary for channel {ch}. Correction not applied.")
-                except Exception as e:
-                    print(f"Warning: Photobleaching correction was not necessary for channel {ch}. Correction not applied.")
+            raw_intensities = mean_intensities[:, ch]
+            if len(raw_intensities) < 2:
+                params.extend([0.0, 0.01])  # [k_fit, I0_fit]
+                print(f"Warning: Not enough data for channel {ch}. No correction applied.")
                 continue
-
-            if len(data) < 2:
-                # If no data or only 1 point => trivial guess
-                if self.model_type == 'exponential':
-                    params.extend([1.0, 0.01, 0.0])
-                elif self.model_type == 'double_exponential':
-                    params.extend([0.5, 0.01, 0.3, 0.005, 0.0])
-                else:
-                    params.extend([0.0, 1.0, 0.0])
-                list_fits.append(np.zeros_like(data))
-                list_norm_data.append(np.zeros_like(data))
+            intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / raw_intensities[0]
+            if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
+                params.extend([0.0, raw_intensities[0]])  # [k_fit=0, I0_fit=initial_intensity]
+                print(f"Warning: Photobleaching correction not necessary for channel {ch}. No correction applied.")
                 continue
-
-            denom0 = data[0] if data[0] != 0 else 1e-3
-            y_norm = data / denom0
-            list_norm_data.append(y_norm)
-
-            if self.model_type == 'exponential':
-                A_, k_, b_ = multi_start_single_exp_baseline(t_fit, y_norm, n_starts=20)
-                params.extend([A_, k_, b_])
-                y_fit = b_ + A_ * np.exp(-k_ * t_fit)
-                list_fits.append(y_fit)
-
-            elif self.model_type == 'double_exponential':
-                A1_, k1_, A2_, k2_, b_ = multi_start_double_exp_baseline(t_fit, y_norm, n_starts=20)
-                params.extend([A1_, k1_, A2_, k2_, b_])
-                y_fit = b_ + A1_ * np.exp(-k1_ * t_fit) + A2_ * np.exp(-k2_ * t_fit)
-                list_fits.append(y_fit)
-            else:
-                slope_, intercept_, b_ = multi_start_linear_baseline(t_fit, y_norm, n_starts=20)
-                params.extend([slope_, intercept_, b_])
-                y_fit = b_ + intercept_ + slope_ * t_fit
-                list_fits.append(y_fit)
+            eps = 1e-9
+            log_int = np.log(raw_intensities + eps)
+            slope, intercept = np.polyfit(time_array, log_int, 1)
+            k_fit = -slope
+            I0_fit = np.exp(intercept)
+            params.extend([k_fit, I0_fit])
         if self.show_plot or (self.plot_name is not None):
-            fig, axes = plt.subplots(1, C, figsize=(5*C,5))
+            fig, axes = plt.subplots(1, C, figsize=(5*C, 5))
             if C == 1:
                 axes = [axes]
-
             for ch in range(C):
                 ax = axes[ch]
-                ax.plot(list_norm_data[ch], 'o', color='gray', label='Data')
-                ax.plot(list_fits[ch], '-', color='blue', label='Fit')
-                ax.set_xlabel('Frame')
-                ax.set_ylabel('Normalized Intensity')
-
-                if self.model_type == 'exponential':
-                    i0 = 3*ch
-                    A_, k_, b_ = params[i0], params[i0+1], params[i0+2]
-                    ax.set_title(f"Exp(w/baseline) ch={ch}\nA={A_:.2f}, k={k_:.3f}, b={b_:.2f}")
-                elif self.model_type == 'double_exponential':
-                    i0 = 5*ch
-                    A1_, k1_, A2_, k2_, b_ = params[i0], params[i0+1], params[i0+2], params[i0+3], params[i0+4]
-                    ax.set_title(
-                        f"DoubleExp(w/baseline) ch={ch}\n"
-                        f"A1={A1_:.2f},k1={k1_:.3f}, A2={A2_:.2f},k2={k2_:.3f}, b={b_:.2f}"
-                    )
-                else:
-                    i0 = 3*ch
-                    s_, i_, b_ = params[i0], params[i0+1], params[i0+2]
-                    ax.set_title(f"Linear(w/baseline) ch={ch}\nslope={s_:.3f}, int={i_:.2f}, b={b_:.2f}")
-
+                raw_data = mean_intensities[:, ch]
+                k_fit, I0_fit = params[2*ch], params[2*ch+1]
+                fitted_curve = I0_fit * np.exp(-k_fit * time_array)
+                ax.plot(time_array, raw_data, 'o', color='gray', label='Raw Data')
+                ax.plot(time_array, fitted_curve, '-', color='blue', label='Exponential Fit')
+                ax.set_xlabel('Time (s)')
+                ax.set_ylabel('Intensity')
+                ax.set_title(f"Exponential Fit ch={ch}\nI0={I0_fit:.2f}, k={k_fit:.4f}")
                 ax.legend()
-
+            
             plt.tight_layout()
             if self.plot_name is not None:
                 plt.savefig(self.plot_name)
             if self.show_plot:
                 plt.show()
-
         return params
-    
+
     def apply_photobleaching_correction(self):
         """
         Applies photobleaching correction normalized to the initial intensity (t=0).
@@ -724,7 +430,7 @@ class Photobleaching:
         T, Z, Y, X, C = self.image_TZYXC.shape
         corrected_image = self.image_TZYXC.astype(np.float32).copy()
 
-        start_idx = self.number_removed_initial_points or 0
+        start_idx = 0 # self.number_removed_initial_points or 0
         time_array = np.arange(T, dtype=float) * self.time_interval_seconds
 
         for ch in range(C):
@@ -732,12 +438,10 @@ class Photobleaching:
             if hasattr(self, 'mean_intensities'):
                 final_intensity = self.mean_intensities[-1, ch]
             else:
-                # If mean intensities not already calculated, compute it for final frame
-                # Ensure mask is defined (use entire field if no mask provided)
+                # Calculate final intensity if not available
                 if not hasattr(self, 'mask'):
                     h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
                     if self.mode == 'use_circular_region':
-                        # Create circular mask centered at cell or image center
                         if self.user_provided_mask and self.mask_YX.any():
                             cy, cx = np.mean(np.argwhere(self.mask_YX), axis=0).astype(int)
                         else:
@@ -752,89 +456,54 @@ class Photobleaching:
                     elif self.mode == 'entire_image':
                         mask = np.ones((h, w), dtype=bool)
                     self.mask = mask
-                # Calculate mean intensity of the final frame within the mask
-                final_frame = self.image_TZYXC[-1, :, :, :, ch]  # shape (Z, Y, X)
-                max_proj = np.max(final_frame, axis=0)            # max projection across Z
-                masked_pixels = max_proj[self.mask]               # apply mask
+                final_frame = self.image_TZYXC[-1, :, :, :, ch]
+                max_proj = np.max(final_frame, axis=0)
+                masked_pixels = max_proj[self.mask]
                 final_intensity = np.mean(masked_pixels) if masked_pixels.size > 0 else 0.0
 
             # **Skip correction if final intensity is below threshold (100)**
-            if final_intensity < 100:
+            if final_intensity < 10:
                 try:
                     QMessageBox.warning(None, "Photobleaching Correction",
                         f"Photobleaching correction skipped for channel {ch} "
                         f"(final intensity {final_intensity:.2f} < 100).")
                 except Exception:
                     print(f"Warning: Photobleaching correction skipped for channel {ch} "
-                          f"(final intensity {final_intensity:.2f} < 100).")
-                # Leave this channel unchanged and continue to the next channel
-                continue
-
-            # Apply photobleaching correction for this channel if above threshold
-            if self.model_type == 'exponential':
-                # single‐exp model (params: A, k, b)
-                if len(params) != 3 * C:
-                    raise ValueError("Expect 3*C parameters for single-exp model.")
-                A_, k_, b_ = params[3*ch:3*ch+3]
-                # (I0 would be b_ + A_, but here we directly use normalization factor 1/model_val)
+                        f"(final intensity {final_intensity:.2f} < 100).")
+                continue            
+            if hasattr(self, 'mean_intensities'):
+                raw_intensities = self.mean_intensities[:, ch]
+            else:
+                raw_intensities = np.zeros(T)
                 for i in range(T):
-                    dt = time_array[i] - start_idx * self.time_interval_seconds
-                    dt = max(dt, 0.0)
-                    model_val = b_ + A_ * np.exp(-k_ * dt)
-                    model_val = max(model_val, 1e-10)
-                    corrected_image[i, ..., ch] *= (1.0 / model_val)
-
-            elif self.model_type == 'double_exponential':
-                # double‐exp model (params: A1, k1, A2, k2, b)
-                if len(params) != 5 * C:
-                    raise ValueError("Expect 5*C parameters for double-exp model.")
-                A1_, k1_, A2_, k2_, b_ = params[5*ch:5*ch+5]
-                for i in range(T):
-                    dt = time_array[i] - start_idx * self.time_interval_seconds
-                    dt = max(dt, 0.0)
-                    model_val = (b_ 
-                                 + A1_ * np.exp(-k1_ * dt) 
-                                 + A2_ * np.exp(-k2_ * dt))
-                    model_val = max(model_val, 1e-10)
-                    corrected_image[i, ..., ch] *= (1.0 / model_val)
-
-            else:  # linear model (params: slope, intercept, b)
-                if len(params) != 3 * C:
-                    raise ValueError("Expect 3*C parameters for linear model.")
-                slope, intercept, b_ = params[3*ch:3*ch+3]
-                for i in range(T):
-                    dt = time_array[i] - start_idx * self.time_interval_seconds
-                    dt = max(dt, 0.0)
-                    model_val = b_ + intercept + slope * dt
-                    model_val = max(model_val, 1e-10)
-                    corrected_image[i, ..., ch] *= (1.0 / model_val)
-        
-        # Recompute per-frame, per-channel means & errors for the corrected image
-        # mean_intensities_corr = np.zeros((T, C), dtype=float)
-        # err_intensities_corr  = np.zeros((T, C), dtype=float)
-        # for ch in range(C):
-        #     for i in range(T):
-        #         proj = np.max(corrected_image[i, ..., ch], axis=0) * self.mask
-        #         vals = proj[proj != 0]
-        #         if vals.size:
-        #             mean_intensities_corr[i, ch] = vals.mean()
-        #             err_intensities_corr[i, ch]  = vals.std()
-        
-        # Recompute per-frame, per-channel means & errors for the corrected image
+                    stack_ch = self.image_TZYXC[i, :, :, :, ch]
+                    max_proj = np.max(stack_ch, axis=0)
+                    masked_pixels = max_proj[self.mask]
+                    masked_pixels = masked_pixels[masked_pixels != 0]
+                    if masked_pixels.size > 0:
+                        raw_intensities[i] = np.mean(masked_pixels)
+            eps = 1e-9
+            log_int = np.log(raw_intensities + eps)
+            slope, intercept = np.polyfit(time_array, log_int, 1)
+            k_fit = -slope
+            I0_fit = np.exp(intercept)
+            I_fit = I0_fit * np.exp(-k_fit * time_array)
+            correction_factors = I0_fit / I_fit  # This gives exp(k_fit * time_array)
+            for i in range(T):
+                corrected_image[i, ..., ch] *= correction_factors[i]
         mean_intensities_corr = np.zeros((T, C), dtype=float)
         err_intensities_corr  = np.zeros((T, C), dtype=float)
         for ch in range(C):
             for i in range(T):
-                # max-projection then mask exactly as in calculate_photobleaching()
-                max_proj_corr       = np.max(corrected_image[i, ..., ch], axis=0)
-                masked_pixels_corr  = max_proj_corr[self.mask]
+                max_proj_corr = np.max(corrected_image[i, ..., ch], axis=0)
+                masked_pixels_corr = max_proj_corr[self.mask]
+                masked_pixels_corr = masked_pixels_corr[masked_pixels_corr != 0]  # exclude zeros
                 if masked_pixels_corr.size > 0:
                     mean_intensities_corr[i, ch] = masked_pixels_corr.mean()
-                    err_intensities_corr[i, ch]  = masked_pixels_corr.std()
-
+                    err_intensities_corr[i, ch] = masked_pixels_corr.std() / np.sqrt(masked_pixels_corr.size)
         if self.show_plot:
             orig = [self.image_TZYXC[i].mean() for i in range(T)]
-            corr = [corrected_image[i].mean()    for i in range(T)]
+            corr = [corrected_image[i].mean() for i in range(T)]
             plt.figure(figsize=(5,4))
             plt.plot(orig, 'o-', label='Original', color='gray')
             plt.plot(corr, 'o-', label='Corrected', color='blue')
@@ -843,16 +512,14 @@ class Photobleaching:
             plt.legend()
             plt.tight_layout()
             plt.show()
-
         photobleaching_data = {
             'decay_rates': params,
             'time_array': time_array,
-            'mean_intensities': self.mean_intensities,
-            'err_intensities': self.err_intensities,
+            'mean_intensities': self.mean_intensities if hasattr(self, 'mean_intensities') else raw_intensities.reshape(-1,1),
+            'err_intensities': self.err_intensities if hasattr(self, 'err_intensities') else np.zeros((T,C)),
             'mean_intensities_corrected': mean_intensities_corr,
             'err_intensities_corrected': err_intensities_corr,
         }
-
         corrected_uint16 = np.clip(corrected_image, 0, 65535).astype(np.uint16)
         return corrected_uint16, photobleaching_data
 

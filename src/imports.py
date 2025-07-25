@@ -54,7 +54,7 @@ import openpyxl
 import bigfish.stack as stack
 from PIL import Image
 from joblib import Parallel, delayed
-from scipy.ndimage import gaussian_filter, binary_dilation #label
+from scipy.ndimage import gaussian_filter, binary_dilation,gaussian_filter1d #label
 from scipy.ndimage import label as ndi_label
 from scipy.signal import find_peaks
 from scipy.integrate import odeint, solve_ivp

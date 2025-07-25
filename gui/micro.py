@@ -507,9 +507,9 @@ class Metadata:
         min_percentage_data_in_trajectory,
         use_maximum_projection,
         photobleaching_mode,
-        photobleaching_model,
+        #photobleaching_model,
         photobleaching_radius,
-        photobleaching_number_removed_initial_points,
+        #photobleaching_number_removed_initial_points,
         file_path,
         use_ml_checkbox,
         ml_threshold_input,
@@ -563,10 +563,10 @@ class Metadata:
 
         # --- Photobleaching Tab ---
         self.photobleaching_calculated = photobleaching_calculated
-        self.photobleaching_model = photobleaching_model
+        #self.photobleaching_model = photobleaching_model
         self.photobleaching_mode = photobleaching_mode
         self.photobleaching_radius = photobleaching_radius
-        self.photobleaching_number_removed_initial_points = photobleaching_number_removed_initial_points
+        #self.photobleaching_number_removed_initial_points = photobleaching_number_removed_initial_points
 
         # --- File Path for metadata ---
         self.file_path = file_path
@@ -627,10 +627,10 @@ class Metadata:
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nPHOTOBLEACHING')
                 fd.write('\n    photobleaching_calculated: ' + str(self.photobleaching_calculated))
-                fd.write('\n    photobleaching_model: ' + str(self.photobleaching_model))
+                #fd.write('\n    photobleaching_model: ' + str(self.photobleaching_model))
                 fd.write('\n    photobleaching_mode: ' + str(self.photobleaching_mode))
                 fd.write('\n    photobleaching_radius: ' + str(self.photobleaching_radius))
-                fd.write('\n    photobleaching_number_removed_initial_points: ' + str(self.photobleaching_number_removed_initial_points))
+                #fd.write('\n    photobleaching_number_removed_initial_points: ' + str(self.photobleaching_number_removed_initial_points))
                 fd.write('\n')
                 # Tracking Parameters
                 fd.write('#' * number_spaces_pound_sign)
@@ -791,9 +791,9 @@ class GUI(QMainWindow):
         self.min_percentage_data_in_trajectory = 0.3
         self.use_maximum_projection = True
         self.photobleaching_mode = 'inside_cell'
-        self.photobleaching_model = 'exponential'
+        #self.photobleaching_model = 'exponential'
         self.photobleaching_radius = 20
-        self.photobleaching_number_removed_initial_points = None
+        #self.photobleaching_number_removed_initial_points = None
         self.corrected_image = None
         self.colocalization_results = None
         self.link_using_3d_coordinates = True
@@ -2830,9 +2830,6 @@ class GUI(QMainWindow):
         mode = self.mode_combo.currentText().lower()
         self.photobleaching_mode = mode
         radius = self.radius_spinbox.value()
-        number_removed_initial_points = self.num_removed_spinbox.value()
-        model_type = self.model_type_combo.currentText().lower()
-        self.photobleaching_model = model_type
         
         if self.segmentation_mask is None:
             if mode != 'entire_image': 
@@ -2851,9 +2848,7 @@ class GUI(QMainWindow):
             mask_YX=mask_GUI,
             show_plot=False,
             mode=mode,
-            number_removed_initial_points=number_removed_initial_points,
             radius=radius,
-            model_type=model_type,
             time_interval_seconds=self.time_interval_value
         )
         self.corrected_image, self.photobleaching_data = photobleaching_obj.apply_photobleaching_correction()
@@ -2875,8 +2870,7 @@ class GUI(QMainWindow):
             return
         num_channels = self.image_stack.shape[-1]
         fig = self.figure_photobleaching
-        #fig.clear()
-        axs = fig.subplots(num_channels, 2)  # left: fit, right: original vs corrected
+        axs = fig.subplots(num_channels, 2)  
         if num_channels == 1:
             axs = np.array([axs])
         fig.patch.set_facecolor('black')
@@ -2886,47 +2880,22 @@ class GUI(QMainWindow):
         err_intensities = self.photobleaching_data['err_intensities']
         mean_intensities_corrected = self.photobleaching_data['mean_intensities_corrected']
         err_intensities_corrected = self.photobleaching_data['err_intensities_corrected']
-        start_idx = self.num_removed_spinbox.value()
-        model_type = self.model_type_combo.currentText().lower()
         params = np.array(decay_rates)
 
-        def interpret_params(model, nchan, arr):
-            length = len(arr)
-            if model == 'exponential':
-                if length == nchan:
-                    return 'no_baseline'       # just k
-                elif length == 3*nchan:
-                    return 'with_baseline'    # (A, k, baseline)
-                else:
-                    return 'mismatch'
-            elif model == 'double_exponential':
-                if length == 4*nchan:
-                    return 'no_baseline'      # A1, k1, A2, k2
-                elif length == 5*nchan:
-                    return 'with_baseline'    # A1, k1, A2, k2, b
-                else:
-                    return 'mismatch'
-            else:  # 'linear'
-                if length == 2*nchan:
-                    return 'no_baseline'      # c, m
-                elif length == 3*nchan:
-                    return 'with_baseline'    # slope, intercept, baseline
-                else:
-                    return 'mismatch'
-
-        param_style = interpret_params(model_type, num_channels, params)
-        if param_style == 'mismatch':
+        if len(params) != 2 * num_channels:
             QMessageBox.warning(self, "Fit Error",
-                f"Parameter count does not match expected for '{model_type}'.\nLength of params: {len(params)}")
+                f"Expected {2 * num_channels} parameters for exponential fit, got {len(params)}")
             return
 
         for ch in range(num_channels):
-            data = mean_intensities[start_idx:, ch]
-            t = time_array[start_idx:]
+            data = mean_intensities[0:, ch]
+            t = time_array[0:]
+
             if len(data) == 0 or np.max(data) == 0:
                 axs[ch, 0].text(0.5, 0.5, "No data", ha='center', va='center', color='white', transform=axs[ch,0].transAxes)
                 axs[ch, 1].text(0.5, 0.5, "No data", ha='center', va='center', color='white', transform=axs[ch,1].transAxes)
                 continue
+            
             # Style axes
             for ax_obj in axs[ch, :]:
                 ax_obj.set_facecolor('black')
@@ -2937,91 +2906,40 @@ class GUI(QMainWindow):
                 ax_obj.yaxis.label.set_color('white')
                 ax_obj.title.set_color('white')
                 ax_obj.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-            # Left subplot: fit
-            if model_type == 'exponential':
-                if param_style == 'no_baseline':
-                    k_ = params[ch]
-                    data_norm = data / np.max(data)
-                    y_fit = np.exp(-k_ * t)
-                    #label_fit = f'k={k_:.4g}'
-                    label_fit = rf"$\tau={k_:.4g}$"
-                    axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
-                    axs[ch, 0].plot(t, y_fit, '-', label=label_fit, color='white', lw=2)
-                    axs[ch, 0].set_title(f'Channel {ch}: Exp', fontsize=10)
-                else:
-                    i0 = 3*ch
-                    A_ = params[i0]
-                    k_ = params[i0+1]
-                    b_ = params[i0+2]
-                    data_norm = data / np.max(data)
-                    y_fit = b_ + A_*np.exp(-k_*t)
-                    label_fit = rf"$I_0={A_:.3f}, \tau={k_:.4g}, C={b_:.3f}$"
-                    
-                    axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
-                    axs[ch, 0].plot(t, y_fit, '-', label=label_fit, color='white', lw=2)
-                    axs[ch, 0].set_title(f'Channel {ch}: Exp+Baseline', fontsize=10)
-            elif model_type == 'double_exponential':
-                if param_style == 'no_baseline':
-                    i0 = 4*ch
-                    A1, k1, A2, k2 = params[i0], params[i0+1], params[i0+2], params[i0+3]
-                    data_norm = data / np.max(data)
-                    y_fit = A1*np.exp(-k1*t) + A2*np.exp(-k2*t)
-                    label_fit = (rf"$\tau_1={1/k1:.3g}\,$, $\tau_2={1/k2:.3g}\,$\n"
-                                rf"$A_1={A1:.3g},\ A_2={A2:.3g}$\n" 
-                            )
-                    axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
-                    axs[ch, 0].plot(t, y_fit, '-', label=label_fit, color='white', lw=2)
-                    axs[ch, 0].set_title(f'Ch {ch}: Double Exp', fontsize=10)
-                else:
-                    i0 = 5*ch
-                    A1, k1, A2, k2, b_ = params[i0], params[i0+1], params[i0+2], params[i0+3], params[i0+4]
-                    data_norm = data / np.max(data)
-                    y_fit = b_ + A1*np.exp(-k1*t) + A2*np.exp(-k2*t)
-                    label_fit = (
-                        f"$\\tau_1={1/k1:.3g}$ , $\\tau_2={1/k2:.3g}$ \n"
-                        f"$A_1={A1:.3g}, A_2={A2:.3g}$\n"
-                        f"$C={b_:.3g}$"
-                    )
-                    axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
-                    axs[ch, 0].plot(t, y_fit, '-', label=label_fit, color='white', lw=2)
-                    axs[ch, 0].set_title(f'Ch {ch}: Double Exp+Baseline', fontsize=10)
-            else:
-                # 'linear'
-                if param_style == 'no_baseline':
-                    c_, m_ = params[ch, 0], params[ch, 1]
-                    data_first = data[0] if data[0] != 0 else 1
-                    data_norm = data / data_first
-                    y_fit = c_ + m_*t
-                    label_fit = f'C={c_:.3f}, k={m_:.3f}'
-                    axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
-                    axs[ch, 0].plot(t, y_fit, '-', label=label_fit, color='white', lw=2)
-                    axs[ch, 0].set_title(f'Channel {ch}: Linear', fontsize=10)
-                else:
-                    i0 = 3*ch
-                    print(f"params: {params}")
-                    slope_ = params[i0]
-                    intercept_ = params[i0+1]
-                    b_ = params[i0+2]
-                    data_first = data[0] if data[0] != 0 else 1
-                    data_norm = data / data_first
-                    y_fit = b_ + intercept_ + slope_*t
-                    label_fit = f'k={slope_:.4f}, b={intercept_:.3f}, C={b_:.3f}'
-                    axs[ch, 0].plot(t, data_norm, 'o', label='Data', color='cyan', lw=2)
-                    axs[ch, 0].plot(t, y_fit, '-', label=label_fit, color='white', lw=2)
-                    axs[ch, 0].set_title(f'Ch {ch}: Linear+Baseline', fontsize=10)
+            
+            # Get fitted parameters for this channel: [k_fit, I0_fit]
+            k_fit = params[2*ch]
+            I0_fit = params[2*ch + 1]
+            
+            # Left subplot: exponential fit
+            fitted_curve = I0_fit * np.exp(-k_fit * t)
+            
+            axs[ch, 0].plot(t, data, 'o', label='Raw Data', color='cyan', lw=2)
+            axs[ch, 0].plot(t, fitted_curve, '-', label=f'I₀={I0_fit:.0f}, k={k_fit:.4f}', color='white', lw=2)
+            axs[ch, 0].set_title(f'Channel {ch}: Exponential Fit', fontsize=10)
             axs[ch, 0].set_xlabel('Time (s)')
-            axs[ch, 0].set_ylabel('Normalized Intensity')
+            axs[ch, 0].set_ylabel('Intensity')
             axs[ch, 0].legend(loc='upper right', bbox_to_anchor=(1, 1))
+            
+            # Right subplot: original vs corrected
             axs[ch, 1].plot(time_array, mean_intensities[:, ch], label='Original', color='cyan', lw=2)
-            axs[ch, 1].fill_between(time_array, mean_intensities[:, ch] - err_intensities[:, ch], mean_intensities[:, ch] + err_intensities[:, ch], alpha=0.2, color='cyan')
+            axs[ch, 1].fill_between(time_array, 
+                                mean_intensities[:, ch] - err_intensities[:, ch], 
+                                mean_intensities[:, ch] + err_intensities[:, ch], 
+                                alpha=0.2, color='cyan')
             axs[ch, 1].plot(time_array, mean_intensities_corrected[:, ch], label='Corrected', color='orangered', lw=2)
-            axs[ch, 1].fill_between(time_array, mean_intensities_corrected[:, ch] - err_intensities_corrected[:, ch], mean_intensities_corrected[:, ch] + err_intensities_corrected[:, ch], alpha=0.2, color='orangered')
+            axs[ch, 1].fill_between(time_array, 
+                                mean_intensities_corrected[:, ch] - err_intensities_corrected[:, ch], 
+                                mean_intensities_corrected[:, ch] + err_intensities_corrected[:, ch], 
+                                alpha=0.2, color='orangered')
             axs[ch, 1].set_title(f'Channel {ch} Correction', fontsize=10)
             axs[ch, 1].set_xlabel('Time (s)')
             axs[ch, 1].set_ylabel('Intensity')
             axs[ch, 1].legend(loc='upper right', bbox_to_anchor=(1, 1))
+
         fig.tight_layout()
         self.canvas_photobleaching.draw()
+
 
     def setup_photobleaching_tab(self):
         """
@@ -3058,18 +2976,6 @@ class GUI(QMainWindow):
         self.radius_spinbox.setValue(30)
         controls_layout.addWidget(radius_label)
         controls_layout.addWidget(self.radius_spinbox)
-        num_removed_label = QLabel("Remove Time Points:")
-        self.num_removed_spinbox = QSpinBox()
-        self.num_removed_spinbox.setMinimum(0)
-        self.num_removed_spinbox.setMaximum(200)
-        self.num_removed_spinbox.setValue(0)
-        controls_layout.addWidget(num_removed_label)
-        controls_layout.addWidget(self.num_removed_spinbox)
-        model_type_label = QLabel("Model Type:")
-        self.model_type_combo = QComboBox()
-        self.model_type_combo.addItems(["exponential", "linear", "double_exponential"])
-        controls_layout.addWidget(model_type_label)
-        controls_layout.addWidget(self.model_type_combo)
         # Photobleaching run button
         self.run_photobleaching_button = QPushButton("Run Photobleaching", self)
         self.run_photobleaching_button.clicked.connect(self.compute_photobleaching)
@@ -6102,9 +6008,9 @@ class GUI(QMainWindow):
             min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
             use_maximum_projection=self.use_maximum_projection,
             photobleaching_mode=self.photobleaching_mode,
-            photobleaching_model=self.photobleaching_model,
+            #photobleaching_model=self.photobleaching_model,
             photobleaching_radius=self.photobleaching_radius,
-            photobleaching_number_removed_initial_points=self.photobleaching_number_removed_initial_points,
+            #photobleaching_number_removed_initial_points=self.photobleaching_number_removed_initial_points,
             file_path=file_path,
             use_ml_checkbox=self.method_ml_radio.isChecked(),
             ml_threshold_input=self.ml_threshold_input,
@@ -6171,9 +6077,9 @@ class GUI(QMainWindow):
             min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
             use_maximum_projection=self.use_maximum_projection,
             photobleaching_mode=self.photobleaching_mode,
-            photobleaching_model=self.photobleaching_model,
+            #photobleaching_model=self.photobleaching_model,
             photobleaching_radius=self.photobleaching_radius,
-            photobleaching_number_removed_initial_points=self.photobleaching_number_removed_initial_points,
+            #photobleaching_number_removed_initial_points=self.photobleaching_number_removed_initial_points,
             file_path=file_path,
             use_ml_checkbox=self.use_ml_checkbox,
             ml_threshold_input=self.ml_threshold_input,
