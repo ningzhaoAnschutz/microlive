@@ -215,7 +215,6 @@ magenta_colormap = LinearSegmentedColormap('BlackMagenta', cdict_magenta)
 cmap_list_imagej = [magenta_colormap, green_colormap,yellow_colormap,red_colormap]
 
 
-
 class Banner:
     TEXT = r"""
 
@@ -282,13 +281,8 @@ class Banner:
         """Prints the banner (text + image) side by side."""
         if not self.show:
             return
-
-        # figure out the widest text line
         text_width = max(len(line) for line in self.text_lines)
-
-        # total rows needed (whichever is taller)
         total_rows = max(len(self.text_lines), len(self.image_lines))
-
         for i in range(total_rows):
             t   = self.text_lines[i]  if i < len(self.text_lines)  else ""
             img = self.image_lines[i] if i < len(self.image_lines) else ""
@@ -307,18 +301,14 @@ class Photobleaching:
         radius=50,
         time_interval_seconds = None,
     ):
-        
         if mode not in ['inside_cell', 'outside_cell', 'use_circular_region', 'entire_image']:
             raise ValueError(
                 "mode must be 'inside_cell', 'outside_cell', 'use_circular_region', or 'entire_image'"
             )
         if mode == 'outside_cell' and mask_YX is None:
             raise ValueError("When mode='outside_cell', mask_YX must be provided.")
-
-        # If entire_image mode, ignore any mask and use full image
         if mode == 'entire_image':  
             mask_YX = None      
-        
         if time_interval_seconds is not None:
             self.time_interval_seconds = float(time_interval_seconds)
         else:
@@ -413,7 +403,6 @@ class Photobleaching:
                 ax.set_ylabel('Intensity')
                 ax.set_title(f"Exponential Fit ch={ch}\nI0={I0_fit:.2f}, k={k_fit:.4f}")
                 ax.legend()
-            
             plt.tight_layout()
             if self.plot_name is not None:
                 plt.savefig(self.plot_name)
@@ -429,16 +418,12 @@ class Photobleaching:
         params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
         T, Z, Y, X, C = self.image_TZYXC.shape
         corrected_image = self.image_TZYXC.astype(np.float32).copy()
-
-        start_idx = 0 # self.number_removed_initial_points or 0
+        #start_idx = 0 # self.number_removed_initial_points or 0
         time_array = np.arange(T, dtype=float) * self.time_interval_seconds
-
         for ch in range(C):
-            # **Threshold check:** compute final intensity for this channel
             if hasattr(self, 'mean_intensities'):
                 final_intensity = self.mean_intensities[-1, ch]
             else:
-                # Calculate final intensity if not available
                 if not hasattr(self, 'mask'):
                     h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
                     if self.mode == 'use_circular_region':
@@ -460,8 +445,6 @@ class Photobleaching:
                 max_proj = np.max(final_frame, axis=0)
                 masked_pixels = max_proj[self.mask]
                 final_intensity = np.mean(masked_pixels) if masked_pixels.size > 0 else 0.0
-
-            # **Skip correction if final intensity is below threshold (100)**
             if final_intensity < 10:
                 try:
                     QMessageBox.warning(None, "Photobleaching Correction",
@@ -484,6 +467,9 @@ class Photobleaching:
                         raw_intensities[i] = np.mean(masked_pixels)
             eps = 1e-9
             log_int = np.log(raw_intensities + eps)
+            if len(time_array) < 2:
+                print(f"Skipping photobleaching correction for channel {ch} (not enough data points).")
+                continue
             slope, intercept = np.polyfit(time_array, log_int, 1)
             k_fit = -slope
             I0_fit = np.exp(intercept)
@@ -576,7 +562,6 @@ class ReadLif:
             except:
                 pass
         # scene list + pixel sizes + channel names
-        #images   = self._aics if self.lazy else AICSImage(str(self.path))
         images   = self._aics if self.lazy else BioImage(str(self.path))
         scenes   = list(images.scenes)
         pixel_Z  = abs(images.physical_pixel_sizes.Z or 0)
@@ -684,13 +669,11 @@ class ReadLif:
 
         Missing blocks simply yield empty lists.
         """
-        # parse OME-XML header
         try:
             lif  = LifFile(self.path)
             root = ET.fromstring(lif.xml_header)
         except:
             return [], [], []
-        # 1) descend into the matching <Element> (handles nested names)
         proj  = root.find('Element')
         parts = self._aics.scenes[image_index].split('/')
         elem  = proj
@@ -701,7 +684,6 @@ class ReadLif:
             elem = next((e for e in ch.findall('Element') if e.get('Name')==p), None)
             if elem is None:
                 return [], [], []
-        # 2) find this series’ SequentialSettingIndex
         seq_idx = None
         for cp in elem.findall('.//ChannelProperty'):
             if cp.findtext('Key') == 'SequentialSettingIndex':
@@ -710,7 +692,6 @@ class ReadLif:
                 except:
                     pass
                 break
-        # 3) global spectral ranges
         wave_ranges = []
         if seq_idx is not None:
             defs = root.findall('.//ATLConfocalSettingDefinition')
@@ -725,7 +706,6 @@ class ReadLif:
                             wave_ranges.append((int(round(b)), int(round(e))))
                         except:
                             pass
-        # 4) per-scene laser intensities
         laser_lines, intensities = [], []
         hw = elem.find('.//Attachment[@Name="HardwareSetting"]')
         if hw is not None:
@@ -777,41 +757,30 @@ class ConvertFormat:
         self._validate_dimensions()
 
     def _validate_dimensions(self):
-        # Check if provided dimensions are valid
         for dim in self.original_order + self.desired_order:
             if dim not in self.valid_dims:
                 raise ValueError(f"Invalid dimension '{dim}'. Valid dimensions are {self.valid_dims}.")
-        # Check if the length of original_order matches the image dimensions
         if len(self.original_order) != self.image.ndim:
             raise ValueError(f"Length of original_order {len(self.original_order)} does not match "
                              f"number of dimensions in image {self.image.ndim}.")
 
     def convert(self):
-        # Map dimension names to indices in the original image
         orig_dim_indices = {dim: idx for idx, dim in enumerate(self.original_order)}
-        # Start with the original image
         img = self.image
-        # Handle dimensions that are in the original image but not in desired_order (need to reduce)
         dims_to_reduce = [dim for dim in self.original_order if dim not in self.desired_order]
         for dim in dims_to_reduce:
             axis = orig_dim_indices[dim]
             img = np.max(img, axis=axis, keepdims=False)
-            # After reducing, adjust indices of remaining dimensions
             orig_dim_indices = {d: (i - 1 if i > axis else i) for d, i in orig_dim_indices.items() if d != dim}
-        # Handle dimensions that are in desired_order but not in the original image (need to add new axis)
         dims_to_add = [dim for dim in self.desired_order if dim not in self.original_order]
         for dim in dims_to_add:
             img = np.expand_dims(img, axis=0)
-            # Update dimension indices
             orig_dim_indices[dim] = 0
             orig_dim_indices = {d: (i + 1 if d != dim else i) for d, i in orig_dim_indices.items()}
-        # Rearrange axes to match desired_order
         axis_order = [orig_dim_indices[dim] for dim in self.desired_order]
         img = np.transpose(img, axes=axis_order)
         return img
     
-
-
 class GaussianFilter():
     '''
     This class is intended to apply high and low bandpass filters to the video. The format of the video must be [Z, Y, X, C]. This class uses **difference_of_gaussians** from skimage.filters.
@@ -846,263 +815,60 @@ class GaussianFilter():
             for index_time in range(0, number_time_points):
                 if np.max(self.video[index_time, :, :, index_channels])>0:
                     video_bp_filtered_float[index_time, :, :, index_channels] = gaussian(self.video[index_time, :, :, index_channels], self.sigma)
-        # temporal function that converts floats to uint
         def img_uint(image):
             temp_vid = img_as_uint(image)
             return temp_vid
-        # returning the image normalized as uint. Notice that difference_of_gaussians converts the image into float.
         for index_channels in range(0, number_channels):
             init_video = Parallel(n_jobs = self.NUMBER_OF_CORES)(delayed(img_uint)(video_bp_filtered_float[i, :, :, index_channels]) for i in range(0, number_time_points))
             video_filtered[:,:,:,index_channels] = np.asarray(init_video)
-        return video_filtered # video_bp_filtered_float # img_as_uint(video_bp_filtered_float)
+        return video_filtered 
 
-
-class NASConnection():
-    '''
-    This class is intended to establish a connection between Network-Attached storage and a remote (or local) computer using `pysmb <https://github.com/miketeo/pysmb>`_ . The class allows the user to connect to NAS, download specific files, and write backfiles to NAS.
-    This class doesn't allow the user to delete, modify or overwrite files in NAS. For a complete description of pysmb check the `pysmb documentation <https://pysmb.readthedocs.io/en/latest/>`_ .
-    To use this class, you need to:
+# class ReadImages():
+#     '''
+#     This class reads all tif images in a given folder and returns each image as a Numpy array inside a list, the names of these files, path, and the number of files.
     
-    1) Use the university's network or use the two-factor authentication to connect to the university's VPN.
-    2) You need to create a configuration YAML file with the following format:
+#     Parameters
     
-    .. code-block:: bash
-
-        user:
-        username: name_of_the_user_in_the_nas_server
-        password: user_password_in_the_nas_server 
-        remote_address : ip or name for the nas server
-        domain: domain for the nas server 
-    
-    Parameters
-    
-    path_to_config_file : str, or Pathlib object
-        The path in the local computer contains the config file.
-    share_name: str
-        Name of the share partition to access in NAS. The default is 'share'.
-    '''
-    def __init__(self,path_to_config_file,share_name = 'share'):
-        # Loading credentials
-        conf = yaml.safe_load(open(str(path_to_config_file)))
-        usr = str(conf['user']['username'])
-        pwd = str(conf['user']['password'])
-        remote_address = str(conf['user']['remote_address'])
-        domain = str(conf['user']['domain'])
-        # LOCAL NAME
-        try:
-            local_name = socket.gethostbyname(socket.gethostname())
-        except:
-            local_name = socket.gethostname()
-        # SERVER NAME
-        self.share_name = share_name
-        self.server_name, _, _ = socket.gethostbyaddr(remote_address)
-        # Defining the connection to NAS
-        self.conn = SMBConnection(username=usr, password=pwd, domain=domain, my_name=local_name, remote_name=str(self.server_name), is_direct_tcp=True)
-    def connect_to_server(self,timeout=60):
-        '''
-        This method establishes the connection to the NAS.
+#     directory: str or PosixPath
+#         Directory containing the images to read.
+#     '''    
+#     def __init__(self, directory:str,number_of_images_to_process=None):
+#         if type(directory)== pathlib.PosixPath or type(directory)== pathlib.WindowsPath:
+#             self.directory = directory
+#         else:
+#             self.directory = pathlib.Path(directory)
+#         self.number_of_images_to_process = number_of_images_to_process
+#     def read(self):
+#         '''
+#         Method takes all the images in the folder and merges those with similar names.
         
-        Parameters 
+#         Returns
         
-        timeout : int, optional
-            Time in seconds to maintain a connection with the NAS. The default is 60 seconds.
-        '''
-        is_connected = self.conn.connect(str(self.server_name),timeout=timeout)
-        if is_connected == True:
-            print('Connection established')
-        else:
-            print('Connection failed')
-        return self.conn
-    
-    def read_files(self, remote_folder_path, timeout=60):
-        '''
-        This method reads all files from a NAS directory
-        
-        Parameters
-        
-        remote_folder_path : str, Pathlib obj
-            The path in the remote folder to download.
-        timeout : int, optional
-            Time in seconds to maintain a connection with the NAS. The default is 60 seconds.
-        '''
-        # Connecting to NAS
-        is_connected = self.conn.connect(str(self.server_name),timeout=timeout)
-        if is_connected == True:
-            print('Connection established')
-        else:
-            print('Connection failed')
-        # Converting the paths to a Pathlib object
-        if type(remote_folder_path)==str:
-            remote_folder_path = pathlib.Path(remote_folder_path)
-        # Iterate in the folder to download all tif files
-        list_files =[]
-        list_dir = self.conn.listPath(self.share_name, str(remote_folder_path))
-        for file in list_dir:
-            list_files.append(file.filename)
-        return list_files
-
-    def download_file(self, remote_file_path, local_folder_path, timeout=600):
-        '''
-        This method download an specific file
-        
-        Parameters
-        
-        remote_file_path : str, Pathlib obj
-            The path in the remote file to download.
-        local_folder_path : str, Pathlib obj
-            The path in the local computer where the files will be copied.
-        timeout : int, optional
-            Time in seconds to maintain a connection with the NAS. The default is 60 seconds.
-        '''
-        # Connecting to NAS
-        is_connected = self.conn.connect(str(self.server_name),timeout=timeout)
-        if is_connected == True:
-            print('Connection established')
-        else:
-            print('Connection failed')
-        # Converting the paths to a Pathlib object
-        if type(local_folder_path) == str:
-            local_folder_path = pathlib.Path(local_folder_path)
-        if type(remote_file_path)==str:
-            remote_file_path = pathlib.Path(remote_file_path)
-        # Making the local directory
-        if not (os.path.exists(local_folder_path)) :
-            os.makedirs(str(local_folder_path))
-        filename = remote_file_path.name
-        fileobj = open(remote_file_path.name,'wb')
-        self.conn.retrieveFile(self.share_name, str(remote_file_path), fileobj)
-        fileobj.close()
-        # moving files in the local computer
-        shutil.move(pathlib.Path().absolute().joinpath(filename), local_folder_path.joinpath(filename))
-        print('Files downloaded to: ' + str(local_folder_path.joinpath(filename)))
-        return None
-    
-    def copy_files(self, remote_folder_path, local_folder_path, timeout=600, file_extension =['.index','.tif']):
-        '''
-        This method downloads tif files from NAS to a temporal folder in the local computer.
-        
-        Parameters
-        
-        remote_folder_path : str, Pathlib obj
-            The path in the remote folder to download.
-        local_folder_path : str, Pathlib obj
-            The path in the local computer where the files will be copied.
-        timeout : int, optional
-            Time in seconds to maintain a connection with the NAS. The default is 60 seconds.
-        file_extension : str, optional.
-            String representing the file type to download.
-        '''
-        # Connecting to NAS
-        is_connected = self.conn.connect(str(self.server_name),timeout=timeout)
-        if is_connected == True:
-            print('Connection established')
-        else:
-            print('Connection failed')
-        # Converting the paths to a Pathlib object
-        if type(local_folder_path) == str:
-            local_folder_path = pathlib.Path(local_folder_path)
-        if type(remote_folder_path)==str:
-            remote_folder_path = pathlib.Path(remote_folder_path)
-        # Making the local directory
-        if (os.path.exists(local_folder_path))  and  (str(local_folder_path.name)[0:5] ==  'temp_'):
-            shutil.rmtree(local_folder_path)
-        os.makedirs(str(local_folder_path))
-        # Iterate in the folder to download all tif files
-        list_dir = self.conn.listPath(self.share_name, str(remote_folder_path))
-        for file in list_dir:
-            #if (file.filename not in ['.', '..']) and (file_extension in file.filename) :
-            if (file.filename not in ['.', '..']) and  any(file.filename.endswith(ext) for ext in file_extension):
-                print ('File Downloaded :', file.filename)
-                fileobj = open(file.filename,'wb')
-                self.conn.retrieveFile(self.share_name, str( pathlib.Path(remote_folder_path).joinpath(file.filename) ),fileobj)
-                fileobj.close()
-                # moving files in the local computer
-                shutil.move(pathlib.Path().absolute().joinpath(file.filename), local_folder_path.joinpath(file.filename))
-        print('Files downloaded to: ' + str(local_folder_path))
-        return None
-    
-    def write_files_to_NAS(self, local_file_to_send_to_NAS, remote_folder_path,  timeout=600):
-        '''
-        This method writes files from a local computer to NAS 
-        
-        Parameters
-        
-        local_file_to_send_to_NAS : str, Pathlib obj
-            The path in the file to send to the NAS.
-        remote_folder_path : str, Pathlib obj
-            The path in the remote folder to download.
-        timeout : int, optional
-            Time in seconds to maintain a connection with the NAS. The default is 60 seconds.
-        '''
-        # Connecting to NAS
-        is_connected = self.conn.connect(str(self.server_name),timeout=timeout)
-        if is_connected == True:
-            print('Connection established')
-        else:
-            print('Connection failed')
-        # Converting the paths to a Pathlib object
-        if type(local_file_to_send_to_NAS) == str:
-            local_file_to_send_to_NAS = pathlib.Path(local_file_to_send_to_NAS)
-        if type(remote_folder_path)==str:
-            remote_folder_path = pathlib.Path(remote_folder_path)
-        # checks that the file doesn't exist on NAS. If it exist it will create a new name as follows original_name__1
-        # Iterate in the folder to download all tif files
-        list_dir = self.conn.listPath(self.share_name, str(remote_folder_path))
-        list_all_files_in_NAS = [file.filename for file in list_dir]
-        if str(local_file_to_send_to_NAS.name) not in list_all_files_in_NAS:
-            with open(str(local_file_to_send_to_NAS), 'rb') as file_obj:
-                self.conn.storeFile(self.share_name, str( pathlib.Path(remote_folder_path).joinpath(local_file_to_send_to_NAS.name) ) ,  file_obj )
-                print ('The file was uploaded to NAS in location:', str( pathlib.Path(remote_folder_path).joinpath(local_file_to_send_to_NAS.name))  )
-        return None
-
-
-class ReadImages():
-    '''
-    This class reads all tif images in a given folder and returns each image as a Numpy array inside a list, the names of these files, path, and the number of files.
-    
-    Parameters
-    
-    directory: str or PosixPath
-        Directory containing the images to read.
-    '''    
-    def __init__(self, directory:str,number_of_images_to_process=None):
-        if type(directory)== pathlib.PosixPath or type(directory)== pathlib.WindowsPath:
-            self.directory = directory
-        else:
-            self.directory = pathlib.Path(directory)
-        self.number_of_images_to_process = number_of_images_to_process
-    def read(self):
-        '''
-        Method takes all the images in the folder and merges those with similar names.
-        
-        Returns
-        
-        list_images : List of NumPy arrays 
-            List of NumPy arrays with format np.uint16 and dimensions [Z, Y, X, C] or [T, Y, X, C]. 
-        path_files : List of strings 
-            List of strings containing the path to each image.
-        list_files_names : List of strings 
-            List of strings where each element is the name of the files in the directory.
-        number_files : int 
-            The number of images in the folder.
-        '''
-        list_files_names_complete = sorted([f for f in listdir(self.directory) if isfile(join(self.directory, f)) and ('.tif') in f], key=str.lower)  # reading all tif files in the folder
-        list_files_names_complete.sort(key=lambda f: int(re.sub(r'\D', '', f)))  # sorting the index in numerical order
-        path_files_complete = [ str(self.directory.joinpath(f).resolve()) for f in list_files_names_complete ] # creating the complete path for each file
-        number_files = len(path_files_complete)
-        list_images_complete = [imread(str(f)) for f in path_files_complete]
-        
-        # This section reads the images to process in the repository.  If the user defines "number_of_images_to_process" as an integer N the code will process a subset N of these images. 
-        if (self.number_of_images_to_process is None) or (self.number_of_images_to_process>number_files):
-            list_images =list_images_complete
-            path_files = path_files_complete
-            list_files_names = list_files_names_complete
-        else:
-            list_images = list_images_complete[0:self.number_of_images_to_process]
-            path_files = path_files_complete[0:self.number_of_images_to_process]
-            list_files_names = list_files_names_complete[0:self.number_of_images_to_process]
-            number_files = self.number_of_images_to_process
-        return list_images, path_files, list_files_names, number_files
+#         list_images : List of NumPy arrays 
+#             List of NumPy arrays with format np.uint16 and dimensions [Z, Y, X, C] or [T, Y, X, C]. 
+#         path_files : List of strings 
+#             List of strings containing the path to each image.
+#         list_files_names : List of strings 
+#             List of strings where each element is the name of the files in the directory.
+#         number_files : int 
+#             The number of images in the folder.
+#         '''
+#         list_files_names_complete = sorted([f for f in listdir(self.directory) if isfile(join(self.directory, f)) and ('.tif') in f], key=str.lower)  # reading all tif files in the folder
+#         list_files_names_complete.sort(key=lambda f: int(re.sub(r'\D', '', f)))  # sorting the index in numerical order
+#         path_files_complete = [ str(self.directory.joinpath(f).resolve()) for f in list_files_names_complete ] # creating the complete path for each file
+#         number_files = len(path_files_complete)
+#         list_images_complete = [imread(str(f)) for f in path_files_complete]        
+#         # This section reads the images to process in the repository.  If the user defines "number_of_images_to_process" as an integer N the code will process a subset N of these images. 
+#         if (self.number_of_images_to_process is None) or (self.number_of_images_to_process>number_files):
+#             list_images =list_images_complete
+#             path_files = path_files_complete
+#             list_files_names = list_files_names_complete
+#         else:
+#             list_images = list_images_complete[0:self.number_of_images_to_process]
+#             path_files = path_files_complete[0:self.number_of_images_to_process]
+#             list_files_names = list_files_names_complete[0:self.number_of_images_to_process]
+#             number_files = self.number_of_images_to_process
+#         return list_images, path_files, list_files_names, number_files
 
 
 class MergeChannels():
@@ -1280,7 +1046,6 @@ class Intensity():
         best_residual = np.inf
         best_x = x_pos
         best_y = y_pos
-
         half = spot_size // 2
         for dy in range(-2, 3):
             for dx in range(-2, 3):
@@ -1298,7 +1063,6 @@ class Intensity():
                     best_fit = fit_result
                     best_x = test_x
                     best_y = test_y
-
         return best_fit, best_x, best_y
 
     def calculate_intensity(self):
@@ -1349,7 +1113,6 @@ class Intensity():
             for i in range(self.number_channels):
                 # Save the original coordinates for this spot for each channel
                 orig_x, orig_y = x_pos, y_pos
-
                 if self.optimize_spot_size:
                     best_fit, best_size = self.optimize_spot_size_method(frame_data[:,:,i], orig_x, orig_y)
                     if best_fit is None:
@@ -1363,7 +1126,6 @@ class Intensity():
                     x_max = min(orig_x + half + 1, frame_data.shape[1])
                     spot_data = frame_data[y_min:y_max, x_min:x_max, i]
                     best_fit, ss_res = self.fit_2D_gaussian(spot_data)
-
                 # Use temporary variables for subpixel repositioning so as not to override the original spot center
                 current_x, current_y = orig_x, orig_y
                 if self.allow_subpixel_repositioning:
@@ -1372,7 +1134,6 @@ class Intensity():
                         best_fit = improved_fit
                         current_x = improved_x
                         current_y = improved_y
-
                 if best_fit is not None:
                     amplitude = best_fit['amplitude']
                     sigma_x = best_fit['sigma_x']
@@ -1382,7 +1143,6 @@ class Intensity():
                 else:
                     psfs_amplitude[sp,i] = np.nan
                     psfs_sigma[sp,i] = np.nan
-
                 # use current_x and current_y instead of x_pos and y_pos in the cropping operations
                 half = best_size // 2
                 y_min = max(current_y - half, 0)
@@ -1398,7 +1158,6 @@ class Intensity():
                 # disk_donut calculation
                 intensities[sp,i], intensities_std[sp,i] = disk_donut(values_disk, values_donut, spot_size=best_size)
                 intensities_total[sp,i] = np.sum(values_disk)
-
         return (
             np.round(intensities,4), 
             np.round(intensities_std,4), 
@@ -1488,7 +1247,6 @@ class RemoveExtrema:
                             normalized_image[t, z, :, :, c] = self._process_slice(normalized_image[t, z, :, :, c])
         else:
             raise ValueError("Unsupported image dimensions.")
-
         return normalized_image.astype(np.uint16)
 
     def _process_slice(self, image_slice):
@@ -1537,9 +1295,6 @@ class Cellpose():
     '''
     def __init__(self, image:np.ndarray, num_iterations:int = 3, channels:list = [0, 0], diameter:float = 120, model_type:str = 'cyto3', selection_method:str = 'cellpose_max_cells_and_area', NUMBER_OF_CORES:int=1,pretrained_model=None,selection_metric='max_cells'):
         def preprocess_image(image):
-            # Normalize image
-            #image = (image - np.min(image)) / (np.max(image) - np.min(image))
-            # Apply Gaussian blur
             image = exposure.rescale_intensity(image)            # Enhance contrast
             image = exposure.equalize_adapthist(image)
             image =  Utilities().convert_to_int8( image, rescale=True, min_percentile=0.05, max_percentile=99.95, padding_zeros=False) #Utilities().convert_to_int8(image)
@@ -1573,13 +1328,8 @@ class Cellpose():
             NumPy array with values between 0 and the number of detected cells in the image,
             where an integer larger than zero represents the masked area for each cell, and 0 represents the background in the image.
         '''
-
-        # Next two lines suppressing output from Cellpose
-        #gc.collect()
-        #torch.cuda.empty_cache()
         # Check if GPU is available
         use_gpu = 0 #models.use_gpu()
-        #print('GPU activated' if use_gpu else 'GPU not found')
         # Initialize Cellpose model
         if self.pretrained_model is None:
             if self.model_type == 'cyto3':
@@ -1588,7 +1338,6 @@ class Cellpose():
                 print('Model cyto3 loaded')
             else:
                 model = models.Cellpose(gpu=use_gpu, model_type=self.model_type)  # model_type = 'cyto' or 'nuclei'
-
         else:
             model = models.CellposeModel(gpu=use_gpu, pretrained_model=self.pretrained_model)
 
@@ -1599,7 +1348,6 @@ class Cellpose():
         diameters = diameters.astype(int)
         # Create grid of parameter combinations
         param_grid = [(flow, dia) for flow in flow_thresholds for dia in diameters]
-
         # Initialize variables to store the best results
         best_metric = -np.inf
         best_masks = None
@@ -1615,7 +1363,6 @@ class Cellpose():
                     diameter=diameter,
                     min_size=self.MINIMUM_CELL_AREA,
                     channels=self.channels,
-                    #progress=None
                 )[0]
                 # Removing artifacts
                 masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
@@ -1627,7 +1374,6 @@ class Cellpose():
             else:
                 metric = 0
             return metric, masks
-
         # Function to evaluate masks based on the selection method
         def evaluate_masks(params):
             flow_threshold, diameter = params
@@ -1643,7 +1389,6 @@ class Cellpose():
                 diameter=self.diameter,
                 min_size=self.MINIMUM_CELL_AREA,
                 channels=self.channels,
-                #progress=None
             )[0]
         else:
             # Evaluate parameter combinations in parallel
@@ -1652,14 +1397,11 @@ class Cellpose():
             )
             # Find the best result
             for metric, masks, params in results:
-                #print(f"Parameters: flow_threshold={params[0]}, diameter={params[1]}, metric={metric}")
                 if metric > best_metric:
                     best_metric = metric
                     best_masks = masks
                     best_params = params
-
             if best_masks is not None and np.max(best_masks) > 0:
-                #print(f"Best parameters: flow_threshold={best_params[0]}, diameter={best_params[1]}")
                 selected_masks = best_masks
             else:
                 #print("No masks detected with any parameter combination. Returning empty mask.")
@@ -1668,7 +1410,6 @@ class Cellpose():
                 else:
                     selected_masks = np.zeros_like(self.image)
         selected_masks = Utilities().remove_artifacts_from_mask_image(selected_masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
-
         return selected_masks
     
 
@@ -1819,7 +1560,6 @@ class CellSegmentationWatershed_standard:
             image_proj = self.image
         else:  # [Y, X]
             image_proj = self.image
-
         # Convert to grayscale if necessary
         if image_proj.ndim == 3 and image_proj.shape[2] > 1:
             image_gray = np.mean(image_proj, axis=2)
@@ -1837,7 +1577,6 @@ class CellSegmentationWatershed_standard:
         else:
             raise ValueError("Unsupported threshold method. Use 'otsu' or 'li'.")
         # Adjust the threshold by the factor from the slider
-        #thresh = base_thresh * self.threshold_factor
         thresh = base_thresh / self.threshold_factor
         binary_image = smoothed_image > thresh
         # Remove small objects and holes from binary image before labeling
@@ -1856,8 +1595,8 @@ class CellSegmentationWatershed_standard:
         # Apply watershed algorithm
         labels = watershed(-distance, markers, mask=binary_image)
         # Remove small objects from labels
-        min_object_size = 500  # Adjust as needed
-        labels = morphology.remove_small_objects(labels, min_size=min_object_size)
+        MIN_OBJECT_SIZE = 500  # Adjust as needed
+        labels = morphology.remove_small_objects(labels, min_size=MIN_OBJECT_SIZE)
         labels = labels.astype(np.int32)
         num_objects = labels.max()
         print(f"Number of segmented objects: {num_objects}")
@@ -2151,7 +1890,6 @@ class CellSegmentation():
             else:
                 raise ValueError("Error: No nucleus or cytosol channels were selected. ")        
         
-
         elif (self.optimization_segmentation_method == 'z_slice_segmentation_marker') and (len(self.image.shape) > 3) and (self.image.shape[0] > 1):
             # Optimization based on selecting a z-slice or combination of z-slices to find the maximum number of index_paired_masks.
             list_idx = np.round(np.linspace(0, self.number_z_slices - 1, self.NUMBER_OPTIMIZATION_VALUES), 0).astype(int)
@@ -2423,11 +2161,9 @@ class MultiManualSegmentation:
         # Don't process events if we're waiting on class name input
         if self.awaiting_label:
             return
-
         # Ignore clicks outside the image axes
         if event.inaxes != self.ax:
             return
-
         # Handle left-click events
         if event.button == 1:
             # If this is a double-click, check if we can finalize the polygon.
@@ -2437,20 +2173,16 @@ class MultiManualSegmentation:
                 else:
                     print("Polygon must have at least 3 points. Continue drawing or press Esc to cancel.")
                 return  # exit so a double-click doesn't also add a point
-            
             # Process a normal single left-click: add a vertex to the polygon
             if event.xdata is None or event.ydata is None:
                 return
             x = int(round(event.xdata))
             y = int(round(event.ydata))
-            # Clamp coordinates within image boundaries
             x = max(0, min(self.width - 1, x))
             y = max(0, min(self.height - 1, y))
             self.current_polygon.append((x, y))
-            # Mark the vertex with a red dot
             pt_artist, = self.ax.plot(x, y, 'ro')
             self.current_polygon_artists.append(pt_artist)
-            # If this is not the first point, draw a line from the previous one
             if len(self.current_polygon) > 1:
                 px, py = self.current_polygon[-2]
                 line_artist, = self.ax.plot([px, x], [py, y], 'r-')
@@ -2502,14 +2234,12 @@ class MultiManualSegmentation:
                 pass
         self.current_polygon_artists = []
         self.fig.canvas.draw()
-        
         # Pause drawing and prompt user for class name via a TextBox widget
         self.awaiting_label = True
         axbox = self.fig.add_axes([0.25, 0.01, 0.5, 0.05])  # textbox at bottom of figure
         axbox.set_facecolor((0.9, 0.9, 0.9))
         prompt = f"Object {label_val} class name: "
         text_box = TextBox(axbox, prompt)
-        
         # Define what happens when the user submits the class name
         def on_submit(text):
             class_name = text.strip()
@@ -2778,7 +2508,6 @@ class TrackPyDetection:
             threshold = threshold_otsu(image_flat)
         # Detect spots using TrackPy
         f = tp.locate(rna_filtered, diameter=self.spot_diameter, minmass=threshold,characterize=False)
-        
         # Extract coordinates and intensity
         x = f['x'].values  # x-coordinate
         y = f['y'].values  # y-coordinate
@@ -2861,7 +2590,6 @@ class BigFISH():
         spot_radius_px = detection.get_object_radius_pixel(
                         voxel_size_nm=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx), 
                         object_radius_nm=(self.voxel_size_z*(self.z_spot_size_in_px//2), self.voxel_size_yx*(self.yx_spot_size_in_px//2) , self.voxel_size_yx*(self.yx_spot_size_in_px//2)), ndim=3)     
-        
         sigma = spot_radius_px
         spot_radius_nm =detection.get_object_radius_nm(voxel_size_nm=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx), 
                                                        object_radius_px=spot_radius_px, 
@@ -2882,11 +2610,9 @@ class BigFISH():
         else:
             threshold = detection.automated_threshold_setting(rna_filtered, mask) # thresholding
         spots, _ = detection.spots_thresholding(rna_filtered, mask, threshold, remove_duplicate=True)
-        
         # Decomposing dense regions        
         if self.decompose_dense_regions == True:
             try:
-                # return spots (z,y,x) dense_regions , and refrence spot
                 spots_post_decomposition, _, _ = detection.decompose_dense(image=rna, 
                                                                         spots=spots, 
                                                                         voxel_size = (self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx), 
@@ -2902,22 +2628,18 @@ class BigFISH():
         # clusters_and_spots, Array with shape (nb_clusters, 5) or (nb_clusters, 4). One coordinate per dimension for the clusters centroid (zyx or yx coordinates),
         #  the number of spots detected in the clusters, and the cluster index
         # clusters, Array with shape (nb_clusters, 5) or (nb_clusters, 4). One coordinate per dimension for the clusters centroid (zyx or yx coordinates), the number of spots detected in the clusters and its index.
-        
         spots_post_decomposition = spots_post_decomposition.astype(np.float64)
 
         clusters_and_spots_big_fish, clusters = detection.detect_clusters(spots_post_decomposition, 
                                             voxel_size=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx),
                                             radius= self.cluster_radius_nm,
                                             nb_min_spots = self.neighborhood_min_spots_for_cluster ) #[1] #z,yx,idx, 
-        
-
         # select only those clusters_and_spots where last column is -1
         spots_no_clusters = clusters_and_spots_big_fish[clusters_and_spots_big_fish[:,-1]<0] # ensure to get -1 values.
         # replace the last column with 1 indicating the cluster size of 1. and this means is a spot, and not a cluster.
         spots_no_clusters[:,-1] = 1        
         # remove from clusters_and_spots the spots_no_clusters where the last column is less than 2.
         clusters_no_spots = clusters[clusters[:,-2]>1]
-
         clusters_no_spots = clusters_no_spots[:,0:-1]
         # concatenate the spots_no_clusters with the clusters
         clusters_and_spots = np.concatenate((spots_no_clusters, clusters_no_spots), axis=0)
@@ -2957,7 +2679,6 @@ class BigFISH():
                 path_output= str(self.image_name) + '_ch_' + str(self.channels_spots) +'_slice_'+ str(i) +'.png'
             else:
                 path_output= str(self.image_name) + '_ch_' + str(self.channels_spots) +'.png'
-                
             if not(self.image_name is None) and (i==central_slice) and (self.show_plot ==True): # saving only the central slice
                 show_figure_in_cli = True
             else:
@@ -2968,7 +2689,6 @@ class BigFISH():
                         # spots_to_plot are clusters where clusters_to_plot[3]< 2
                         spots_to_plot = clusters_and_spots_z[clusters_and_spots_z[:,3]<=1]
                         clusters_to_plot = clusters_and_spots_z[clusters_and_spots_z[:,3]>1]
-
                         plot.plot_detection(image_2D, 
                                         spots=[spots_to_plot[:, :3], clusters_to_plot[:, :3]], 
                                         shape=["circle", "polygon"], 
@@ -2988,7 +2708,6 @@ class BigFISH():
                     else:
                         plt.close()
             del clusters_and_spots_z
-        
         return clusters_and_spots, rna_filtered, threshold
 
 
@@ -3124,7 +2843,6 @@ class SpotDetection():
                                                                                 display_spots_on_multiple_z_planes=self.display_spots_on_multiple_z_planes, 
                                                                                 spot_diameter=self.yx_spot_size_in_px,
                                                                                 threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files).detect()
-                
             else:
                 print('Using BigFISH for spot detection')
                 clusters_and_spots, image_filtered, threshold = BigFISH(self.image, 
@@ -3139,9 +2857,6 @@ class SpotDetection():
                                                                         display_spots_on_multiple_z_planes=self.display_spots_on_multiple_z_planes,
                                                                         use_log_filter_for_spot_detection =self.use_log_filter_for_spot_detection,
                                                                         threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files).detect()
-                
-                
-
             list_thresholds_spot_detection.append(threshold)
             # converting the psf to pixles
             spot_diameter_for_intensity_px = int(np.max((self.spot_radius_px[1]*2, self.MINIMUM_SPOT_SIZE_IN_PX)))
@@ -3156,17 +2871,14 @@ class SpotDetection():
                 df_detected_spots['image_id'] = self.image_counter
                 df_detected_spots['spot_type'] = i
                 # remove spots that are not inside the mask
-                
                 mask_selected = (self.list_masks_complete_cells[0] >0).astype(int)
                 df_in_mask = Utilities().spots_in_mask(df_detected_spots, mask_selected)
                 df_detected_spots = df_in_mask[df_in_mask['In Mask'] == True]
-
             # reset counter for image and cell number
             reset_cell_counter = True
             list_images.append(image_filtered)
             # ensure that no spots are detected in the origin of the image x and y = 0
             df_detected_spots = df_detected_spots[(df_detected_spots['y']!=0) & (df_detected_spots['x']!=0)]
-
         return df_detected_spots, list_images, list_thresholds_spot_detection
 
 
@@ -3247,7 +2959,6 @@ class ParticleTracking:
             self.channels_spots = [channels_spots]
         else:
             self.channels_spots = channels_spots
-
         self.masks = masks if masks is not None else np.ones(image[0].shape[:3], dtype=bool)
         self.channels_cytosol = channels_cytosol
         self.channels_nucleus = channels_nucleus
@@ -3260,12 +2971,10 @@ class ParticleTracking:
             self.NUMBER_OF_CORES = cpu_count()
         else:
             self.NUMBER_OF_CORES = number_cores
-
         # Spot properties.
         self.list_voxels = list_voxels
         self.yx_spot_size_in_px = yx_spot_size_in_px
         self.z_spot_size_in_px = z_spot_size_in_px
-
         # Cluster properties.
         if cluster_radius_nm is None:
             self.cluster_radius_nm = int(list_voxels[1] * 4)
@@ -3274,7 +2983,6 @@ class ParticleTracking:
         self.remove_clusters = remove_clusters
         self.maximum_spots_cluster = maximum_spots_cluster
         self.separate_clusters_and_spots = separate_clusters_and_spots
-
         # Compute spot radius in pixels.
         self.spot_radius_px = detection.get_object_radius_pixel(
             voxel_size_nm=(list_voxels[0], list_voxels[1], list_voxels[1]),
@@ -3290,7 +2998,6 @@ class ParticleTracking:
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
         self.link_using_3d_coordinates = link_using_3d_coordinates
         self.neighbor_strategy = neighbor_strategy
-
         # Random control parameters.
         self.generate_random_particles = generate_random_particles
         if self.generate_random_particles and (number_of_random_particles_trajectories is None):
@@ -3424,15 +3131,10 @@ class ParticleTracking:
                 delayed(process_frame)(t) for t in range(T)
             )
             df_complete = pd.concat(processed_frames, ignore_index=True)
-            # Create a 'particle' column based on the original 'spot_id'
             if 'spot_id' in df_complete.columns:
-                df_complete['particle'] = pd.factorize(df_complete['spot_id'])[0]
-            
-            # create the 'time' column
+                df_complete['particle'] = pd.factorize(df_complete['spot_id'])[0]            
             df_complete['time'] = df_complete['frame'] * self.step_size_in_sec
             return [df_complete], self.image
-
-        # --- NORMAL MODE (unchanged) ---
         else:
             def process_time_point(i):
                 dataframe, imgs, _ = SpotDetection(
@@ -3470,35 +3172,7 @@ class ParticleTracking:
             for i in range(self.number_time_points):
                 for ch in range(self.number_color_channels):
                     filtered_image_stack[i, :, :, :, ch] = list_filtered_images[i][ch]
-
-            # def particle_linking(df, search_range=np.linspace(0.5, 5, 5),
-            #                     min_length_trajectory=10, memory=0, pos_columns=['x', 'y', 'z']):
-            #     list_df = []
-            #     quality_metrics = []
-            #     for search_distance in search_range:
-            #         try:
-            #             linked = tp.link(df, search_distance, pos_columns=pos_columns,
-            #                             memory=memory, neighbor_strategy=self.neighbor_strategy)
-            #             filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
-            #             if 'particle' in filtered.columns:
-            #                 num_trajectories = len(filtered['particle'].unique())
-            #                 avg_length = filtered.groupby('particle').size().mean() if num_trajectories > 0 else 0
-            #                 metric = num_trajectories * avg_length
-            #             else:
-            #                 metric = 0
-            #             list_df.append(filtered)
-            #             quality_metrics.append(metric)
-            #         except Exception:
-            #             list_df.append(pd.DataFrame())
-            #             quality_metrics.append(0)
-            #     return list_df[np.argmax(quality_metrics)]
-
-            # def linking_2D(df, search_distance=10, min_length_trajectory=10, memory=0, pos_columns=['x', 'y']):
-            #     linked = tp.link(df, search_distance, pos_columns=pos_columns,
-            #                     memory=memory, neighbor_strategy=self.neighbor_strategy)
-            #     return tp.filter_stubs(linked, threshold=min_length_trajectory)
             
-
             def particle_linking(df, search_range=np.linspace(0.5, 5, 5),
                     min_length_trajectory=10, memory=0, pos_columns=['x', 'y', 'z']):
                 list_df = []
@@ -3529,7 +3203,6 @@ class ParticleTracking:
                     quality_metrics.append(metric)
                 return list_df[np.argmax(quality_metrics)]
 
-
             def linking_2D(df, search_distance=10, min_length_trajectory=10,
                         memory=0, pos_columns=['x', 'y']):
                 try:
@@ -3544,102 +3217,6 @@ class ParticleTracking:
                     except Exception:
                         return pd.DataFrame()
                 return tp.filter_stubs(linked, threshold=min_length_trajectory)
-
-
-        # def particle_linking(df,
-        #                     search_range: np.ndarray = np.linspace(0.5, 5, 5),
-        #                     min_length_trajectory: int = 10,
-        #                     memory: int = 0,
-        #                     pos_columns: list = ['x', 'y', 'z']):
-        #     """
-        #     Try linking over a sweep of search distances, pick the result
-        #     with the highest (num_trajectories * avg_length) metric.
-        #     Allows a 1-frame gap if memory > 0, else falls back to memory=0.
-        #     """
-        #     list_df = []
-        #     quality_metrics = []
-
-        #     for search_distance in search_range:
-        #         # first attempt with user memory
-        #         try:
-        #             linked = tp.link_df(
-        #                 df,
-        #                 search_distance,
-        #                 memory=memory,
-        #                 pos_columns=pos_columns,
-        #                 neighbor_strategy=self.neighbor_strategy,
-        #                 adaptive_stop=0.5,
-        #                 adaptive_step=0.95,
-        #             )
-        #         except Exception:
-        #             # fallback: no memory
-        #             try:
-        #                 linked = tp.link_df(
-        #                     df,
-        #                     search_distance,
-        #                     memory=0,
-        #                     pos_columns=pos_columns,
-        #                     neighbor_strategy=self.neighbor_strategy,
-        #                     adaptive_stop=0.5,
-        #                     adaptive_step=0.95,
-        #                 )
-        #             except Exception:
-        #                 list_df.append(pd.DataFrame())
-        #                 quality_metrics.append(0)
-        #                 continue
-
-        #         # filter out short tracks
-        #         filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
-
-        #         # compute quality metric
-        #         if 'particle' in filtered:
-        #             num = filtered['particle'].nunique()
-        #             avg_len = filtered.groupby('particle').size().mean() if num > 0 else 0
-        #             metric = num * avg_len
-        #         else:
-        #             metric = 0
-
-        #         list_df.append(filtered)
-        #         quality_metrics.append(metric)
-
-        #     # return the best result
-        #     best_idx = int(np.argmax(quality_metrics))
-        #     return list_df[best_idx]
-
-
-        # def linking_2D(df,
-        #             search_distance: float = 10,
-        #             min_length_trajectory: int = 10,
-        #             memory: int = 0,
-        #             pos_columns: list = ['x', 'y']):
-        #     """
-        #     Single‐distance 2D linking with fallback to memory=0.
-        #     """
-        #     try:
-        #         linked = tp.link_df(
-        #             df,
-        #             search_distance,
-        #             memory=memory,
-        #             pos_columns=pos_columns,
-        #             neighbor_strategy=self.neighbor_strategy,
-        #             adaptive_stop=0.5,
-        #             adaptive_step=0.95,
-        #         )
-        #     except Exception:
-        #         try:
-        #             linked = tp.link_df(
-        #                 df,
-        #                 search_distance,
-        #                 memory=0,
-        #                 pos_columns=pos_columns,
-        #                 neighbor_strategy=self.neighbor_strategy,
-        #                 adaptive_stop=0.5,
-        #                 adaptive_step=0.95,
-        #             )
-        #         except Exception:
-        #             return pd.DataFrame()
-
-        #     return tp.filter_stubs(linked, threshold=min_length_trajectory)
 
             list_dfs_traj = []
             counter = 0
@@ -3750,7 +3327,6 @@ class DataProcessing():
 
     '''
     def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei,  channels_cytosol, channels_nucleus, yx_spot_size_in_px,  spot_type=0, dataframe =None,reset_cell_counter=False,image_counter=0,number_color_channels=None,use_maximum_projection=False,use_fixed_size_for_intensity_calculation=True):
-        #self.spotDetectionCSV=spotDetectionCSV 
         self.clusters_and_spots=clusters_and_spots
         self.channels_cytosol=channels_cytosol
         self.channels_nucleus=channels_nucleus
@@ -3758,8 +3334,6 @@ class DataProcessing():
         self.yx_spot_size_in_px =yx_spot_size_in_px
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
-        #if use_maximum_projection == True:
-        #    image = np.max(image, axis=0, keepdims=True)
         self.image = image
         if isinstance(masks_complete_cells, list) or (masks_complete_cells is None):
             self.masks_complete_cells=masks_complete_cells
@@ -3779,7 +3353,6 @@ class DataProcessing():
         self.image_counter = image_counter
         self.use_maximum_projection = use_maximum_projection
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
-        
         # This number represent the number of columns that doesnt change with the number of color channels in the image
         self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME = 18
     def get_dataframe(self):
@@ -3822,7 +3395,6 @@ class DataProcessing():
         def data_to_df(df, clusters_and_spots, mask_nuc = None, mask_cytosol_only=None,masks_complete_cells=None, nuc_area = 0, cyto_area =0, cell_area=0,
                         nuc_centroid_y=0, nuc_centroid_x=0, cyto_centroid_y=0, cyto_centroid_x=0, image_counter=0, is_cell_in_border = 0, spot_type=0, cell_counter =0,
                         nuc_int=None, cyto_int = None, complete_cell_int=None,pseudo_cyto_int=None,nucleus_cytosol_intensity_ratio=None,nucleus_pseudo_cytosol_intensity_ratio=None):
-
             # detect spots in nucleus
             if not (self.channels_nucleus in (None,[None]) ):
                 spots_nuc,ts=separate_clusters_and_spots_in_mask(clusters_and_spots,mask=mask_nuc)
@@ -3837,7 +3409,6 @@ class DataProcessing():
             else:
                 spots_cytosol_only = None
                 clusters_cytosol_only = None
-            
             # spots and clusters are reported in the format [Z,Y,X,size]
             number_columns = len(df.columns)
             if not(spots_nuc is None):
@@ -4276,7 +3847,6 @@ class ParticleMotion:
                 plt.show()
         else:
             trackpy_df = self.trackpy_dataframe.copy()
-        
         # Calculate the MSD
         em_px = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
         # Calculate the diffusion coefficient
@@ -4398,792 +3968,7 @@ class CropArray():
         return croparray, mean_crop, first_snapshots, self.crop_size
 
 
-class Metadata():
-    '''
-    This class is intended to generate a metadata file containing used dependencies, user information, and parameters used to run the code.
     
-    Parameters
-    
-    data_dir: str or PosixPath
-        Directory containing the images to read.
-    channels_cytosol : List of int
-        List with integers indicating the index of channels for the cytosol segmentation. 
-    channels_nucleus : list of int
-        List with integers indicating the index of channels for the nucleus segmentation.
-    channels_spots  : list of int
-        List with integers indicating the index of channels for the spot detection using.
-    diameter_cytosol : int
-        Average cytosol size in pixels. The default is 150.
-    diameter_nucleus : int
-        Average nucleus size in pixels. The default is 100.
-    minimum_spots_cluster : int
-        Number of spots in a neighborhood for a point to be considered as a core point (from which a cluster is expanded). This includes the point itself.
-    list_voxels : List of lists or None
-        List with a tuple with two elements (voxel_size_z,voxel_size_yx ) for each spot channel.
-
-    file_name_str : str
-        Name used for the metadata file. The final name has the format metadata_<<file_name_str>>.txt
-    list_counter_cell_id : str
-        Counter that keeps track of the number of images in the folder.
-    threshold_for_spot_detection : int
-        Threshold value used to discriminate background noise from mRNA spots in the image.
-    '''
-    def __init__(self,data_dir, channels_cytosol, channels_nucleus, channels_spots, diameter_nucleus, diameter_cytosol, minimum_spots_cluster, list_voxels=None, list_spot_size_px=None, file_name_str=None,list_segmentation_successful=True,list_counter_image_id=[],threshold_for_spot_detection=[],number_of_images_to_process=None,remove_z_slices_borders=False,NUMBER_Z_SLICES_TO_TRIM=0,cluster_radius_nm=0,list_thresholds_spot_detection=[None],list_average_spots_per_cell=[None],list_number_detected_cells=[None],list_is_image_sharp=[None],list_metric_sharpeness_images=[None],remove_out_of_focus_images=False,sharpness_threshold=None):
-        
-        self.list_images, self.path_files, self.list_files_names, self.number_images = ReadImages(data_dir,number_of_images_to_process).read()
-        self.channels_cytosol = channels_cytosol
-        self.channels_nucleus = channels_nucleus
-        if isinstance(channels_spots, list): 
-            self.channels_spots = channels_spots
-        else:
-            self.channels_spots = [channels_spots]
-        self.diameter_nucleus = diameter_nucleus
-        self.diameter_cytosol = diameter_cytosol
-        self.list_voxels = list_voxels
-        self.list_spot_size_px = list_spot_size_px
-        self.file_name_str=file_name_str
-        self.minimum_spots_cluster = minimum_spots_cluster
-        self.threshold_for_spot_detection=threshold_for_spot_detection
-        if  (not str(data_dir.name)[0:5] ==  'temp_') and (self.file_name_str is None):
-            self.filename = 'metadata_'+ str(data_dir.name).replace(" ", "")  +'.txt'
-            self.filename_csv = 'images_report_'+ str(data_dir.name).replace(" ", "")+'.csv'
-        elif not(self.file_name_str is None):
-            self.filename = 'metadata_'+ str(file_name_str).replace(" ", "") +'.txt'
-            self.filename_csv = 'images_report_'+ str(file_name_str).replace(" ", "")+'.csv'
-        else:
-            self.filename = 'metadata_'+ str(data_dir.name[5:].replace(" ", "")) +'.txt'
-            self.filename_csv = 'images_report_'+ str(file_name_str).replace(" ", "")+'.csv'
-        self.data_dir = data_dir
-        self.list_segmentation_successful =list_segmentation_successful
-        self.list_counter_image_id=list_counter_image_id
-        self.remove_z_slices_borders=remove_z_slices_borders
-        self.NUMBER_Z_SLICES_TO_TRIM=NUMBER_Z_SLICES_TO_TRIM
-        self.cluster_radius_nm=cluster_radius_nm
-        self.list_thresholds_spot_detection=list_thresholds_spot_detection
-        self.list_average_spots_per_cell=list_average_spots_per_cell
-        self.list_number_detected_cells=list_number_detected_cells
-        self.list_is_image_sharp=list_is_image_sharp
-        self.list_metric_sharpeness_images=list_metric_sharpeness_images
-        self.remove_out_of_focus_images=remove_out_of_focus_images
-        self.sharpness_threshold=sharpness_threshold
-    def write_metadata(self):
-        '''
-        This method writes the metadata file.
-        '''
-        installed_modules = [str(module).replace(" ","==") for module in pkg_resources.working_set]
-        important_modules = [ 'tqdm', 'torch','tifffile', 'setuptools', 'scipy', 'scikit-learn', 'scikit-image', 'PyYAML', 'pysmb', 'pyfiglet', 'pip', 'Pillow', 'pandas', 'opencv-python-headless', 'numpy', 'numba', 'natsort', 'mrc', 'matplotlib', 'llvmlite', 'jupyter-core', 'jupyter-client', 'joblib', 'ipython', 'ipython-genutils', 'ipykernel', 'cellpose', 'big-fish']
-        def create_data_file(filename):
-            if sys.platform == 'linux' or sys.platform == 'darwin':
-                os.system('touch  ' + filename)
-            elif sys.platform == 'win32':
-                os.system('echo , > ' + filename)
-        number_spaces_pound_sign = 75
-        
-        def write_data_in_file(filename):
-            list_processing_image=[]
-            list_image_id =[]
-            with open(filename, 'w') as fd:
-                fd.write('#' * (number_spaces_pound_sign)) 
-                fd.write('\nAUTHOR INFORMATION  ')
-                fd.write('\n    Author: ' + getpass.getuser())
-                fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
-                fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute) )
-                fd.write('\n    Operative System: ' + sys.platform )
-                fd.write('\n    Hostname: ' + socket.gethostname() + '\n')
-                fd.write('#' * (number_spaces_pound_sign) ) 
-                fd.write('\nPARAMETERS USED  ')
-                fd.write('\n    channels_cytosol: ' + str(self.channels_cytosol) )
-                fd.write('\n    channels_nucleus: ' + str(self.channels_nucleus) )
-                fd.write('\n    channels_spots: ' + str(self.channels_spots) )
-                fd.write('\n    diameter_nucleus: ' + str(self.diameter_nucleus) )
-                fd.write('\n    diameter_cytosol: ' + str(self.diameter_cytosol) )
-                fd.write('\n    Spot parameters')
-                for k in range (0,len(self.channels_spots)):
-                    fd.write('\n      For Channel ' + str(self.channels_spots[k]) )
-                    fd.write('\n        voxel_size_z: ' + str(self.list_voxels[k][0]) )
-                    fd.write('\n        voxel_size_yx: ' + str(self.list_voxels[k][1]) )
-                    fd.write('\n        spot_size__px_z: ' + str(self.list_spot_size_px[k][0]) )
-                    fd.write('\n        spot_size_px_yx: ' + str(self.list_spot_size_px[k][1]) )
-                    if not(self.threshold_for_spot_detection in (None, [None]) ):
-                        fd.write('\n        threshold_spot_detection: ' + str(self.threshold_for_spot_detection[k]) )
-                    else:
-                        fd.write('\n        threshold_spot_detection: ' + 'automatic value using BIG-FISH' )
-                fd.write('\n    minimum_spots_cluster: ' + str(self.minimum_spots_cluster) )
-                fd.write('\n    remove_z_slices_borders: ' + str(self.remove_z_slices_borders) )
-                fd.write('\n    number of z-slices trimmed at each border: ' + str(self.NUMBER_Z_SLICES_TO_TRIM) )
-                fd.write('\n    cluster radius: ' + str(self.cluster_radius_nm) )
-                fd.write('\n    remove_out_of_focus_images: ' + str(self.remove_out_of_focus_images))
-                if self.remove_out_of_focus_images == True:
-                    fd.write('\n    sharpness_threshold: ' + str(self.sharpness_threshold))
-                fd.write('\n') 
-                fd.write('#' * (number_spaces_pound_sign) ) 
-                fd.write('\nFILES AND DIRECTORIES USED ')
-                fd.write('\n    Directory path: ' + str(self.data_dir) )
-                fd.write('\n    Folder name: ' + str(self.data_dir.name)  )
-                # for loop for all the images.
-                fd.write('\n    Images in the directory :'  )
-                # size of longest name string
-                file_name_len =0
-                max_file_name_len =0
-                for _, img_name in enumerate (self.list_files_names):
-                    if len(img_name) > file_name_len:
-                        max_file_name_len = len(img_name)
-                    else:
-                        max_file_name_len =0
-                
-                str_label_img = '| Image Name'
-                size_str_label_img = len(str_label_img)
-                space_for_image_name = np.min((size_str_label_img, (size_str_label_img-max_file_name_len)))+1
-                fd.write('\n        '+ str_label_img+' '* space_for_image_name + '      '+ '| Sharpness metric' + '      ' +'| Image Id'  )
-                counter=0
-                for indx, img_name in enumerate (self.list_files_names):
-                    file_name_len = len(img_name)
-                    difference_name_len = max_file_name_len-file_name_len
-                    if (self.list_segmentation_successful[indx]== True) and (self.list_is_image_sharp[indx]== True):
-                        fd.write('\n        '+ img_name + (' '*(difference_name_len+4))+ ' '*8+ str(self.list_metric_sharpeness_images[indx]) +  '        ' + str(self.list_counter_image_id[counter]) )
-                        list_image_id.append(self.list_counter_image_id[counter])
-                        counter+=1
-                        list_processing_image.append('successful')
-                    elif self.list_is_image_sharp[indx]== False:
-                        fd.write('\n        '+ img_name + (' '*(difference_name_len+4)) + ' '*8 + str(self.list_metric_sharpeness_images[indx])+ '      - error out of focus.')
-                        list_processing_image.append('error out of focus')
-                        list_image_id.append(-1)
-                    else:
-                        fd.write('\n        '+ img_name + (' '*(difference_name_len+4))+ ' '*8 + str(self.list_metric_sharpeness_images[indx])+ '      - error segmentation.')
-                        list_processing_image.append('error segmentation')
-                        list_image_id.append(-1)
-                fd.write('\n') 
-                fd.write('#' * (number_spaces_pound_sign)) 
-                fd.write('\nSUMMARY RESULTS')
-                # iterate for all processed images and printing the obtained threshold intensity value.
-                for k in range(len(self.channels_spots)):
-                    fd.write('\n    For Channel ' + str(self.channels_spots[k]) )
-                    fd.write('\n             Image Id    |    threshold    |    number cells    |  mean spots per cell |' )
-                    for i,image_id in enumerate(self.list_counter_image_id) :
-                        image_id_str = str(image_id)
-                        len_id = len(image_id_str)
-                        threshold_str = str(int(self.list_thresholds_spot_detection[i][k]))
-                        len_ts= len(threshold_str)
-                        number_cells_str = str(int(self.list_number_detected_cells[i]))
-                        len_nc = len(number_cells_str)
-                        average_spots_per_cells_str = str(int(self.list_average_spots_per_cell[i][k]))
-                        fd.write('\n                ' +'    '+image_id_str + ' '* np.max((1,(13-len_id))) +
-                                                '    '+threshold_str +  ' '* np.max((1,(14-len_ts))) +
-                                                '    '+number_cells_str + ' '* np.max((1,(17-len_nc))) +
-                                                '    '+average_spots_per_cells_str )
-                    
-                    total_average_number_cells = str(int(np.mean(self.list_number_detected_cells)))
-                    total_detected_cells = str(int(np.sum(self.list_number_detected_cells)))
-                    fd.write('\n              ' +'Average:' + ' '* np.max((1,(13-len_id))) +
-                                                '    '+' '*len_ts +  ' '* np.max((1,(14-len_ts))) +
-                                                '    '+ total_average_number_cells + ' '* np.max((1,(17-len_nc))) )
-                    
-                    fd.write('\n              ' +'Total  :' + ' '* np.max((1,(13-len_id))) +
-                                                '    '+' '*len_ts +  ' '* np.max((1,(14-len_ts))) +
-                                                '    '+ total_detected_cells + ' '* np.max((1,(17-len_nc)))  )
-                fd.write('\n') 
-                fd.write('#' * (number_spaces_pound_sign)) 
-                fd.write('\nREPRODUCIBILITY ')
-                fd.write('\n    Platform: \n')
-                fd.write('        Python: ' + str(platform.python_version()) )
-                fd.write('\n    Dependencies: ')
-                # iterating for all modules
-                for module_name in installed_modules:
-                    if any(module_name[0:4] in s for s in important_modules):
-                        fd.write('\n        '+ module_name)
-                fd.write('\n') 
-                fd.write('#' * (number_spaces_pound_sign) ) 
-            return list_processing_image,list_image_id
-        create_data_file(self.filename)
-        list_processing_image, list_image_id = write_data_in_file(self.filename)
-        data = {'Image_id': list_image_id, 'Image_name': self.list_files_names, 'Processing': list_processing_image}
-        df = pd.DataFrame(data)
-        df.to_csv(self.filename_csv)
-        return None
-
-
-class ReportPDF():
-    '''
-    This class intended to create a PDF report including the images generated during the pipeline.
-    
-    Parameters
-    
-    directory_results: str or PosixPath
-        Directory containing the images to include in the report.
-    channels_spots  : list of int
-        List with integers indicating the index of channels for the spot detection using.
-    save_all_images : Bool, optional.
-        If true, it shows a all planes for the spot plot detection. The default is True.
-    list_z_slices_per_image : int
-        List containing all z-slices for each figure.
-        
-    .. image:: images/pdf_report.png
-    
-    This PDF file is generated, and it contains the processing steps for each image in the folder.
-    
-    '''    
-    def __init__(self, directory,filenames_for_pdf_report, channels_spots,save_all_images,list_z_slices_per_image,threshold_for_spot_detection,list_segmentation_successful=True):
-        self.directory = directory
-        if isinstance(channels_spots, list): 
-            self.channels_spots = channels_spots
-        else:
-            self.channels_spots = [channels_spots]
-        self.save_all_images = save_all_images
-        self.list_z_slices_per_image = list_z_slices_per_image
-        self.threshold_for_spot_detection=threshold_for_spot_detection
-        self.list_segmentation_successful =list_segmentation_successful
-        self.filenames_for_pdf_report=filenames_for_pdf_report
-        
-    def create_report(self):
-        '''
-        This method creates a PDF with the original images, images for cell segmentation and images for the spot detection.
-        '''
-        pdf = FPDF()
-        WIDTH = 210
-        HEIGHT = 297
-        pdf.add_page()
-        pdf.set_font('Arial', 'B', 14)
-        # code that reads the main file names
-        list_files_names = self.filenames_for_pdf_report #[]
-        # Main loop that reads each image and makes the pdf
-        for i,temp_file_name in enumerate(list_files_names):
-            pdf.cell(w=0, h=10, txt='Original image: ' + temp_file_name,ln =2,align = 'L')
-            # code that returns the path of the original image
-            temp_original_img_name = pathlib.Path().absolute().joinpath( self.directory, 'ori_' + temp_file_name +'.png' )
-            pdf.image(str(temp_original_img_name), x=0, y=20, w=WIDTH-30)
-            # creating some space
-            for text_idx in range(0, 12):
-                pdf.cell(w=0, h=10, txt='',ln =1,align = 'L')
-            pdf.cell(w=0, h=10, txt='Cell segmentation: ' + temp_file_name,ln =1,align = 'L')
-            # code that returns the path of the segmented image
-            if self.list_segmentation_successful[i]==True:
-                temp_segmented_img_name = pathlib.Path().absolute().joinpath( self.directory, 'seg_' + temp_file_name +'.png' )
-                pdf.image(str(temp_segmented_img_name), x=0, y=HEIGHT/2, w=WIDTH-30)
-            else:
-                pdf.cell(w=0, h=20, txt='Segmentation was not possible for image: ' + temp_file_name,ln =1,align = 'L')
-                pdf.add_page()
-            # Code that plots the detected spots.
-            if (self.save_all_images==True) and (self.list_segmentation_successful[i]==True):
-                for id_channel, channel in enumerate(self.channels_spots):
-                    counter=1
-                    pdf.add_page() # adding a page
-                    for z_slice in range(0, self.list_z_slices_per_image[i]):
-                        temp_seg_name = pathlib.Path().absolute().joinpath( self.directory, 'det_' + temp_file_name + '_ch_'+str(channel) + '_slice_'+ str(z_slice) +'.png' )
-                        # Plotting bottom image
-                        if counter%2==0: # Adding space if is an even counter
-                            # adding some space to plot the bottom image
-                            for j in range(0, 11):
-                                pdf.cell(w=0, h=10, txt='',ln =1,align = 'L')
-                            # Plotting the image
-                            pdf.cell(w=0, h=0, txt='Spots Ch_ ' + str(channel) + '_slice_'+ str(z_slice) +': '+ temp_file_name,ln =2,align = 'L') 
-                            pdf.image(str(temp_seg_name), x=0, y=HEIGHT//2, w=WIDTH-80)
-                            pdf.add_page()
-                        # plotting top image
-                        else:
-                            pdf.cell(w=0, h=10, txt='Spots Ch_ ' + str(channel) + '_slice_'+ str(z_slice) +': '+ temp_file_name,ln =2,align = 'L') 
-                            pdf.image(str(temp_seg_name), x=0, y=20, w=WIDTH-80)
-                        counter=counter+1
-                    pdf.add_page()
-                    try:
-                        if (self.threshold_for_spot_detection[id_channel] is None):
-                            temp_elbow_name = pathlib.Path().absolute().joinpath( self.directory, 'det_' + temp_file_name + '__elbow_'+ '_ch_'+str(channel)+'.png' )
-                            pdf.image(str(temp_elbow_name), x=0, y=HEIGHT//2, w=WIDTH-140)
-                        else:
-                            pdf.cell(w=0, h=10, txt='Used intensity threshold = '+str(self.threshold_for_spot_detection[id_channel]) ,ln =2,align = 'L')
-                    except:
-                        pdf.cell(w=0, h=10, txt='Error during the calculation of the elbow plot',ln =2,align = 'L')
-                    pdf.add_page()
-            elif self.list_segmentation_successful[i]==True:
-                pdf.add_page()
-                for id_channel, channel in enumerate(self.channels_spots):
-                    # Plotting the image with detected spots
-                    temp_seg_name = pathlib.Path().absolute().joinpath( self.directory, 'det_' + temp_file_name + '_ch_'+str(channel)+'.png' )
-                    pdf.cell(w=0, h=10, txt='Spots Ch_ ' + str(channel) + ': '+ temp_file_name,ln =2,align = 'L') 
-                    try:
-                        pdf.image(str(temp_seg_name), x=0, y=20, w=WIDTH-30)  
-                    except:
-                        pdf.cell(w=0, h=10, txt='Error during the calculation of the elbow plot',ln =2,align = 'L')                  
-                    # adding some space
-                    for j in range(0, 12):
-                        pdf.cell(w=0, h=10, txt='',ln =1,align = 'L')
-                    # Plotting the elbow plot
-                    try:
-                        if (self.threshold_for_spot_detection[id_channel] is None):
-                            temp_elbow_name = pathlib.Path().absolute().joinpath( self.directory, 'det_' + temp_file_name + '__elbow_'+ '_ch_'+str(channel)+'.png' )
-                            pdf.image(str(temp_elbow_name), x=0, y=HEIGHT//2, w=WIDTH-140)
-                        else:
-                            pdf.cell(w=0, h=10, txt='Used intensity threshold = '+str(self.threshold_for_spot_detection[id_channel]) ,ln =2,align = 'L')
-                    except:
-                        pdf.cell(w=0, h=10, txt='Error during the calculation of the elbow plot',ln =2,align = 'L')
-                    pdf.add_page()                
-        pdf_name =  'pdf_report_' + self.directory.name[13:].replace(" ", "") + '.pdf'
-        pdf.output(pdf_name, 'F')
-        return None
-    
-    
-class PipelineFISH():
-    '''
-    This class is intended to perform complete FISH analyses including cell segmentation and spot detection.
-    
-    Parameters
-    data_folder_path : str or Pathlib object,
-        Path to the folder with the images to process.
-    parameter: bool, optional
-        parameter description. The default is True. 
-    voxel_size_z : int, optional
-        Microscope conversion px to nanometers in the z axis. The default is 500.
-    voxel_size_yx : int, optional
-        Microscope conversion px to nanometers in the xy axis.   The default is 160.
-    psf_z : int, optional
-        Theoretical size of the PSF emitted by a [rna] spot in the z plan, in nanometers.  The default is 350.
-    psf_yx: int, optional
-        Theoretical size of the PSF emitted by a [rna] spot in the yx plan, in nanometers.  The default is 160.
-    list_masks : List of Numpy or None.
-        list of Numpy arrays where each array has values from 0 to n where n is the number of masks in  the image.
-    save_all_images : Bool, optional.
-        If true, it shows a all planes for the spots plot detection. The default is True.
-    display_spots_on_multiple_z_planes : Bool, optional.
-        If true, it shows a spots on the plane below and above the selected plane. The default is False.
-    use_log_filter_for_spot_detection : bool, optional
-        Uses Big_FISH log_filter. The default is True.
-    threshold_for_spot_detection: scalar, list, or None.
-        Indicates the intensity threshold used for spot detection, the default is None, and indicates that the threshold is calculated automatically.
-    list_selected_z_slices : list or None
-    number_of_images_to_process: int or None, optional
-        This number indicates a subset of images to process from a given repository. The default is None, and this indicates that the code will process all images in the given repository.
-    remove_z_slices_borders : bool optional
-        This flag indicates the removal of the two first and last 2 z-slices from the segmentation and quantification. This needed to avoid processing images out of focus. The default is True.
-    '''
-
-    def __init__(self,data_folder_path=None, channels_cytosol=None, channels_nucleus=None, channels_spots=None,diameter_nucleus=100, diameter_cytosol=200, minimum_spots_cluster=5,  image=None, masks_dir=None, show_plot=True, voxel_size_z=500, voxel_size_yx=160 ,z_spot_size_in_px=2,yx_spot_size_in_px=5,cluster_radius_nm= None, file_name_str =None,optimization_segmentation_method='default',save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=[None],NUMBER_OF_CORES=1,list_selected_z_slices=None,save_filtered_images=False,number_of_images_to_process=None,remove_z_slices_borders=False,remove_out_of_focus_images = False,sharpness_threshold =1.05,save_pdf_report=False,folder_name='temp',save_files=True,model_nuc_segmentation='nuclei',model_cyto_segmentation='cyto3',pretrained_model_nuc_segmentation=None, pretrained_model_cyto_segmentation=None):
-        
-        if type(data_folder_path)== pathlib.PosixPath or isinstance(data_folder_path, str) or type(data_folder_path)== pathlib.WindowsPath:
-            list_images, _ , self.list_files_names, self.number_images = ReadImages(data_folder_path,number_of_images_to_process).read()
-        else:
-            #list_images =[image]
-            self.list_files_names = ['temp.tif']
-            self.number_images = 1 
-            
-        #if Utilities().is_None(image) == False:
-        if not (image is None):
-            if len(image.shape)<=3:
-                image = np.expand_dims(image,axis=0)
-            list_images =[image.astype(np.uint16)]
-        
-        self.number_of_images_to_process = self.number_images
-        if len(list_images[0].shape) < 4:
-            list_images_extended = [ np.expand_dims(img,axis=0) for img in list_images ] 
-            list_images = list_images_extended
-        else:
-            list_images = list_images
-        # Trimming the z-slices in each image based on 
-        list_images_trimmed = []
-        num_z_silces = list_images[0].shape[0] 
-        MINIMAL_NUMBER_OF_Z_SLICES_TO_CONSIDER_A_3D_IMAGE = 10 # This constant is only used to remove the extre z-slices on the original image.
-        if (remove_z_slices_borders == True) and  (list_selected_z_slices is None) and (num_z_silces>=MINIMAL_NUMBER_OF_Z_SLICES_TO_CONSIDER_A_3D_IMAGE): 
-            NUMBER_Z_SLICES_TO_TRIM = 1 # This constant indicates the number of z_slices to remove from the border.
-            list_selected_z_slices = np.arange(NUMBER_Z_SLICES_TO_TRIM,num_z_silces-NUMBER_Z_SLICES_TO_TRIM,1)
-            self.remove_z_slices_borders = True
-        else:
-            NUMBER_Z_SLICES_TO_TRIM = 0
-            self.remove_z_slices_borders = False
-        self.NUMBER_Z_SLICES_TO_TRIM = NUMBER_Z_SLICES_TO_TRIM
-        if not (list_selected_z_slices is None):
-            number_images = len(list_images)
-            for i in range (number_images):
-                if len(list_selected_z_slices) > list_images[i].shape[0]:
-                    raise ValueError("Error: You are selecting z-slices that are outside the size of your image. In PipelineFISH, please use this option list_selected_z_slices=None ")
-                list_images_trimmed.append(list_images[i][list_selected_z_slices,:,:,:]   )
-            self.list_images = list_images_trimmed
-        else:
-            self.list_images = list_images
-        self.list_z_slices_per_image = [ img.shape[0] for img in self.list_images] # number of z-slices in the figure
-        self.channels_cytosol = Utilities().make_it_a_list(channels_cytosol) #channels_cytosol
-        self.channels_nucleus = Utilities().make_it_a_list(channels_nucleus) #channels_nucleus
-        channels_spots = Utilities().make_it_a_list(channels_spots) #channels_spots
-        self.channels_spots = channels_spots
-        self.diameter_nucleus = diameter_nucleus
-        self.diameter_cytosol = diameter_cytosol
-
-        self.z_spot_size_in_px=z_spot_size_in_px
-        self.yx_spot_size_in_px=yx_spot_size_in_px
-        self.list_voxels = [voxel_size_z,voxel_size_yx]
-        self.list_spot_size_px = [z_spot_size_in_px, yx_spot_size_in_px]
-        self.minimum_spots_cluster = minimum_spots_cluster
-        self.show_plot = show_plot
-        if cluster_radius_nm is None:
-            self.cluster_radius_nm = int(self.list_voxels[1] * 4)
-        else:
-            self.cluster_radius_nm = cluster_radius_nm
-        
-        if not(data_folder_path is None):
-            self.data_folder_path = data_folder_path
-        else:
-            data_folder_path = pathlib.Path().absolute().joinpath(folder_name)
-            if not data_folder_path.exists() and (save_files == True):
-                data_folder_path.mkdir(parents=False, exist_ok=True)
-            self.data_folder_path = data_folder_path
-        
-        if not(file_name_str is None):
-            self.name_for_files = file_name_str
-        else:
-            self.name_for_files = self.data_folder_path.name
-        self.masks_dir=masks_dir
-        # saving the masks if they are not passed as a directory
-        if (masks_dir is None):
-            self.save_masks_as_file = True
-        else:
-            self.save_masks_as_file = False
-        self.optimization_segmentation_method = optimization_segmentation_method # optimization_segmentation_method = 'default', 'intensity_segmentation' 'z_slice_segmentation_marker', 'gaussian_filter_segmentation' , None
-        if np.min(self.list_z_slices_per_image) < 5:
-            self.optimization_segmentation_method = 'center_slice'
-        self.save_all_images = save_all_images                                  # Displays all the z-planes
-        self.display_spots_on_multiple_z_planes = display_spots_on_multiple_z_planes  # Displays the ith-z_plane and the detected spots in the planes ith-z_plane+1 and ith-z_plane
-        self.use_log_filter_for_spot_detection =use_log_filter_for_spot_detection
-        self.NUMBER_OF_CORES=NUMBER_OF_CORES
-        self.save_filtered_images= save_filtered_images
-        self.sharpness_threshold = sharpness_threshold
-        # Testing sharpness in images
-        self.remove_out_of_focus_images = remove_out_of_focus_images
-        if remove_out_of_focus_images == True:
-            list_metric_sharpeness_images, list_is_image_sharp,list_sharp_images = Utilities().calculate_sharpness(list_images, channels_spots=channels_spots,threshold=sharpness_threshold)
-        else:
-            list_sharp_images= list_images
-            list_is_image_sharp=np.ones(len(list_images))
-            list_is_image_sharp = [bool(x) for x in list_is_image_sharp]
-            list_metric_sharpeness_images= Utilities().calculate_sharpness(list_images, channels_spots=channels_spots,threshold=sharpness_threshold)[0]
-        self.list_is_image_sharp = list_is_image_sharp
-        self.list_metric_sharpeness_images =list_metric_sharpeness_images
-        
-        # Section that creates an automated intensity threshold for spot detection by using the average values obtained from processing all the directiory of images. 
-        MINUMUM_NUMBER_IMAGES_TO_AUTOMATICALLY_CALCULATE_THRESHOLD = 3
-        if (threshold_for_spot_detection == None) and (len(list_sharp_images)>MINUMUM_NUMBER_IMAGES_TO_AUTOMATICALLY_CALCULATE_THRESHOLD):
-            MAX_NUM_IMAGES_TO_AUTOMATICALLY_CALCULATE_THRESHOLD = 50
-            number_images_to_test = np.min((MAX_NUM_IMAGES_TO_AUTOMATICALLY_CALCULATE_THRESHOLD,len(list_sharp_images)))
-            sub_section_images_to_test =list_sharp_images[:number_images_to_test]
-            threshold_for_spot_detection =[]
-            for i in range(len(channels_spots)):
-                list_thresholds=[]
-                voxel_size_z = self.list_voxels[0]
-                voxel_size_yx = self.list_voxels[1]
-                
-                for _, image_selected in enumerate(sub_section_images_to_test):
-                    threshold = BigFISH(image_selected,
-                                        channels_spots[i], 
-                                        voxel_size_z = voxel_size_z,
-                                        voxel_size_yx = voxel_size_yx, 
-                                        yx_spot_size_in_px=self.yx_spot_size_in_px, 
-                                        z_spot_size_in_px=self.z_spot_size_in_px, 
-                                        cluster_radius_nm=self.cluster_radius_nm,
-                                        minimum_spots_cluster=self.minimum_spots_cluster, 
-                                        use_log_filter_for_spot_detection =self.use_log_filter_for_spot_detection,
-                                        threshold_for_spot_detection=None).detect()[2]
-                    list_thresholds.append(threshold)
-                # calculating the average threshold for all images removing min and max values.
-                array_threshold_spot_detection = np.array(list_thresholds)
-                min_val = np.min(array_threshold_spot_detection)
-                max_val = np.max(array_threshold_spot_detection)
-                mask_ts = (array_threshold_spot_detection != min_val) & (array_threshold_spot_detection != max_val)
-                average_threshold_spot_detection= int(np.mean(array_threshold_spot_detection[mask_ts]))
-                threshold_for_spot_detection.append(average_threshold_spot_detection)
-            print('Most images are noisy. An average threshold value for spot detection has been calculated using all images:', threshold_for_spot_detection)
-        else:
-            threshold_for_spot_detection = Utilities().create_list_thresholds(channels_spots,threshold_for_spot_detection)
-        self.threshold_for_spot_detection = threshold_for_spot_detection
-        self.save_pdf_report = save_pdf_report
-        self.save_files = save_files
-        self.model_nuc_segmentation=model_nuc_segmentation
-        self.model_cyto_segmentation=model_cyto_segmentation
-        self.pretrained_model_nuc_segmentation=pretrained_model_nuc_segmentation
-        self.pretrained_model_cyto_segmentation=pretrained_model_cyto_segmentation
-        
-        
-    def run(self):
-        # Creating folder to store outputs.
-        if self.save_files == True:
-            output_identification_string = Utilities().create_output_folders(self.data_folder_path, self.diameter_nucleus, self.diameter_cytosol, self.psf_z, self.psf_yx, self.threshold_for_spot_detection, self.channels_spots, self.threshold_for_spot_detection)
-        else:
-            output_identification_string = ''
-        MINIMAL_NUMBER_OF_PIXELS_IN_MASK = 1000
-        # Prealocating arrays
-        list_masks_complete_cells=[]
-        list_masks_nuclei=[]
-        list_masks_cytosol_no_nuclei=[]
-        list_segmentation_successful=[]
-        list_counter_image_id=[]
-        list_thresholds_spot_detection =[]
-        list_number_detected_cells = []
-        list_average_spots_per_cell =[]
-        
-        # if (self.save_files is None):
-        temp_folder_name = str('temp_results_'+ self.name_for_files)
-        if not os.path.exists(temp_folder_name) and (self.save_files == True):
-            os.makedirs(temp_folder_name)
-        if (self.save_masks_as_file ==True) and (self.save_files == True):
-            masks_folder_name = str('masks_'+ self.name_for_files)
-            if not os.path.exists(masks_folder_name):
-                os.makedirs(masks_folder_name)
-        if self.save_filtered_images == True:
-            filtered_folder_name = str('filtered_images_'+ self.name_for_files)
-            if not os.path.exists(filtered_folder_name):
-                os.makedirs(filtered_folder_name)           
-        # Running the pipeline.
-        counter=0
-        for i in range (0, self.number_images ):
-            print('')
-            print( ' ###################### ' )
-            print( '        IMAGE : '+ str(i) )
-            print( ' ###################### ' )
-            if i ==0:
-                dataframe = None
-            #print('- ORIGINAL IMAGE')
-            print('    Image Name :  ', self.list_files_names[i])
-            temp_file_name = self.list_files_names[i][:self.list_files_names[i].rfind('.')] # slcing the name of the file. Removing after finding '.' in the string.
-            temp_original_img_name = pathlib.Path().absolute().joinpath( temp_folder_name, 'ori_' + temp_file_name +'.png' )
-            if self.save_files == True:
-                Plots().plot_images(self.list_images[i],figsize=(15, 10) ,image_name=  temp_original_img_name, show_plot = self.show_plot)            
-            #print('    Image Shape :                            ', list(self.list_images[i].shape ))
-            img_shape = list(self.list_images[i].shape )
-            if self.remove_z_slices_borders == True:
-                img_shape = list(self.list_images[i].shape )
-                img_shape[0]=img_shape[0]+2*(self.NUMBER_Z_SLICES_TO_TRIM)
-                print('    Orginal Image Shape :                    ', img_shape)
-                print('    Trimmed z_slices at each border :        ', self.NUMBER_Z_SLICES_TO_TRIM)
-            else:
-                print('    Original Image Shape :                   ', img_shape)
-            print('    Image sharpness metric :                 ',self.list_metric_sharpeness_images[i])
-            
-            if self.list_is_image_sharp[i] == False: 
-                print('    Image out of focus.')
-                list_segmentation_successful.append(False)
-            else:
-                # Cell segmentation
-                temp_segmentation_img_name = pathlib.Path().absolute().joinpath( temp_folder_name, 'seg_' + temp_file_name +'.png' )
-                #print('- CELL SEGMENTATION')
-                if (self.masks_dir is None):
-                    masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei = CellSegmentation(self.list_images[i],
-                                                                                                self.channels_cytosol, 
-                                                                                                self.channels_nucleus, 
-                                                                                                diameter_cytosol=self.diameter_cytosol, 
-                                                                                                diameter_nucleus=self.diameter_nucleus, 
-                                                                                                show_plot=self.show_plot,
-                                                                                                optimization_segmentation_method=self.optimization_segmentation_method,
-                                                                                                image_name = temp_segmentation_img_name,
-                                                                                                NUMBER_OF_CORES=self.NUMBER_OF_CORES, 
-                                                                                                running_in_pipeline = True,
-                                                                                                model_nuc_segmentation=self.model_nuc_segmentation,
-                                                                                                model_cyto_segmentation=self.model_cyto_segmentation,
-                                                                                                pretrained_model_nuc_segmentation=self.pretrained_model_nuc_segmentation,
-                                                                                                pretrained_model_cyto_segmentation=self.pretrained_model_cyto_segmentation).calculate_masks() 
-                # test if segmentation was succcesful
-                    if Utilities().is_None(self.channels_cytosol) ==True: #(self.channels_cytosol is None):
-                        detected_mask_pixels = np.count_nonzero([masks_nuclei.flatten()])
-                        number_detected_cells = np.max(masks_nuclei)
-                    if Utilities().is_None(self.channels_nucleus) ==True: #(self.channels_nucleus  is None):
-                        detected_mask_pixels = np.count_nonzero([masks_complete_cells.flatten()])
-                        number_detected_cells = np.max(masks_complete_cells)
-                    if (Utilities().is_None(self.channels_nucleus) == False) and (Utilities().is_None(self.channels_cytosol) ==False):#not (self.channels_nucleus  is None) and not(self.channels_cytosol  is None):
-                        detected_mask_pixels =np.count_nonzero([masks_complete_cells.flatten(), masks_nuclei.flatten(), masks_cytosol_no_nuclei.flatten()])
-                        number_detected_cells = np.max(masks_complete_cells)
-                    # Counting pixels
-                    if  detected_mask_pixels > MINIMAL_NUMBER_OF_PIXELS_IN_MASK:
-                        segmentation_successful = True
-                    else:
-                        segmentation_successful = False   
-                else:
-                    # Paths to masks
-                    if Utilities().is_None(self.channels_nucleus) == False: #not (self.channels_nucleus in (None,[None])) :
-                        mask_nuc_path = self.masks_dir.absolute().joinpath('masks_nuclei_' + temp_file_name +'.tif' )
-                        try:
-                            masks_nuclei = imread(str(mask_nuc_path)) 
-                            segmentation_successful = True
-                            number_detected_cells = np.max(masks_nuclei)
-                        except:
-                            segmentation_successful = False
-                    if Utilities().is_None(self.channels_cytosol) ==False: #not (self.channels_cytosol is None):
-                        mask_cyto_path = self.masks_dir.absolute().joinpath( 'masks_cyto_' + temp_file_name +'.tif' )
-                        try:
-                            masks_complete_cells = imread(str( mask_cyto_path   )) 
-                            segmentation_successful = True
-                            number_detected_cells = np.max(masks_complete_cells)
-                        except:
-                            segmentation_successful = False
-                    if  (Utilities().is_None(self.channels_nucleus) == False) and (Utilities().is_None(self.channels_cytosol) ==False): # not (self.channels_cytosol is None) and not (self.channels_nucleus is None) :
-                        mask_cyto_no_nuclei_path = self.masks_dir.absolute().joinpath('masks_cyto_no_nuclei_' + temp_file_name +'.tif' )
-                        try:
-                            masks_cytosol_no_nuclei = imread(str(mask_cyto_no_nuclei_path  ))
-                        except:
-                            segmentation_successful = False
-                    # test all masks exist, if not create the variable and set as None.
-                    if not 'masks_nuclei' in locals():
-                        masks_nuclei=None
-                    if not 'masks_complete_cells' in locals():
-                        masks_complete_cells=None
-                    if not 'masks_cytosol_no_nuclei' in locals():
-                        masks_cytosol_no_nuclei=None
-                # saving masks
-                if (self.save_masks_as_file ==True) and (segmentation_successful==True) and (self.save_files == True):
-                    number_detected_cells = np.max(masks_complete_cells)
-                    print('    Number of detected cells:                ', number_detected_cells)
-                    if Utilities().is_None(self.channels_nucleus) == False: #not (self.channels_nucleus is None):
-                        mask_nuc_path = pathlib.Path().absolute().joinpath( masks_folder_name, 'masks_nuclei_' + temp_file_name +'.tif' )
-                        tifffile.imwrite(mask_nuc_path, masks_nuclei)
-                    if Utilities().is_None(self.channels_cytosol) ==False: #not (self.channels_cytosol is None):
-                        mask_cyto_path = pathlib.Path().absolute().joinpath( masks_folder_name, 'masks_cyto_' + temp_file_name +'.tif' )
-                        tifffile.imwrite(mask_cyto_path, masks_complete_cells)
-                    if (Utilities().is_None(self.channels_nucleus) == False) and (Utilities().is_None(self.channels_cytosol) ==False): #not (self.channels_cytosol is None) and not (self.channels_nucleus is None):
-                        mask_cyto_no_nuclei_path = pathlib.Path().absolute().joinpath( masks_folder_name, 'masks_cyto_no_nuclei_' + temp_file_name +'.tif' )
-                        tifffile.imwrite(mask_cyto_no_nuclei_path, masks_cytosol_no_nuclei)
-                #else:
-                if segmentation_successful==False:
-                    number_detected_cells = 0
-                
-                list_number_detected_cells.append(number_detected_cells)
-                #print('- SPOT DETECTION')
-                if segmentation_successful==True:
-                    temp_detection_img_name = pathlib.Path().absolute().joinpath( temp_folder_name, 'det_' + temp_file_name )
-                    df_detected_spots, list_images,list_thresholds_spot_detection_in_image = SpotDetection(self.list_images[i],
-                                                                                            self.channels_spots,
-                                                                                            self.channels_cytosol,
-                                                                                            self.channels_nucleus, 
-                                                                                            cluster_radius_nm=self.cluster_radius_nm,
-                                                                                            minimum_spots_cluster=self.minimum_spots_cluster,
-                                                                                            masks_complete_cells=masks_complete_cells,
-                                                                                            masks_nuclei=masks_nuclei, 
-                                                                                            masks_cytosol_no_nuclei=masks_cytosol_no_nuclei, 
-                                                                                            dataframe=dataframe,
-                                                                                            image_counter=counter, 
-                                                                                            list_voxels=self.list_voxels,
-                                                                                            yx_spot_size_in_px=self.yx_spot_size_in_px,
-                                                                                            z_spot_size_in_px=self.z_spot_size_in_px,
-                                                                                            show_plot=self.show_plot,
-                                                                                            image_name = temp_detection_img_name,
-                                                                                            save_all_images=self.save_all_images,
-                                                                                            display_spots_on_multiple_z_planes=self.display_spots_on_multiple_z_planes,
-                                                                                            use_log_filter_for_spot_detection=self.use_log_filter_for_spot_detection,
-                                                                                            threshold_for_spot_detection=self.threshold_for_spot_detection,
-                                                                                            save_files=self.save_files ).get_dataframe()
-                    dataframe = df_detected_spots
-                    list_masks_complete_cells.append(masks_complete_cells)
-                    list_masks_nuclei.append(masks_nuclei)
-                    list_masks_cytosol_no_nuclei.append(masks_cytosol_no_nuclei)
-                    list_counter_image_id.append(counter)
-                    list_thresholds_spot_detection.append(list_thresholds_spot_detection_in_image)
-                    print('    Intensity threshold for spot detection : ', str(list_thresholds_spot_detection[-1]))
-                    # Create the image with labels.
-                    df_test = dataframe.loc[dataframe['image_id'] == counter]
-                    test_cells_ids = np.unique(df_test['cell_id'].values)
-                    # Saving the average number of spots per cell
-                    list_number_of_spots_per_cell_for_each_spot_type=[]
-                    list_max_number_of_spots_per_cell_for_each_spot_type=[]
-                    for sp in range(len(self.channels_spots)):
-                        detected_spots = np.asarray([len( dataframe.loc[  (dataframe['cell_id']==cell_id_test)  & (dataframe['spot_type']==sp) & (dataframe['is_cell_fragmented']!=-1)].spot_id) for i,cell_id_test in enumerate(test_cells_ids)])
-                        average_number_of_spots_per_cell = int(np.mean(detected_spots))
-                        max_number_of_spots_per_cell = int(np.max(detected_spots))
-                        list_number_of_spots_per_cell_for_each_spot_type.append(average_number_of_spots_per_cell)
-                        list_max_number_of_spots_per_cell_for_each_spot_type.append(max_number_of_spots_per_cell)
-                    print('    Average detected spots per cell :        ', list_number_of_spots_per_cell_for_each_spot_type)
-                    print('    Maximum detected spots per cell :        ', list_max_number_of_spots_per_cell_for_each_spot_type)
-                    list_average_spots_per_cell.append(list_number_of_spots_per_cell_for_each_spot_type)
-                    # saving Spot images
-                    if self.save_filtered_images == True:
-                        for j in range(len(self.channels_spots)):
-                            filtered_image_path = pathlib.Path().absolute().joinpath( filtered_folder_name, 'filter_Ch_' + str(self.channels_spots[j]) +'_'+ temp_file_name +'.tif' )
-                            tifffile.imwrite(filtered_image_path, list_images[j])
-                    # Create the image with labels.
-                    df_subset = df_detected_spots.loc[df_detected_spots['image_id'] == counter]
-                    df_labels = df_subset.drop_duplicates(subset=['cell_id'])
-                    # Plotting cells 
-                    if self.save_files == True:
-                        Plots().plotting_masks_and_original_image(image= self.list_images[i], 
-                                                            masks_complete_cells=masks_complete_cells, 
-                                                            masks_nuclei=masks_nuclei, 
-                                                            channels_cytosol=self.channels_cytosol, 
-                                                            channels_nucleus = self.channels_nucleus,
-                                                            image_name=temp_segmentation_img_name,
-                                                            show_plot=self.show_plot,
-                                                            df_labels=df_labels)
-                    del masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei, list_images,df_subset,df_labels
-                    counter+=1
-                # appending cell segmentation flag
-                list_segmentation_successful.append(segmentation_successful)
-        
-        # Creating a list storing if segmenation and sharpness selection were successful
-        list_processing_successful = [a and b for a, b in zip(list_segmentation_successful, self.list_is_image_sharp)]
-        
-        # Saving all original images as a PDF
-        #print('- CREATING THE PLOT WITH ORIGINAL IMAGES')
-        image_name= 'original_images_' + self.name_for_files +'.pdf'
-        if self.save_files == True:
-            Plots().plotting_all_original_images(self.list_images,self.list_files_names,image_name,show_plot=self.show_plot)
-        # Creating an image with all segmentation results
-        image_name= 'segmentation_images_' + self.name_for_files +'.pdf'
-        if self.save_files == True:
-            Plots().plotting_segmentation_images(directory=pathlib.Path().absolute().joinpath(temp_folder_name),
-                                           list_files_names=self.list_files_names,
-                                           list_segmentation_successful=list_processing_successful,
-                                           image_name=image_name,
-                                           show_plot=False)
-        # Saving all cells in a single image file
-        if self.save_files == True:
-            for k in range (len(self.channels_spots)):
-                Plots().plot_all_cells_and_spots(list_images=self.list_images, 
-                                            complete_dataframe=dataframe, 
-                                            selected_channel=self.channels_spots[k], 
-                                            list_masks_complete_cells = list_masks_complete_cells,
-                                            list_masks_nuclei = list_masks_nuclei,
-                                            spot_type=k,
-                                            list_segmentation_successful=list_processing_successful,
-                                            image_name='cells_channel_'+ str(self.channels_spots[k])+'_'+ self.name_for_files +'.pdf',
-                                            microns_per_pixel=None,
-                                            show_legend = True,
-                                            show_plot= False)
-        # Creating the dataframe    
-        if self.save_files == True:   
-            if  (not str(self.name_for_files)[0:5] ==  'temp_') and np.sum(list_processing_successful)>0:
-                dataframe.to_csv('df_' + self.name_for_files +'.csv')
-            elif np.sum(list_processing_successful)>0:
-                dataframe.to_csv('df_' + self.name_for_files[5:] +'.csv')        
-        # Creating the metadata
-        if self.save_files == True:
-            Metadata(self.data_folder_path, 
-                self.channels_cytosol, 
-                self.channels_nucleus, 
-                self.channels_spots,
-                self.diameter_nucleus, 
-                self.diameter_cytosol, 
-                self.minimum_spots_cluster,
-                list_voxels=self.list_voxels, 
-                file_name_str=self.name_for_files,
-                list_segmentation_successful=list_segmentation_successful,
-                list_counter_image_id=list_counter_image_id,
-                threshold_for_spot_detection=self.threshold_for_spot_detection,
-                number_of_images_to_process=self.number_of_images_to_process,
-                remove_z_slices_borders=self.remove_z_slices_borders,
-                NUMBER_Z_SLICES_TO_TRIM=self.NUMBER_Z_SLICES_TO_TRIM,
-                cluster_radius_nm=self.cluster_radius_nm,
-                list_thresholds_spot_detection=list_thresholds_spot_detection,
-                list_average_spots_per_cell=list_average_spots_per_cell,
-                list_number_detected_cells=list_number_detected_cells,
-                list_is_image_sharp=self.list_is_image_sharp,
-                list_metric_sharpeness_images=self.list_metric_sharpeness_images,
-                remove_out_of_focus_images=self.remove_out_of_focus_images,
-                sharpness_threshold=self.sharpness_threshold).write_metadata()
-        # Creating a PDF report
-        #print('CREATING THE PDF REPORT')
-        if (self.save_pdf_report ==True) and (self.save_files == True):
-            filenames_for_pdf_report = [ f[:-4] for f in self.list_files_names]
-            ReportPDF(directory=pathlib.Path().absolute().joinpath(temp_folder_name), 
-                    filenames_for_pdf_report=filenames_for_pdf_report, 
-                    channels_spots=self.channels_spots, 
-                    save_all_images=self.save_all_images, 
-                    list_z_slices_per_image=self.list_z_slices_per_image,
-                    threshold_for_spot_detection=self.threshold_for_spot_detection,
-                    list_segmentation_successful=list_processing_successful ).create_report()
-        return dataframe, list_masks_complete_cells, list_masks_nuclei, list_masks_cytosol_no_nuclei, output_identification_string
-
-
-
 class ColocalizationDistance():
     '''
     This class is intended to calculate the Euclidean 2nd norm distance between the spots detected in two spot channels.
@@ -5655,513 +4440,6 @@ class PointSpreadFunction():
         }
         return result
 
-
-# class Correlation:
-#     """
-#     A class for calculating the autocorrelation or cross-correlation of datasets.
-
-#     Attributes:
-#         primary_data (np.ndarray): Primary dataset for autocorrelation, shape [sample, time].
-#         secondary_data (np.ndarray, optional): Secondary dataset for cross-correlation, same shape as primary.
-#         max_lag (int, optional): Maximum lag to compute correlation, defaults to half time series length.
-#         nan_handling (str, optional): Strategy to handle NaN values. Options: 'zeros', 'mean', 'forward_fill', 'ignore'.
-#         return_full (bool, optional): Whether to return the full correlation array or only positive lags.
-#         use_bootstrap (bool, optional): Whether to use bootstrap for error estimation.
-#         shift_data (bool, optional): Whether to shift data based on leading NaNs.
-#         show_plot (bool, optional): Whether to display the plot.
-#         save_plots (bool, optional): Whether to save the plots.
-#         plot_name (str, optional): Name of the plot file.
-#         time_interval_between_frames_in_seconds (int, optional): Time interval between frames.
-#         index_max_lag_for_fit (int, optional): Index for maximum lag for fitting.
-#         color_channel (int, optional): Color channel for plotting.
-#         start_lag (int, optional): Starting lag for plateau finding.
-#         line_color (str, optional): Color of the plot line.
-#         plot_title (str, optional): Title of the plot.
-#         fit_type (str, optional): Type of fit for the plot.
-#         de_correlation_threshold (float, optional): Threshold for decorrelation.
-#         use_linear_projection_for_lag_0 (bool, optional): Whether to use linear projection for lag 0.
-#         correct_baseline (bool, optional): If True, subtract baseline from mean correlation.
-#         use_global_mean (bool, optional): If True, use a global mean for correlation normalization.
-#         use_normalization_factor (bool, optional): If True, multiply correlation by 1/(global_means * #time_points).
-#         remove_outliers (bool, optional): If True, remove “extreme” outlier trajectories before computing mean.
-#         MAD_THRESHOLD_FACTOR (float, optional): Threshold factor for outlier removal.
-
-#     Methods:
-#         run():
-#             Executes the correlation computation based on initialized settings.
-
-#             Returns:
-#                 (mean_correlation, error_correlation, lags, correlations_array, dwell_time)
-#                 where
-#                   mean_correlation      : 1D np.ndarray of shape [2*max_lag + 1] (or shorter if return_full=False)
-#                   error_correlation     : same shape as mean_correlation
-#                   lags                  : 1D np.ndarray with lag values in seconds
-#                   correlations_array    : shape [N, 2*max_lag + 1] with one correlation per trajectory (N=filtered).
-#                   dwell_time            : from your plotting/fitting method
-#     """
-#     def __init__(
-#         self,
-#         primary_data,
-#         secondary_data=None,
-#         max_lag=None,
-#         nan_handling='zeros',
-#         return_full=True,
-#         use_bootstrap=True,
-#         shift_data=False,
-#         show_plot=False,
-#         save_plots=False,
-#         plot_name='temp_AC.png',
-#         time_interval_between_frames_in_seconds=1,
-#         index_max_lag_for_fit=None,
-#         color_channel=0,
-#         start_lag=0,
-#         line_color='blue',
-#         correct_baseline=False,
-#         baseline_offset = None,
-#         use_global_mean=False,
-#         plot_title=None,
-#         fit_type='linear',
-#         de_correlation_threshold=0.01,
-#         use_linear_projection_for_lag_0=True,
-#         normalize_plot_with_g0=False,
-#         remove_outliers=True,
-#         MAD_THRESHOLD_FACTOR = 6.0,
-#         plot_individual_trajectories=False,
-#         y_axes_min_max_list_values = None,
-#         x_axes_min_max_list_values=None,
-
-        
-#     ):
-#         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
-#             """
-#             Processes two 1D NumPy arrays by removing leading NaNs that exceed a given threshold,
-#             then shifts both arrays left using the shift determined from the first array, and fills
-#             the rightmost part with NaNs or zeros to maintain the original shape.
-#             """
-#             if data1.ndim != 1:
-#                 raise ValueError("Both data1 and data2 must be 1D arrays.")
-
-#             nan_count = 0
-#             for value in data1:
-#                 if np.isnan(value):
-#                     nan_count += 1
-#                 else:
-#                     break
-#             if nan_count >= min_nan_threshold:
-#                 fill_value = np.nan if fill_with_nans else 0
-
-#                 new_data1 = np.full_like(data1, fill_value)
-#                 new_data1[: len(data1) - nan_count] = data1[nan_count:]
-
-#                 if data2 is not None:
-#                     new_data2 = np.full_like(data2, fill_value)
-#                     new_data2[: len(data2) - nan_count] = data2[nan_count:]
-#                 else:
-#                     new_data2 = None
-#                 return new_data1, new_data2
-#             return data1, data2
-#         if shift_data:
-#             primary_data_shifted = np.zeros_like(primary_data)
-#             if secondary_data is not None:
-#                 secondary_data_shifted = np.zeros_like(secondary_data)
-#             else:
-#                 secondary_data_shifted = None
-
-#             for i in range(primary_data.shape[0]):
-#                 if secondary_data is None:
-#                     primary_data_shifted[i, :], _ = shift_and_fill(
-#                         primary_data[i, :], None, min_nan_threshold=2
-#                     )
-#                 else:
-#                     primary_data_shifted[i, :], secondary_data_shifted[i, :] = shift_and_fill(
-#                         primary_data[i, :], secondary_data[i, :], min_nan_threshold=2
-#                     )
-#             primary_data = primary_data_shifted
-#             if secondary_data is not None:
-#                 secondary_data = secondary_data_shifted
-
-#         # Store attributes
-#         self.primary_data = primary_data
-#         self.secondary_data = secondary_data
-#         self.max_lag = max_lag
-#         self.nan_handling = nan_handling
-#         self.return_full = return_full
-#         self.use_bootstrap = use_bootstrap
-#         self.BOOTSTRAP_ITERATIONS = 1000
-#         self.time_interval_between_frames_in_seconds = float(time_interval_between_frames_in_seconds)
-#         self.index_max_lag_for_fit = index_max_lag_for_fit
-#         self.plot_name = plot_name
-#         self.save_plots = save_plots
-#         self.show_plot = show_plot
-#         self.color_channel = color_channel
-#         self.start_lag = start_lag
-#         self.line_color = line_color
-#         self.plot_title = plot_title
-#         self.fit_type = fit_type
-#         self.de_correlation_threshold = de_correlation_threshold
-#         self.use_linear_projection_for_lag_0 = use_linear_projection_for_lag_0
-#         self.normalize_plot_with_g0 = normalize_plot_with_g0
-#         self.correct_baseline = correct_baseline
-#         if baseline_offset is None:
-#             self.baseline_offset=int(primary_data.shape[1]//2)  # offset for baseline correction it uses only half of the time series. To avoid the effect of large variations at the end of time serises.
-#         else :
-#             self.baseline_offset = baseline_offset
-#         self.use_global_mean = use_global_mean
-#         if correct_baseline:
-#             plot_individual_trajectories = False
-#             print('Baseline correction is enabled. Plotting individual trajectories is disabled due to baseline correction.')
-#         self.remove_outliers = remove_outliers
-#         self.MAD_THRESHOLD_FACTOR= MAD_THRESHOLD_FACTOR
-#         self.plot_individual_trajectories = plot_individual_trajectories
-#         self.y_axes_min_max_list_values = y_axes_min_max_list_values
-#         self.x_axes_min_max_list_values = x_axes_min_max_list_values
-
-#     def run(self):
-#         """
-#         Execute the correlation calculations with optional bootstrap error estimation.
-
-#         Returns:
-#             mean_correlation, error_correlation, lags, correlations_array, dwell_time
-#         """
-#         if self.max_lag is None:
-#             self.max_lag = self.primary_data.shape[1] - 1
-#         else:
-#             if self.max_lag >= self.primary_data.shape[1]:
-#                 raise ValueError("Max lag cannot be greater than the length of the time series.")
-#         def find_plateau(correlation, threshold=0.005, start_lag=2):
-#             differences = np.abs(np.diff(correlation[start_lag:]))
-#             plateau_index = np.where(differences < threshold)[0]
-#             if len(plateau_index) > 0:
-#                 return plateau_index[0] + start_lag
-#             return None
-
-#         def trim_nans_from_edges(data):
-#             mask = ~np.isnan(data)
-#             if not np.any(mask):
-#                 return np.array([])
-#             start_idx = np.argmax(mask)
-#             end_idx = len(mask) - np.argmax(mask[::-1])
-#             return data[start_idx:end_idx]
-
-#         # We’ll define a correlation_function that returns the correlation array
-#         def correlation_function(primary_data, secondary_data):
-#             """
-#             Return an array of shape [N, 2*max_lag+1], where N = number of trajectories.
-#             """
-#             num_samples = primary_data.shape[0]
-#             global_mean_data1 = np.nanmean(primary_data)
-#             if secondary_data is not None:
-#                 global_mean_data2 = np.nanmean(secondary_data)
-#             else:
-#                 global_mean_data2 = global_mean_data1
-
-#             if self.nan_handling == "forward_fill":
-#                 def forward_fill(data):
-#                     not_nan = ~np.isnan(data)
-#                     if not np.any(not_nan):
-#                         return np.array([])
-#                     first_valid_index = np.argmax(not_nan)
-#                     last_valid_index = len(data) - np.argmax(not_nan[::-1]) - 1
-#                     trimmed_data = data[first_valid_index:last_valid_index + 1]
-#                     mask_ = np.isnan(trimmed_data)
-#                     idx = np.where(~mask_, np.arange(len(trimmed_data)), 0)
-#                     np.maximum.accumulate(idx, out=idx)
-#                     filled_data = trimmed_data[idx]
-#                     result = np.full_like(data, np.nan)
-#                     result[first_valid_index:last_valid_index + 1] = filled_data
-#                     return result
-#                 local_forward_fill = forward_fill
-#             else:
-#                 local_forward_fill = lambda arr: arr
-
-#             def process_sample(i):
-#                 try:
-#                     # Retrieve the time series for sample i.
-#                     data1 = primary_data[i, :]
-#                     data2 = secondary_data[i, :] if secondary_data is not None else data1
-
-#                     # Trim edges using the provided function.
-#                     data1 = trim_nans_from_edges(data1)
-#                     data2 = trim_nans_from_edges(data2)
-
-#                     # Handle NaNs based on the chosen strategy.
-#                     if self.nan_handling == "mean":
-#                         mean_val1 = np.nanmean(data1) if len(data1) > 0 else 0.0
-#                         mean_val2 = np.nanmean(data2) if len(data2) > 0 else 0.0
-#                         data1 = np.nan_to_num(data1, nan=mean_val1)
-#                         data2 = np.nan_to_num(data2, nan=mean_val2)
-#                     elif self.nan_handling == "forward_fill":
-#                         data1 = local_forward_fill(data1)
-#                         data2 = local_forward_fill(data2)
-#                     elif self.nan_handling == "ignore":
-#                         valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-#                         data1 = data1[valid_mask]
-#                         data2 = data2[valid_mask]
-#                     elif self.nan_handling == "zeros":
-#                         data1 = np.nan_to_num(data1)
-#                         data2 = np.nan_to_num(data2)
-
-#                     effective_number_time_points = np.sum(~np.isnan(data1))
-#                     if effective_number_time_points < 1:
-#                         return np.full(2 * self.max_lag + 1, np.nan)
-#                     # Center the data using the full-sample mean.
-#                     if self.use_global_mean:
-#                         local_mean1 = np.nanmean(primary_data)
-#                         local_mean2 = np.nanmean(secondary_data) if secondary_data is not None else local_mean1
-#                     else:
-#                         local_mean1 = np.nanmean(data1)
-#                         local_mean2 = np.nanmean(data2)
-#                     cdata1 = data1 - local_mean1
-#                     cdata2 = data2 - local_mean2
-#                     # Remove any residual NaNs.
-#                     cdata1 = cdata1[~np.isnan(cdata1)]
-#                     cdata2 = cdata2[~np.isnan(cdata2)]
-#                     if len(cdata1) == 0 or len(cdata2) == 0:
-#                         return np.full(2 * self.max_lag + 1, np.nan)
-#                     # Compute the raw cross-correlation.
-#                     raw_corr = np.correlate(cdata1, cdata2, mode="full")
-#                     N = len(cdata1)
-#                     mid = N - 1
-#                     # Define a minimum overlap threshold (e.g. at least 5% of N must overlap)
-#                     min_overlap = max(5, int(0.2 * N))
-#                     final_corr = np.empty_like(raw_corr, dtype=np.float64)
-#                     for j in range(len(raw_corr)):
-#                         lag = j - mid
-#                         overlap = N - abs(lag)
-#                         if overlap < min_overlap:
-#                             final_corr[j] = np.nan
-#                             continue
-#                         # For local normalization, compute means over the overlapping region
-#                         if lag >= 0:
-#                             local_seg1 = data1[:N - lag]
-#                             local_seg2 = data2[lag:]
-#                         else:
-#                             local_seg1 = data1[-lag:]
-#                             local_seg2 = data2[:N + lag]
-#                         local_norm = np.nanmean(local_seg1) * np.nanmean(local_seg2)
-#                         # Avoid division by zero
-#                         if local_norm == 0:
-#                             final_corr[j] = np.nan
-#                         else:
-#                             final_corr[j] = (raw_corr[j] / overlap) / local_norm
-#                     # Slice the final correlation array to length 2*self.max_lag+1.
-#                     mid_point = len(final_corr) // 2
-#                     desired_length = 2 * self.max_lag + 1
-#                     current_length = len(final_corr)
-#                     if current_length < desired_length:
-#                         out_array = np.full(desired_length, np.nan)
-#                         start_idx = (desired_length - current_length) // 2
-#                         out_array[start_idx:start_idx + current_length] = final_corr
-#                         return out_array
-#                     else:
-#                         start_idx = mid_point - self.max_lag
-#                         end_idx = mid_point + self.max_lag + 1
-#                         return final_corr[start_idx:end_idx]
-#                 except Exception as e:
-#                     print(f"Error in process_sample for sample {i}: {e}")
-#                     return np.full(2 * self.max_lag + 1, np.nan)
-
-
-#             # Run the correlations in parallel
-#             correlations = Parallel(n_jobs=-1)(
-#                 delayed(process_sample)(i) for i in range(num_samples)
-#             )
-#             return np.array(correlations, dtype=np.float64)
-#         correlations_array = correlation_function(self.primary_data, self.secondary_data)
-#         # Removing outliers
-#         if self.remove_outliers and correlations_array.size > 0:
-#             # Compute the mean correlation for each trajectory (ignoring NaNs)
-#             traj_means = np.nanmean(correlations_array, axis=1)
-#             # Compute the median and the median absolute deviation (MAD)
-#             median_mean = np.nanmedian(traj_means)
-#             mad = np.nanmedian(np.abs(traj_means - median_mean))
-#             # If MAD is zero, fallback to not removing any (or use a small constant)
-#             if mad == 0:
-#                 keep_mask = np.ones_like(traj_means, dtype=bool)
-#             else:
-#                 # Remove trajectories whose mean is far from the median:
-#                 # keeping only those within threshold_factor * MAD.
-#                 keep_mask = np.abs(traj_means - median_mean) < self.MAD_THRESHOLD_FACTOR * mad
-#             num_removed = np.sum(~keep_mask)
-#             num_total = len(traj_means)
-#             if num_removed > 0:
-#                 print(f"Warning: Removed {num_removed} outlier trajectories (out of {num_total}) based on a threshold of {self.MAD_THRESHOLD_FACTOR} MAD from the median mean correlation. These trajectories had unusually low or high mean values, which may indicate unreliable data.")
-#             # Filter the correlations_array accordingly.
-#             correlations_array = correlations_array[keep_mask, :]
-
-#         # If everything got removed, or no valid data
-#         if correlations_array.shape[0] == 0:
-#             # Return empty arrays
-#             mean_correlation = np.full(2 * self.max_lag + 1, np.nan)
-#             error_correlation = np.full(2 * self.max_lag + 1, np.nan)
-#             lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
-#             return mean_correlation, error_correlation, lags, correlations_array, None
-#         # ---------------------------------------------------
-#         mean_correlation = np.nanmean(correlations_array, axis=0)
-#         def exp_func(t, A, tau, B):
-#             return A * np.exp(-t / tau) + B
-#         if self.correct_baseline:
-#             # Assume mean_correlation is the positive-lag portion (index 0 corresponds to lag 0)
-#             L = len(mean_correlation) - 1  # Total number of lags (excluding lag 0, L+1 elements total)
-#             # Define the fit region: use data from frame 1 up to 75% of the maximum lag.
-#             start_idx_fit = 2
-#             time_range = int(L * 0.99)
-#             # Ensure time_range > start_idx
-#             if time_range <= start_idx_fit:
-#                 time_range = start_idx_fit + 1
-#             y_fit = mean_correlation[start_idx_fit:time_range]
-#             # Construct time vector for the fit, using the time interval between frames.
-#             t_fit = np.arange(start_idx_fit, time_range) * self.time_interval_between_frames_in_seconds
-#             # Set initial guesses:
-#             B_guess = y_fit[-1]
-#             # Guess A so that at t = 0, f(0)=A+B is equal to the original value at frame 0.
-#             A_guess = mean_correlation[0] - B_guess
-#             # Guess tau as half the time span of the fit region.
-#             tau_guess = (t_fit[-1] - t_fit[0]) / 2.0 if (t_fit[-1] - t_fit[0]) > 0 else 1.0
-#             initial_guess = [A_guess, tau_guess, B_guess]
-#             # Set parameter bounds:
-#             # A must be non-negative (if we assume a decreasing function), tau > 0, and B is between the minimum of y_fit and the frame 0 value.
-#             lower_bounds = [0, 1e-6, np.min(y_fit)]
-#             upper_bounds = [np.inf, np.inf, mean_correlation[0]]
-
-#             mask_array = np.isfinite(t_fit) & np.isfinite(y_fit)
-#             t_clean = t_fit[mask_array]
-#             y_clean = y_fit[mask_array]
-#             if t_clean.size < 3:
-#                 warnings.warn(f"Too few valid points ({t_clean.size}) for exponential fit—using fallback.")
-#                 fitted_B = np.nanpercentile(y_fit, 10)
-#             else:
-#                 try:
-#                     popt, pcov = curve_fit(
-#                         exp_func,
-#                         t_clean,
-#                         y_clean,
-#                         p0=initial_guess,
-#                         bounds=(lower_bounds, upper_bounds),
-#                         # allow more iterations in tough cases
-#                         maxfev=10_000
-#                     )
-#                     fitted_A, fitted_tau, fitted_B = popt
-#                     print(f"Exponential fit parameters: A={fitted_A:.3g}, τ={fitted_tau:.3g}, B={fitted_B:.3g}")
-#                 except ValueError as ve:
-#                     # this will catch “array must not contain infs or NaNs” (and other ValueErrors)
-#                     warnings.warn(f"Exp fit ValueError: {ve}  → using 10th percentile fallback.")
-#                     fitted_B = np.nanpercentile(y_fit, 10)
-#                 except Exception as e:
-#                     warnings.warn(f"Exp fit failed ({type(e).__name__}): {e}  → using 10th percentile fallback.")
-#                     fitted_B = np.nanpercentile(y_fit, 10)
-#             # Subtract the estimated plateau value from the entire mean correlation.
-#             mean_correlation = mean_correlation - fitted_B
-#         num_kept = correlations_array.shape[0]
-#         if self.use_bootstrap and num_kept > 1:
-#             def single_bootstrap_iteration(_):
-#                 # Create a new random generator for this iteration
-#                 rng = np.random.default_rng()  
-#                 indices = rng.choice(num_kept, size=num_kept, replace=True)
-#                 sample = correlations_array[indices, :]  # shape [num_kept, 2*max_lag+1]
-#                 # Compute mean for that sample
-#                 m = np.nanmean(sample, axis=0)
-#                 if self.correct_baseline:
-#                     center_idx = self.max_lag
-#                     offset = min(self.baseline_offset, center_idx)
-#                     neg_region = m[center_idx - offset : center_idx]
-#                     pos_region = m[center_idx + 1 : center_idx + 1 + offset]
-#                     baseline_value = np.nanpercentile(np.concatenate([neg_region, pos_region]), 10)
-#                     m = m - baseline_value
-#                 return m
-
-#             all_means = Parallel(n_jobs=-1)(
-#                 delayed(single_bootstrap_iteration)(_) for _ in range(self.BOOTSTRAP_ITERATIONS)
-#             )
-#             all_means = np.array(all_means, dtype=np.float64)  # shape [BOOTSTRAP_ITERATIONS, 2*max_lag+1]
-#             # Standard deviation across bootstrap draws (standard error of the mean)
-#             error_correlation = np.nanstd(all_means, axis=0)
-#         else:
-#             error_correlation = np.nanstd(correlations_array, axis=0)/ np.sqrt(num_kept)
-#         lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
-#         if self.use_linear_projection_for_lag_0:
-#             center_idx = self.max_lag
-#             # For autocorrelation
-#             if self.secondary_data is None:
-#                 if center_idx - 6 >= 0 and center_idx - 1 >= 0:
-#                     x = lags[center_idx - 6 : center_idx - 1]
-#                     y = mean_correlation[center_idx - 5 : center_idx]
-#                     slope, intercept, _, _, _ = linregress(x, y)
-#                     mean_correlation[center_idx] = intercept  # slope*0 + intercept
-#                 if center_idx < len(error_correlation):
-#                     error_correlation[center_idx] = 0
-#             else:
-#                 # For crosscorrelation: compare projection before & after lag=0
-#                 if center_idx - 6 >= 0 and center_idx - 1 >= 0:
-#                     x_bef = lags[center_idx - 6 : center_idx - 1]
-#                     y_bef = mean_correlation[center_idx - 5 : center_idx]
-#                     slope_bef, intercept_bef, _, _, _ = linregress(x_bef, y_bef)
-#                     corr_before = intercept_bef  # slope_bef*0+intercept_bef
-#                 else:
-#                     corr_before = mean_correlation[center_idx]
-
-#                 if center_idx + 6 <= len(mean_correlation):
-#                     x_aft = lags[center_idx + 1 : center_idx + 6]
-#                     y_aft = mean_correlation[center_idx + 1 : center_idx + 6]
-#                     slope_aft, intercept_aft, _, _, _ = linregress(x_aft, y_aft)
-#                     corr_after = intercept_aft
-#                 else:
-#                     corr_after = mean_correlation[center_idx]
-
-#                 # take max
-#                 mean_correlation[center_idx] = np.max([corr_before, corr_after])
-#                 if center_idx < len(error_correlation):
-#                     error_correlation[center_idx] = 0
-#         if not self.return_full:
-#             # Slice to keep only lag >= 0
-#             mean_correlation = mean_correlation[self.max_lag :]
-#             error_correlation = error_correlation[self.max_lag :]
-#             correlations_array = correlations_array[:, self.max_lag :]
-#             lags = lags[self.max_lag :]
-#         dwell_time = None
-#         if self.show_plot:
-#             # If you have a Plots() class or similar, call it here:
-#             if self.secondary_data is None:
-#                 # Autocorrelation
-#                 dwell_time = Plots().plot_autocorrelation(
-#                     mean_correlation=mean_correlation,
-#                     error_correlation=error_correlation,
-#                     lags=lags,
-#                     correlations_array=correlations_array,
-#                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
-#                     index_max_lag_for_fit=self.index_max_lag_for_fit,
-#                     start_lag=self.start_lag,
-#                     plot_name=self.plot_name,
-#                     save_plots=self.save_plots,
-#                     line_color=self.line_color,
-#                     plot_title=self.plot_title,
-#                     fit_type=self.fit_type,
-#                     de_correlation_threshold=self.de_correlation_threshold,
-#                     normalize_plot_with_g0=self.normalize_plot_with_g0,
-#                     plot_individual_trajectories = self.plot_individual_trajectories,
-#                     y_axes_min_max_list_values = self.y_axes_min_max_list_values,
-#                     x_axes_min_max_list_values = self.x_axes_min_max_list_values,
-#                 )
-#             else:
-#                 # Crosscorrelation
-#                 dwell_time = Plots().plot_crosscorrelation(
-#                     intensity_array_ch0=self.primary_data,
-#                     intensity_array_ch1=self.secondary_data,
-#                     mean_correlation=mean_correlation,
-#                     error_correlation=error_correlation,
-#                     lags=lags,
-#                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
-#                     plot_name=self.plot_name,
-#                     save_plots=self.save_plots,
-#                     line_color=self.line_color,
-#                     plot_title=self.plot_title,
-#                     normalize_plot_with_g0=self.normalize_plot_with_g0,
-#                     y_axes_min_max_list_values = self.y_axes_min_max_list_values,
-#                     x_axes_min_max_list_values = self.x_axes_min_max_list_values,
-#                 )
-
-#         # Done
-#         return mean_correlation, error_correlation, lags, correlations_array, dwell_time
 
 class Correlation:
     """
@@ -6782,323 +5060,6 @@ class Correlation:
         return mean_correlation, error_correlation, lags, correlations_array, dwell_time
 
 
-class MicroscopeSimulation():
-    def __init__(self):
-        pass
-    
-    def initialize (self,cell_library_folder_path):
-        def read_files(directory):
-            list_files_names_complete = sorted([f for f in listdir(directory) if isfile(join(directory, f)) and ('cell_') in f], key=str.lower)  # reading all files in the folder with prefix 'cell_'
-            list_files_names_complete.sort(key=lambda f: int(re.sub(r'\D', '', f)))  # sorting the index in numerical order
-            path_files_complete = [ str(directory.joinpath(f).resolve()) for f in list_files_names_complete ] # creating the complete path for each file
-            list_library_cells =  [ np.load(f) for f in path_files_complete ]
-            return list_library_cells
-        # Path to data
-        background_library_path = cell_library_folder_path.joinpath('background_pixels_library.npy')
-        df_library_path = cell_library_folder_path.joinpath('df_library.csv')
-        # extracting library data
-        background_pixels_library = np.load(background_library_path)   # Reading the background library [C, Number_pixels]
-        df_cell_library = pd.read_csv(df_library_path)   # Returns a dataframe with the following columns [cell_id, size, number_of_spots,ts_size] and each row represents a cell.
-        list_library_cells = read_files(cell_library_folder_path)      # Returns a list of cells where each cell has the shape [Z,Y,X,C]
-        return list_library_cells,df_cell_library,background_pixels_library
-    
-    def generate_simulated_positions (self,image_size_Y_X,number_of_cells_in_simulation,list_library_cells,df_cell_library,generate_cells_close_to_each_other=True):
-        initial_dictionary_for_df = {
-            'start_y_position': [],
-            'start_x_position': [],
-            'centroid_y': [],
-            'centroid_x': [],
-            'z_size': [],
-            'y_size': [],
-            'x_size': [],
-            'nucleus_area': [],
-            'number_of_spots': [],
-            'ts_size_0': [],
-            'ts_size_1': [],
-            'ts_size_2': [],
-            'ts_size_3': [],
-            'library_id': [],
-        }
-        
-        # this statement generate a large number of cells if generate_cells_close_to_each_other is true.
-        if generate_cells_close_to_each_other == True:
-            large_number_initial_simulation = number_of_cells_in_simulation*3
-        else:
-            large_number_initial_simulation = number_of_cells_in_simulation
-        # Create the DataFrame
-        number_cells_in_library = len(list_library_cells)
-        max_cell_size = np.max( [np.max(cell.shape[1:3]) for _, cell in enumerate(list_library_cells)] )
-        simulation_dataframe = pd.DataFrame(initial_dictionary_for_df)
-        #max_cell_size 
-        MAX_NUM_ITERATIONS = 20000
-        printed_cells=0
-        min_position_image_edge = max_cell_size
-        max_y_position = image_size_Y_X[0]-min_position_image_edge
-        max_x_position = image_size_Y_X[1]-min_position_image_edge
-        counter=0
-        # random indexes for selecting a cell from library
-        number_cells_in_library = len(list_library_cells)
-        rnd_index_cells = np.random.randint(0, number_cells_in_library,size=MAX_NUM_ITERATIONS).astype(int)
-        # This creates a random positions with a len MAX_NUM_ITERATIONS
-        y_positions = np.random.randint(min_position_image_edge, max_y_position-max_cell_size, size=MAX_NUM_ITERATIONS).astype(int)
-        x_positions = np.random.randint(min_position_image_edge, max_x_position-max_cell_size, size=MAX_NUM_ITERATIONS).astype(int)
-        z_positions = np.zeros(MAX_NUM_ITERATIONS,dtype=int)
-        cell_size_Z_Y_X = np.zeros((number_cells_in_library,3))
-        for i in range (number_cells_in_library):
-            cell_size_Z_Y_X[i,:] = list_library_cells[i][:,:,:,0].shape
-        # Main while loop that iterates until number_of_cell_in_image is reached or counter>MAX_NUM_ITERATIONS
-        list_cells_position = []
-        while (counter< MAX_NUM_ITERATIONS-1) and (printed_cells<=large_number_initial_simulation-1):
-            add_cell = False
-            tested_positions=[]
-            if printed_cells >0:
-                # Test cell positions
-                cell_Z_Y_X_positions = [z_positions[counter], y_positions[counter], x_positions[counter]]
-                tested_positions = list_cells_position.copy()
-                tested_positions.append(cell_Z_Y_X_positions) 
-                array_tested_positions = np.asarray( tested_positions)
-                # Calculating a distance matrix. 
-                distance_matrix = np.zeros( (array_tested_positions.shape[0], array_tested_positions.shape[0])) 
-                for i in range(len(array_tested_positions)):
-                    for j in range(len(array_tested_positions)):
-                        if j<i:
-                            distance_matrix[i,j] = np.linalg.norm( ( array_tested_positions[i,:]-array_tested_positions[j,:] )  )
-                # Masking the distance matrix. Ones indicate the distance is less or equal than threshold_distance
-                mask_distance_matrix = (distance_matrix <= max_cell_size) 
-                # Negation (NOT) of the distance_matrix .
-                negation_subsection_mask_distance_matrix = ~mask_distance_matrix
-                lower_diagonal_mask_distance_matrix = np.tril(negation_subsection_mask_distance_matrix, k=-1)
-                add_cell = np.all(lower_diagonal_mask_distance_matrix[-1,:-1])
-                del array_tested_positions
-            else:
-                cell_Z_Y_X_positions = [z_positions[counter], y_positions[counter], x_positions[counter]]
-                add_cell = True
-            if add_cell == True: 
-                library_cell_index = rnd_index_cells[counter]
-                list_cells_position.append(cell_Z_Y_X_positions)
-                centroid_y = y_positions[counter] + cell_size_Z_Y_X[library_cell_index,1]//2
-                centroid_x = x_positions[counter] + cell_size_Z_Y_X[library_cell_index,2]//2
-                # extracting information about a given cell
-                nucleus_area = df_cell_library.loc[   (df_cell_library['cell_id']==library_cell_index) ].nucleus_area.values[0]   
-                number_of_spots = df_cell_library.loc[   (df_cell_library['cell_id']==library_cell_index) ].number_of_spots.values[0]   
-                ts_array = np.zeros(4,dtype=int)
-                list_ts = [df_cell_library.loc[   (df_cell_library['cell_id']==library_cell_index) ].ts_size_0.values ,
-                            df_cell_library.loc[   (df_cell_library['cell_id']==library_cell_index) ].ts_size_1.values,
-                            df_cell_library.loc[   (df_cell_library['cell_id']==library_cell_index) ].ts_size_2.values ,
-                            df_cell_library.loc[   (df_cell_library['cell_id']==library_cell_index) ].ts_size_3.values ] 
-                ts_array[:] = list_ts[:]
-                cell_data = pd.Series([ y_positions[counter], x_positions[counter], centroid_y, centroid_x ,cell_size_Z_Y_X[library_cell_index,0], cell_size_Z_Y_X[library_cell_index,1], cell_size_Z_Y_X[library_cell_index,2], nucleus_area, number_of_spots]+ts_array.tolist()+[library_cell_index ], index=simulation_dataframe.columns)
-                #simulation_dataframe = simulation_dataframe.append(cell_data, ignore_index=True)
-                cell_data_df = cell_data.to_frame().T
-                simulation_dataframe = pd.concat([simulation_dataframe, cell_data_df], ignore_index=True)
-                printed_cells+=1
-            counter+=1
-        new_dtypes = { 'start_y_position':int,'start_x_position':int,'centroid_y':int,'centroid_x':int,'z_size':int,'y_size':int,'x_size':int,'nucleus_area':int,'number_of_spots':int,'ts_size_0':int,'ts_size_1':int,'ts_size_2':int,'ts_size_3':int,'library_id':int}
-        simulation_dataframe = simulation_dataframe.astype(new_dtypes)
-        
-        if generate_cells_close_to_each_other == True:
-            # Calculating the distance matrix of selected cells
-            tested_positions = simulation_dataframe[['start_y_position', 'start_x_position']]
-            tested_positions.values.shape
-            array_tested_positions = np.asarray( tested_positions)
-            # Calculating a distance matrix. 
-            distance_matrix = np.zeros( (array_tested_positions.shape[0], array_tested_positions.shape[0])) 
-            for i in range(len(array_tested_positions)):
-                for j in range(len(array_tested_positions)):
-                    distance_matrix[i,j] = np.linalg.norm( ( array_tested_positions[i,:]-array_tested_positions[j,:] )  )
-            # Calculating the distance of the closest N cells around a given cell
-            sum_rows = []
-            number_neighbor_cell = 8
-            for i in range(distance_matrix.shape[0]):
-                row_values = distance_matrix[i]
-                n_min_values_indices = np.argsort(row_values)[:number_neighbor_cell]
-                sum_rows.append( np.sum(row_values[n_min_values_indices]))
-            sum_rows = np.asarray(sum_rows)
-            # Selecting only number_of_cells_in_simulation 
-            selected_indices = np.argsort(sum_rows)[:number_of_cells_in_simulation]
-            simulation_df_new = simulation_dataframe.iloc[selected_indices].copy()
-            simulation_df_new = simulation_df_new.reset_index(drop=True)
-            simulation_df_new
-            simulation_dataframe = simulation_df_new
-            simulation_dataframe
-        # Creating a new df selecting only the cells 
-        size_Z = list_library_cells[0].shape[0]
-        complete_image_size_Z_Y_X= [size_Z]+image_size_Y_X
-        return simulation_dataframe,complete_image_size_Z_Y_X
-    
-    def make_simulated_image(self, z_position, y_position, x_position, x_size, y_size, complete_image_size_Z_Y_X, simulation_dataframe, list_library_cells, background_pixels_library = None,alpha_0=0,alpha_1=0,alpha_2=0,remove_elements_low_intensity=False):
-        number_color_channels = list_library_cells[0].shape[3]
-        # Re-centering z_position index
-        length_z_indices = complete_image_size_Z_Y_X[0]
-        z_array = np.arange(0,length_z_indices,1)
-        # Moving image out of focus
-        z_position_hat = int( alpha_0 + (alpha_1 * x_position) + (alpha_2 * y_position) + z_position)
-        z_position_center_as_zero = complete_image_size_Z_Y_X[0]//2
-        z_position_original = z_position_center_as_zero + z_position_hat
-        z_array = [int(i - z_position_center_as_zero) if i < z_position_center_as_zero else int(i - z_position_center_as_zero) for i in range(length_z_indices)] 
-        list_mean_background_pixels_library=[]
-        if not background_pixels_library is None: 
-            list_mean_background_pixels_library = [np.mean(background_pixels_library[i,:]) for i in range(number_color_channels)  ]
-        y_range = [y_position, y_position+ y_size]
-        x_range = [x_position, x_position+x_size]
-
-        def min_edge_value_full_image (tested_value,edge_values,original_edge):
-            if tested_value<edge_values:
-                new_range = 0
-            else:
-                new_range = tested_value
-            moved_pixels =abs(original_edge-new_range)
-            return new_range,moved_pixels
-        def max_edge_value_full_image (tested_value,edge_values,original_edge):
-            if tested_value>edge_values:
-                new_range = edge_values
-            else:
-                new_range = tested_value
-            moved_pixels =abs(new_range-original_edge-1)
-            return new_range,moved_pixels
-        # extending the image range to consider cell on the image border
-        additional_range = 200
-        extended_y_min_range,moved_px_y_min = min_edge_value_full_image(y_range[0]-additional_range,0,y_range[0])
-        extended_x_min_range,moved_px_x_min = min_edge_value_full_image(x_range[0]-additional_range,0,x_range[0])
-        extended_y_max_range,moved_px_y_max = max_edge_value_full_image(y_range[1]+additional_range,complete_image_size_Z_Y_X[1],y_range[1])
-        extended_x_max_range,moved_px_x_max = max_edge_value_full_image(x_range[1]+additional_range,complete_image_size_Z_Y_X[2],x_range[1])
-        extended_y_pixels = extended_y_max_range - extended_y_min_range
-        extended_x_pixels = extended_x_max_range - extended_x_min_range
-        # Function to calculate ranges
-        def return_ranges(selected_row, initial_x_range=None, initial_y_range=None):
-            tested_x_size = selected_row.x_size
-            tested_y_size = selected_row.y_size
-            is_even_x = tested_x_size%2== 0
-            is_even_y = tested_y_size%2== 0
-            if not (initial_x_range is None):
-                tested_x_position = selected_row.start_x_position - initial_x_range
-            else:
-                tested_x_position = selected_row.start_x_position
-            if not (initial_y_range is None): 
-                tested_y_position = selected_row.start_y_position - initial_y_range
-            else:
-                tested_y_position = selected_row.start_y_position 
-            min_y_value = tested_y_position - tested_y_size//2
-            max_y_value = tested_y_position + tested_y_size//2 + int(is_even_x)
-            min_x_value = tested_x_position - tested_x_size//2
-            max_x_value = tested_x_position + tested_x_size//2 + int(is_even_y)
-            return min_y_value,max_y_value,min_x_value,max_x_value
-        # Test one by one if a cell is located inside the extended area
-        list_is_inside_range =[]
-        for _, selected_row in simulation_dataframe.iterrows():
-            min_y_value,max_y_value,min_x_value,max_x_value = return_ranges(selected_row,initial_x_range=None,initial_y_range=None)
-            is_inside_range = (min_x_value >= extended_x_min_range) & (max_x_value <= extended_x_max_range) & (min_y_value >= extended_y_min_range) & (max_y_value <= extended_y_max_range)
-            list_is_inside_range.append(is_inside_range)
-        condition = np.array(list_is_inside_range)
-        df_cells_in_image = simulation_dataframe[condition]
-        # take the image position and the cell location
-        number_cells_in_library = len(list_library_cells)
-        volume_simulated_image = np.zeros ((extended_y_pixels,extended_x_pixels,number_color_channels ),dtype=int)
-        # Repetitive calculation performed over library of cells. Including cell shapes, cell_indexes, simulated volumes
-        list_volume_tested_cell=[]    
-        for i in range (number_cells_in_library):
-            # creating the image if z_position is inside z_array
-            if np.isin(z_position_hat, z_array):
-                list_volume_tested_cell.append(list_library_cells[i][z_position_original,:,:,:].astype(np.uint16))
-            else:
-                # iterating for each color channel 
-                temp_image = np.zeros_like(list_library_cells[i][0,:,:,:],dtype=np.uint16)
-                for ch in range(number_color_channels):
-                    # using the center slice
-                    temp_image[:,:,ch] = list_library_cells[i][z_position_center_as_zero,:,:,ch]
-                list_volume_tested_cell.append(temp_image)
-                del temp_image
-        # Lambda function to calculate edges in simulation
-        min_edge_simulation = lambda tested_value:  0 if tested_value<0 else tested_value
-        # main loop that creates the simulated image
-        for _, selected_row in df_cells_in_image.iterrows():
-            library_id_selected = selected_row.library_id
-            volume_selected_cell = list_volume_tested_cell[library_id_selected]
-            min_y_value,max_y_value,min_x_value,max_x_value = return_ranges(selected_row,initial_x_range=extended_x_min_range,initial_y_range= extended_y_min_range)
-            # Positions in final simulation
-            y_min_in_simulation = min_edge_simulation(min_y_value)
-            x_min_in_simulation = min_edge_simulation(min_x_value) 
-            # Subsection of the volume to add to the final image
-            sub_volume_selected_cell = volume_selected_cell.copy()
-            sim_y_max = y_min_in_simulation + sub_volume_selected_cell.shape[0]
-            sim_x_max = x_min_in_simulation + sub_volume_selected_cell.shape[1]
-            # adding the cell to the image
-            volume_simulated_image[y_min_in_simulation:sim_y_max,x_min_in_simulation:sim_x_max, :] =  sub_volume_selected_cell 
-            del sub_volume_selected_cell
-        # Loop that creates the final dataframe only if the nucleus centroid is inside the desired area.
-        list_is_inside_range =[]
-        for _, selected_row in df_cells_in_image.iterrows():
-            centroid_y = selected_row.centroid_y
-            centroid_x = selected_row.centroid_x
-            is_inside_range = (centroid_x >= x_range[0]) & (centroid_x <= x_range[1]) & (centroid_y >= y_range[0]) & (centroid_y <= y_range[1])
-            list_is_inside_range.append(is_inside_range)
-        # Test one by one if a cell is located inside the 
-        condition_inside_final_area = np.array(list_is_inside_range)
-        df_cells_in_image = df_cells_in_image[condition_inside_final_area]
-        df_cells_in_image.reset_index(drop=True,inplace=True)
-        if not background_pixels_library is None: 
-            # adding background noise
-            simulated_image = np.zeros_like(volume_simulated_image)
-            for i in range (number_color_channels):
-                temp_simulated_image = volume_simulated_image[:,:,i].copy()
-                zero_indices = np.where(temp_simulated_image == 0)
-                random_elements = np.random.choice(background_pixels_library[i,:], size=len(zero_indices[0]))
-                # Replace zero elements with random elements
-                temp_simulated_image[zero_indices] = random_elements
-                simulated_image[:,:,i] = temp_simulated_image
-        else:
-            simulated_image =volume_simulated_image        
-        # add a filter to the image if z is out of bounds
-        if not np.isin(z_position_hat, z_array):
-            z_distance_from_edge = np.abs(z_position_hat)-np.max(z_array)
-            scaling_factor = 1*z_distance_from_edge
-            sigma = 10  # The standard deviation of the Gaussian distribution
-            for ch in range(number_color_channels):
-                simulated_image[:,:,ch] =  gaussian_filter(simulated_image[:,:,ch], sigma*scaling_factor)
-                if (not background_pixels_library is None) and (remove_elements_low_intensity==True): 
-                    temp_simulated_image=simulated_image[:,:,ch].copy()
-                    indices_to_replace = np.where(temp_simulated_image < list_mean_background_pixels_library[ch])
-                    random_elements = np.random.choice(background_pixels_library[ch,:], size=len(indices_to_replace[0]))
-                #    # Replace zero elements with random elements
-                    temp_simulated_image[indices_to_replace] = random_elements
-                    simulated_image[:,:,ch] = temp_simulated_image
-        # Reshaping the final image
-        simulated_image =simulated_image[moved_px_y_min:-moved_px_y_max-1,moved_px_x_min:-moved_px_x_max-1,:].copy()
-        return simulated_image,df_cells_in_image
-
-
-
-class Testing():
-    '''
-    This class contains miscellaneous methods to perform tasks needed in multiple classes. No parameters are necessary for this class.
-    '''
-    def __init__(self):
-        pass
-
-    def test_particle_colocalization(self):
-        # simulate two colocalized trajectories
-        image_size = (1000, 1000)  # width, height
-        simulation_time = 20  # total frames
-        num_particles = 100  # total particles in the first dataframe
-        copy_percentage = 0.3  # 30% of the first dataframe's particles are copied to the second
-        diffusion_rate = 5  # particles can move up to 20 units per frame
-        df_trajectories_0_test, df_trajectories_1_test = Utilities().generate_random_colocalized_trajectories(image_size, simulation_time, num_particles, copy_percentage, diffusion_rate)
-
-        # colocalization.
-        radius = 5  # Define your radius r
-        number_overlapping_frames_threshold = 19 # Define the minimum number of frames a pair should appear in to be considered as overlapping
-        df_merged_trajectories_test,  df_non_overlapping_test, df_overlapping_test = Utilities().merge_trajectories(df_trajectories_0_test, df_trajectories_1_test, radius=radius, number_overlapping_frames_threshold=number_overlapping_frames_threshold)
-
-        # print the number of particles in each dataframe
-        print('Number of particles in df_trajectories_0:', df_trajectories_0_test['particle'].nunique())
-        print('Number of particles in df_trajectories_1:', df_trajectories_1_test['particle'].nunique())
-        print('Number of particles in df_merged_trajectories:', df_merged_trajectories_test['particle'].nunique())
-        print('Number of particles in df_non_overlapping:', df_non_overlapping_test['particle'].nunique())
-        print('Number of particles in df_overlapping:', df_overlapping_test['particle'].nunique())
-        return None
-
-
-
 class Utilities():
     '''
     This class contains miscellaneous methods to perform tasks needed in multiple classes. No parameters are necessary for this class.
@@ -7147,9 +5108,7 @@ class Utilities():
         if method == 'drop':
             # Keep every factor-th column
             return arr[:, ::factor]
-
         elif method == 'average':
-            # Compute the number of groups (blocks) needed; include the last incomplete block if any.
             n_groups = int(np.ceil(n_time / factor))
             downsampled = np.full((n_samples, n_groups), np.nan, dtype=arr.dtype)
             for i in range(n_groups):
@@ -7181,14 +5140,11 @@ class Utilities():
         else:
             raise ValueError("Invalid replace_with argument. Use 'zeros' or 'nan'.")
         for i in range(num_rows):
-            # Randomly select columns to remove between 20% of the percentage_to_remove_data
             rand_percentage_to_remove_data = np.random.randint(int(0.5*percentage_to_remove_data), int(1.5*percentage_to_remove_data))
             total_cols_to_remove = int(num_cols * (rand_percentage_to_remove_data / 100))
             total_cols_to_remove = min(total_cols_to_remove, num_cols)  # Ensure not removing more columns than available
-            # Randomly split the total columns to remove between left and right
             left_cols_to_remove = np.random.randint(0, total_cols_to_remove + 1)
             right_cols_to_remove = total_cols_to_remove - left_cols_to_remove
-            # Replace the columns from the extremes in both matrices
             if left_cols_to_remove > 0:
                 new_matrix1[i, :left_cols_to_remove] = replacement_value
                 if matrix2 is not None:
@@ -7210,36 +5166,23 @@ class Utilities():
             return image_TZYXC_filtered
 
     def find_last_valid_column(self,data):
-        # Initialize an array to hold the index of the last valid data point for each row
         last_valid_indices = np.zeros(data.shape[0], dtype=int)
-        # Process each row individually
         for idx, row in enumerate(data):
-            # Reverse the row to make counting consecutive NaNs from the end easier
             reversed_row = np.flip(row)
-            # Find the first non-NaN value in the reversed row
             valid_index = np.argmax(~np.isnan(reversed_row))
-            # If the entire reversed row is NaN, the valid_index will point to a NaN
             if np.isnan(reversed_row[valid_index]):
-                # If no valid data points are found, mark the index as -1 or another flag value
                 last_valid_indices[idx] = -1
             else:
-                # Calculate the last valid index in the original row
                 last_valid_indices[idx] = len(row) - 1 - valid_index
         return np.max(last_valid_indices)
 
 
     def shift_initial_nans(self,data):
-        # Create a new array of the same shape filled with NaNs
         new_data = np.full(data.shape, np.nan)
-        # Iterate over each row
         for idx, row in enumerate(data):
-            # Find the index of the first non-NaN value
             first_non_nan_index = np.argmax(~np.isnan(row))
-            # Check if the row has any non-NaNs at all
             if not np.isnan(row[first_non_nan_index]):
-                # Number of elements to shift
                 elements_to_shift = len(row) - first_non_nan_index
-                # Shift the elements from the first non-NaN to the left
                 new_data[idx, :elements_to_shift] = row[first_non_nan_index:]
         return new_data
 
@@ -7247,22 +5190,17 @@ class Utilities():
     def show_metadta_and_plot_imeges(self, data_folder_path, show_metadata=True):
         list_images, list_names, voxel_xy_um, voxel_z_um, channel_names, number_color_channels, list_time_intervals, bit_depth = \
                 ReadLif(data_folder_path, show_metadata=show_metadata, save_tif=False, save_png=False, format='TZYXC').read()
-        # Iterate over all loaded images
         for i, image in enumerate(list_images):
             plt.figure(figsize=(10, 5 * number_color_channels))  # Adjust figure size dynamically
             for channel in range(number_color_channels):
                 ax = plt.subplot(1, number_color_channels, channel + 1)
-                # Calculate the 95th percentile of the maximum intensity for scaling
                 max_value_95_percentile = np.percentile(image[0, :, :, :, channel].max(axis=0), 95)
-                # Display the maximum projection of the image
                 ax.imshow(image[0, :, :, :, channel].max(axis=0), cmap='gray', vmax=max_value_95_percentile)
                 ax.axis('off')
-                # Set title for each channel, assuming channel_names is correctly ordered
                 if channel_names:
                     ax.set_title(f'Channel {channel}, {channel_names[channel]}')
                 else:
                     ax.set_title(f'Channel {channel}')
-            # Set the title for the entire figure
             plt.suptitle(list_names[i])
             plt.show()  # Show the plot for this image
             print('Image:', list_names[i], 'Image shape:', image.shape)
@@ -7296,48 +5234,33 @@ class Utilities():
         """
         if cut_off_index is not None and cut_off_index > array_ch0.shape[1]:
             raise ValueError("The cut_off_index is larger than the number of frames in the trajectories.")
-
         n_time = array_ch0.shape[1]
-
-        # Relative threshold: require at most a given fraction of NaNs overall.
         relative_threshold = n_time * (1 - min_percentage_data_in_trajectory)
         mask_relative = np.count_nonzero(np.isnan(array_ch0), axis=1) <= relative_threshold
-
-        # Define a helper to count the "internal" NaNs (ignoring leading and trailing NaNs).
         def count_internal_nans(row):
             valid_idx = np.where(~np.isnan(row))[0]
             if valid_idx.size == 0:
                 return 0  # row is entirely NaN (should be filtered later by mask_relative)
             first_valid = valid_idx[0]
             last_valid = valid_idx[-1]
-            # Count NaNs only between the first and last valid data points (inclusive)
             return np.count_nonzero(np.isnan(row[first_valid:last_valid + 1]))
-
         if max_missing_frames is not None:
             mask_absolute = np.array([count_internal_nans(row) <= max_missing_frames for row in array_ch0])
             mask = mask_relative & mask_absolute
         else:
             mask = mask_relative
-
         array_ch0 = array_ch0[mask]
         if array_ch1 is not None:
             array_ch1 = array_ch1[mask]
-
         if array_ch0.shape[0] == 0:
             raise ValueError("All trajectories have more than the allowed missing data (relative and/or internal).")
-
-        # Shift the data: remove initial NaNs (your helper function should preserve internal NaNs).
         array_ch0 = Utilities().shift_initial_nans(array_ch0)
         if array_ch1 is not None:
             array_ch1 = Utilities().shift_initial_nans(array_ch1)
-
-        # Trim trajectories to the last valid column.
         last_valid_columns = Utilities().find_last_valid_column(array_ch0)
         array_ch0 = array_ch0[:, :last_valid_columns]
         if array_ch1 is not None:
             array_ch1 = array_ch1[:, :last_valid_columns]
-
-        # Determine the cut-off time (using the last valid index).
         max_index = int(np.nanmax(np.argwhere(~np.isnan(array_ch0))[:, 1])) + 1
         if cut_off_index is None:
             cut_off_index = max_index
@@ -7346,24 +5269,19 @@ class Utilities():
         array_ch0 = array_ch0[:, :cut_off_index]
         if array_ch1 is not None:
             array_ch1 = array_ch1[:, :cut_off_index]
-
         return (array_ch0, array_ch1) if array_ch1 is not None else array_ch0
         
 
-
     def parse_bool_or_int(self, value):
-        # Try to convert the value to an integer first
         try:
             int_value = int(value)
             if int_value in [0, 1]:
                 return bool(int_value)
         except ValueError:
-            # If conversion to int fails, try to understand it as a boolean string
             if value.lower() in ['true', 'false']:
                 return value.lower() == 'true'
             else:
                 raise ValueError("The provided value must be either 'true', 'false', '0', or '1'.")
-        # If all else fails, raise an exception
         raise ValueError("The provided value must be either 'true', 'false', '0', or '1'.")
 
     @staticmethod
@@ -7382,49 +5300,35 @@ class Utilities():
         def decorator(func):
             @wraps(func)
             def wrapper(*args, **kwargs):
-                # Capture function arguments
                 sig = inspect.signature(func)
                 bound_args = sig.bind(*args, **kwargs)
                 bound_args.apply_defaults()
-
-                # Build metadata dictionary
                 metadata = {}
-                # Add Date and Time
                 metadata["Date and Time"] = pd.Timestamp.now().round('min')
-                # Add computer user name
                 metadata["computer_user_name"] = getpass.getuser()
-                # Add function arguments, excluding specified ones
                 for name, value in bound_args.arguments.items():
                     if name not in exclude_args:
                         metadata[name] = value
                 try:
-                    # Call the original function
                     result = func(*args, **kwargs)
-                    # Optionally, you can log that the function executed successfully
                     metadata["Execution Status"] = "Success"
                 except Exception as e:
-                    # Capture exception details
                     metadata["Exception"] = str(e)
                     metadata["Traceback"] = traceback.format_exc()
                     metadata["Execution Status"] = "Failed"
                     raise  # Re-raise the exception after logging
                 finally:
-                    # Determine metadata folder path
                     if metadata_folder_func is not None:
                         metadata_folder = metadata_folder_func(*args, **kwargs)
                     else:
                         metadata_folder = 'temp_metadata_folder'  # default folder
-                    # Create metadata folder if it doesn't exist
                     metadata_folder_path = Path(metadata_folder)
                     metadata_folder_path.mkdir(parents=True, exist_ok=True)
-
-                    # Customize metadata file name
                     if metadata_filename:
                         metadata_file = f"{metadata_filename}.txt"
                     else:
                         metadata_file = f"{func.__name__}_metadata.txt"
                     metadata_file_path = metadata_folder_path / metadata_file
-                    # Write metadata to text file
                     with open(metadata_file_path, 'w') as f:
                         for key, value in metadata.items():
                             f.write(f"{key}: {value}\n")
@@ -7537,7 +5441,6 @@ class Utilities():
                 flag_vector[particle_to_test] = True
             else:
                 flag_vector[particle_to_test]= False
-            #print('tested_particle',particle_to_test,'value',flag_vector[particle_to_test])
         return flag_vector
     
 
@@ -7641,21 +5544,17 @@ class Utilities():
         """
         center = mean_array.shape[0] // 2
         radius = spot_size // 2
-
         # Creating masks for the disk and donut
         y, x = np.ogrid[-center:center + 1, -center:center + 1]
         mask_disk = x**2 + y**2 <= radius**2
         mask_donut = (x**2 + y**2 > radius**2) & (x**2 + y**2 <= (center)**2)
-
         # Extract disk and donut values from the mean_array
         disk_values = mean_array[mask_disk]
         donut_values = mean_array[mask_donut]
-
         # Calculate mean and standard deviation for the disk and donut
         mean_intensity_disk = np.mean(disk_values)
         mean_intensity_donut = np.mean(donut_values)
         std_intensity_donut = np.std(donut_values)
-
         # Calculate SNR
         if std_intensity_donut > 0:
             snr = (mean_intensity_disk - mean_intensity_donut) / std_intensity_donut
@@ -7669,16 +5568,13 @@ class Utilities():
         thresholds_per_channel = []
         number_random_images = min(7, image_TZYXC.shape[0])
         sigma_smoothing_vectors = 7
-
         voxel_size_z = list_voxels[0]
         voxel_size_yx = list_voxels[1]
         z_spot_size_in_px = list_spot_size_px[0]
         yx_spot_size_in_px = list_spot_size_px[1]
-
         # Ensure channels_spots is a list
         if not isinstance(channels_spots, list):
             channels_spots = [channels_spots]
-
         for idx_channel, channel in enumerate(channels_spots):
             # Initialize lists to store data for averaging
             counts_spots_list = []
@@ -7686,50 +5582,41 @@ class Utilities():
             thresholds_list = []
             min_thresholds = []
             max_thresholds = []
-
             for iteration in range(number_random_images):
                 # Select a random time point
                 selected_time = np.random.randint(0, image_TZYXC.shape[0])
                 image_single_channel = image_TZYXC[selected_time, :, :, :, channel]
-
                 # Calculate spot radius
                 spot_radius_px = detection.get_object_radius_pixel(
                     voxel_size_nm=(voxel_size_z, voxel_size_yx, voxel_size_yx),
                     object_radius_nm=(voxel_size_z*(z_spot_size_in_px//2), voxel_size_yx*(yx_spot_size_in_px//2) , voxel_size_yx*(yx_spot_size_in_px//2)), ndim=3) 
-                
                 spot_radius_nm = detection.get_object_radius_nm(
                     voxel_size_nm=(voxel_size_z, voxel_size_yx, voxel_size_yx),
                     object_radius_px=spot_radius_px, ndim=3)
-
                 # Get thresholds and counts
                 thresholds, count_spots, _ = detection.get_elbow_values(
                     image_single_channel, voxel_size=(voxel_size_z, voxel_size_yx, voxel_size_yx),
                     spot_radius=spot_radius_nm)
-
                 # Smooth the curve
                 smoothed_counts = gaussian_filter(count_spots, sigma=sigma_smoothing_vectors)
                 first_derivative = np.gradient(smoothed_counts, thresholds)
                 first_derivative = gaussian_filter(first_derivative, sigma=sigma_smoothing_vectors)
-
                 # Normalize the first derivative to be between 0 and 1
                 if first_derivative.max() != first_derivative.min():
                     first_derivative_norm = (first_derivative - first_derivative.min()) / (
                         first_derivative.max() - first_derivative.min())
                 else:
                     first_derivative_norm = np.zeros_like(first_derivative)
-
                 # Store data for averaging
                 counts_spots_list.append(count_spots)
                 first_derivative_list.append(first_derivative_norm)
                 thresholds_list.append(thresholds)
                 min_thresholds.append(thresholds[0])
                 max_thresholds.append(thresholds[-1])
-
             # Define common thresholds for interpolation
             min_threshold = max(min_thresholds)
             max_threshold = min(max_thresholds)
             thresholds_common = np.linspace(min_threshold, max_threshold, num=100)
-
             # Interpolate and average the data
             counts_spots_interp = []
             first_derivative_interp = []
@@ -7738,14 +5625,9 @@ class Utilities():
                 derivative_interp = np.interp(thresholds_common, thresholds, first_derivative_norm)
                 counts_spots_interp.append(counts_interp)
                 first_derivative_interp.append(derivative_interp)
-
-            average_counts_spots = np.mean(counts_spots_interp, axis=0)
-            # smooth the average counts spots
-            
+            average_counts_spots = np.mean(counts_spots_interp, axis=0)            
             average_first_derivative = np.mean(first_derivative_interp, axis=0)
             average_first_derivative = gaussian_filter(average_first_derivative, sigma=5)
-
-            # Use the average first derivative to find peaks and select threshold
             peaks, _ = find_peaks(-average_first_derivative, distance=10, prominence=0.05)
             threshold = None
             for index in peaks:
@@ -7753,8 +5635,6 @@ class Utilities():
                 if spots_detected < max_spots_for_threshold:
                     threshold = thresholds_common[index]
                     break  # Select the first suitable threshold
-
-            # Fallback threshold if none found
             if threshold is None:
                 threshold = thresholds_common[len(thresholds_common) // 2]
             thresholds_per_channel.append(threshold)
@@ -7781,7 +5661,6 @@ class Utilities():
                     # Modify plot_name to include channel number
                     plot_name_channel = f"{plot_name}_channel_{channel}.png"
                     fig.savefig(plot_name_channel)
-
         return thresholds_per_channel
 
     
@@ -7847,26 +5726,18 @@ class Utilities():
 
 
     def combine_images_vertically(self,image_paths, save_path, delete_originals=False,show_image=False):
-        # Load images
         images = [Image.open(path) for path in image_paths]
-        # Calculate maximum width to standardize image widths
         max_width = max(img.width for img in images)
-        # Resize images to have the same width
         resized_images = [img.resize((max_width, int(img.height * max_width / img.width)), Image.Resampling.LANCZOS) for img in images]
-        # Calculate the total height for the new combined image
         total_height = sum(img.height for img in resized_images)
-        # Create a new image to combine all
         combined_image = Image.new("RGB", (max_width, total_height))
-        # Paste each image into the combined image
         y_offset = 0
         for img in resized_images:
             combined_image.paste(img, (0, y_offset))
             y_offset += img.height
-        # Save or display the final image
         combined_image.save(save_path)
         if show_image:
             combined_image.show()
-        # Optional: Delete the original image files
         if delete_originals:
             for path in image_paths:
                 path_obj = Path(path)
@@ -7897,24 +5768,19 @@ class Utilities():
         x = np.linspace(0, x_size - 1, x_size)
         y = np.linspace(0, y_size - 1, y_size)
         x, y = np.meshgrid(x, y)
-        
         # Compute centroid for initial guess
         total_intensity = data.sum() + 1e-9
         x_center = (np.arange(x_size) * data.sum(axis=0)).sum() / total_intensity
         y_center = (np.arange(y_size) * data.sum(axis=1)).sum() / total_intensity
-        
         amplitude_guess = float(data.max())
         offset_guess = float(data.min())
         sigma_guess = min(x_size, y_size) / 4.0
-        
         initial_guess = (amplitude_guess, x_center, y_center, sigma_guess, sigma_guess, offset_guess)
-        
         # Set parameter bounds
         bounds = (
             [0,             0,         0,          0.1,       0.1,        data.min()-abs(data.min())],
             [amplitude_guess*5, x_size-1, y_size-1, max(x_size,y_size), max(x_size,y_size), data.max()+abs(data.max())]
         )
-        
         try:
             popt, pcov = curve_fit(
                 self.two_dimensional_gaussian,
@@ -8090,11 +5956,8 @@ class Utilities():
             df_non_overlapping = pd.concat([df_trajectories_0, df_trajectories_1])
         # Concatenate and clean up the DataFrames
         df_merged_trajectories = pd.concat([df_non_overlapping, df_overlapping])
-
         if show_plot:
             Plots().plot_merged_trajectories(df_trajectories_0,df_trajectories_1,df_merged_trajectories,df_overlapping,df_non_overlapping,save_plots=save_plots,plot_name=plot_name)
-
-
         return df_merged_trajectories, df_non_overlapping, df_overlapping
 
 
@@ -8115,40 +5978,21 @@ class Utilities():
             The same DataFrame with a new column 'In Mask' that is True/1 if the spot is inside
             the mask, and False/0 otherwise.
         """
-        # expand the mask to 3d
         if len(mask.shape) == 2:
             mask = np.expand_dims(mask, axis=0)
-        # number of z slices in the df.
-        # test if column z is present in the dataframe
         if 'z' not in df.columns:
-        # add a column z with zeros
             df['z'] = 0
         n_z = df.z.nunique()
-        # repeat the values of the mask to match the number of z slices in the df.
         mask = np.repeat(mask, n_z, axis=0)
-
-        # Extract spot coordinates from dataframe
         coords = np.stack([df['z'].values, df['y'].values, df['x'].values], axis=1)
-
-        # Round to nearest integer indices
         coords_int = np.round(coords).astype(int)
-
-        # Ensure indices are within mask bounds
-        # This step avoids indexing errors if spots lie outside image boundaries
         z_valid = (0 <= coords_int[:, 0]) & (coords_int[:, 0] < mask.shape[0])
         y_valid = (0 <= coords_int[:, 1]) & (coords_int[:, 1] < mask.shape[1])
         x_valid = (0 <= coords_int[:, 2]) & (coords_int[:, 2] < mask.shape[2])
         valid_mask = z_valid & y_valid & x_valid
-
-        # Initialize 'In Mask' as False
         df['In Mask'] = False
-
-        # For valid coordinates, check if spot is inside the mask
-        # Only index mask for valid coordinates
         valid_coords = coords_int[valid_mask]
         values_at_coords = mask[valid_coords[:, 0], valid_coords[:, 1], valid_coords[:, 2]]
-
-        # Assign True to 'In Mask' where coordinates are valid and inside mask
         df.loc[valid_mask, 'In Mask'] = (values_at_coords == 1)
 
         return df
@@ -8157,13 +6001,9 @@ class Utilities():
         number_masks = np.max(masks)
         list_contours = []  
         for index_mask in range(1, number_masks + 1):
-            #mask_selected = np.where(masks == index_mask, 1, 0)
             binary_mask = np.where(masks == index_mask, 1, 0)
-            # Find contours in the binary mask
             contours = find_contours(binary_mask, 0.5)
-            # Extract the largest contour
             largest_contour = max(contours, key=len)
-            # Downsample the contour
             downsampled_contour = largest_contour[::downsample_factor]
             list_contours.append(downsampled_contour)
         return list_contours
@@ -8176,7 +6016,6 @@ class Utilities():
 
 
     def find_src_directory(current_directory: Path) -> Path:
-        # Loop through the parent directories
         for parent in current_directory.parents:
             potential_src = parent / 'src'
             if potential_src.is_dir():
@@ -8551,7 +6390,6 @@ class Utilities():
             else:
                 image_new = image.copy()
             image_new = np.uint8(image_new)
-
             if padding_zeros:
                 # Expand dims to (Y, X, 1)
                 image_new = np.expand_dims(image_new, axis=2)
@@ -8587,57 +6425,29 @@ class Utilities():
         else:
             raise ValueError("Image must be either 2D or 3D with channels.")
 
-    def read_zipfiles_from_NAS(self,list_dirs,path_to_config_file,share_name,mandatory_substring,local_folder_path):
-        # This function iterates over all zip files in a remote directory and download them to a local directory
-        list_remote_files=[]
-        list_local_files =[]
-        if (isinstance(list_dirs, tuple)==False) and (isinstance(list_dirs, list)==False):
-            list_dirs = [list_dirs]
-        for folder in list_dirs:
-            print(folder)
-            list_files = NASConnection(path_to_config_file,share_name = share_name).read_files(folder,timeout=60)
-            for file in list_files:
-                if ('.zip' in file) and (mandatory_substring in file):   # add an argument with re conditions 
-                    # Listing all zip files
-                    zip_file_path = pathlib.Path().joinpath(folder,file)
-                    list_remote_files.append (zip_file_path)
-                    list_local_files.append(pathlib.Path().joinpath(local_folder_path,zip_file_path.name)) 
-                    # downloading the zip files from NAS
-                    NASConnection(path_to_config_file,share_name = share_name).download_file(zip_file_path, local_folder_path,timeout=200)
-        return list_local_files
     
     def unzip_local_folders(self,list_local_files,local_folder_path):
         list_local_folders =[]
         for zip_folder in list_local_files:
-            # Reads from a list of zip files
             file_to_unzip = zipfile.ZipFile(str(zip_folder)) # opens zip
             temp_folder_name = pathlib.Path().joinpath(local_folder_path, zip_folder.stem)
             if (os.path.exists(temp_folder_name)) :
                 shutil.rmtree(temp_folder_name)
                 os.makedirs(temp_folder_name) # make a new directory
-            # Iterates for each file in zip file
             for file_in_zip in file_to_unzip.namelist():
-                # Extracts data to specific folder
                 file_to_unzip.extract(file_in_zip,temp_folder_name)
-            # Closes the zip file
             file_to_unzip.close()
-            # removes the original zip file
             os.remove(pathlib.Path().joinpath(local_folder_path, zip_folder.name))
             list_local_folders.append(temp_folder_name)
         return list_local_folders
     
 
     def summary_df_by_spot_type(self, df):
-        # Grouping by 'image_id' and 'cell_id' and then getting counts of 'spot_type'
         summary_df = df.groupby(['image_id', 'cell_id', 'spot_type']).size().unstack(fill_value=0)
-        # Resetting index to make 'image_id' and 'cell_id' columns instead of index
         summary_df.reset_index(inplace=True)
-        # Dynamically creating column names based on existing spot_types
         column_names = ['image_id', 'cell_id']
         column_names.extend([f'count_spot_type_{i}' for i in summary_df.columns[2:]])
-        # Renaming columns
         summary_df.columns = column_names
-        # Output the final DataFrame
         return summary_df
     
     def remove_cells_below_spots_threshold(self, df_detected_spots, threshold_min_number_spots = 100, spot_type = 'all',reorder_cell_ids=True):
@@ -8683,12 +6493,8 @@ class Utilities():
 
         # Make a copy to avoid modifying the original
         df = dataframe.copy()
-
-        # Check optional columns
         has_image_id = ('image_id' in df.columns)
         has_cell_id  = ('cell_id'  in df.columns)
-
-        # Create a unique label for each particle
         if has_image_id and has_cell_id:
             df['unique_particle'] = (
                 df['image_id'].astype(str) + '_' +
@@ -8707,44 +6513,24 @@ class Utilities():
             )
         else:
             df['unique_particle'] = df['particle'].astype(str)
-
-        # Unique ID for each particle
         particles = df['unique_particle'].unique()
-
-        # The highest frame index actually in the data
         max_frame = int(df['frame'].max())  # e.g. 279
-
-        # If total_frames is unspecified, default to max_frame + 1
         if total_frames is None:
             total_frames = max_frame + 1  # e.g. 280 columns
-
-        # Create mapping from particle identifier -> row index
         particle_to_index = {p: i for i, p in enumerate(particles)}
         n_particles = len(particles)
-
-        # Initialize data_array with either np.nan or zeros
         if fill_value == 'zeros':
             data_array = np.zeros((n_particles, total_frames), dtype=float)
         else:
             data_array = np.full((n_particles, total_frames), np.nan, dtype=float)
-
-        # Fill the array
         for particle in particles:
             particle_data = df[df['unique_particle'] == particle]
             frames = particle_data['frame'].values.astype(int)
             values = particle_data[selected_field].values
             row_idx = particle_to_index[particle]
-
-            # Make sure we only assign into columns < total_frames
             frames_in_range = frames[frames < total_frames]
-
-            # Truncate the values array to match the frames_in_range
-            # (in case some frames >= total_frames)
             values_to_assign = values[:len(frames_in_range)]
-
             data_array[row_idx, frames_in_range] = values_to_assign
-
-        # Return just data_array (or also list of particle IDs, if desired)
         return data_array
 
 
@@ -8759,19 +6545,10 @@ class Utilities():
         Returns:
             np.ndarray: The array with rows having excessive NaNs removed.
         """
-        # Number of columns in the array
         total_columns = array.shape[1]
-        
-        # Calculate the number of NaNs in each row
         nan_counts = np.sum(np.isnan(array), axis=1)
-        
-        # Determine the maximum allowed number of NaNs based on the percentage
         max_allowed_nans = total_columns * nan_percentage
-        
-        # Create a mask for rows where the number of NaNs is less than or equal to the maximum allowed
         mask = nan_counts <= max_allowed_nans
-        
-        # Filter the array to keep only rows below the NaN threshold
         filtered_array = array[mask]
         
         return filtered_array
@@ -8894,173 +6671,6 @@ class Utilities():
                 df[col] = np.where(df[col] >= max_data_value, np.nan, df[col])
         return df
 
-    def download_data_NAS(self,path_to_config_file,data_folder_path, path_to_masks_dir,share_name,timeout=200):
-        '''
-        This method is inteded to download data from a NAS. to a local directory.
-        path_to_config_file
-        data_folder_path
-        path_to_masks_dir
-        share_name,timeout
-        '''
-        # Downloading data from NAS
-        local_folder_path = pathlib.Path().absolute().joinpath('temp_' + data_folder_path.name)
-        NASConnection(path_to_config_file,share_name = share_name).copy_files(data_folder_path, local_folder_path,timeout=timeout)
-        local_data_dir = local_folder_path     # path to a folder with images.
-        # Downloading masks from NAS
-        if not (path_to_masks_dir is None):
-            local_folder_path_masks = pathlib.Path().absolute().joinpath( path_to_masks_dir.stem  )
-            zip_file_path = local_folder_path_masks.joinpath( path_to_masks_dir.stem +'.zip')
-            NASConnection(path_to_config_file,share_name = share_name).download_file(path_to_masks_dir, local_folder_path_masks,timeout=timeout)
-            # Unzip downloaded images and update mask directory
-            file_to_unzip = zipfile.ZipFile(str(zip_file_path)) # opens zip
-            # Iterates for each file in zip file
-            for file_in_zip in file_to_unzip.namelist():
-                # Extracts data to specific folder
-                file_to_unzip.extract(file_in_zip,local_folder_path_masks)
-            # Closes the zip file
-            file_to_unzip.close()
-            # removes the original zip file
-            os.remove(zip_file_path)
-            masks_dir = local_folder_path_masks
-        else:
-            masks_dir = None
-        return local_data_dir, masks_dir
-    
-    def read_images_from_folder(self, path_to_config_file, data_folder_path, path_to_masks_dir=None, download_data_from_NAS=False, substring_to_detect_in_file_name = '.*_C0.tif'):
-        # Download data from NAS
-        if download_data_from_NAS == True:
-            share_name = 'share'
-            local_data_dir, masks_dir = Utilities().download_data_NAS(path_to_config_file,data_folder_path, path_to_masks_dir,share_name,timeout=200)
-        else:
-            local_data_dir = data_folder_path 
-            masks_dir = path_to_masks_dir 
-        # Detecting if images need to be merged
-        is_needed_to_merge_images = MergeChannels(local_data_dir, substring_to_detect_in_file_name = substring_to_detect_in_file_name, save_figure =1).checking_images()
-        if is_needed_to_merge_images == True:
-            _, _, number_images, _ = MergeChannels(local_data_dir, substring_to_detect_in_file_name = substring_to_detect_in_file_name, save_figure =1).merge()
-            local_data_dir = local_data_dir.joinpath('merged')
-            list_images, path_files, list_files_names, number_images = ReadImages(directory= local_data_dir).read()
-        else:
-            list_images, path_files, list_files_names, number_images = ReadImages(directory= local_data_dir).read()  # list_images, path_files, list_files_names, number_files        
-        # Printing image properties
-        if len(list_images[0].shape) < 4:
-            number_color_channels = None
-        else:
-            number_color_channels = list_images[0].shape[-1] 
-        print('Image shape: ', list_images[0].shape , '\n')
-        print('Number of images: ',number_images , '\n')
-        print('Local directory with images: ', local_data_dir, '\n')
-        return local_data_dir, masks_dir, number_images, number_color_channels, list_files_names,list_images
-        
-    def save_output_to_folder (self, output_identification_string, data_folder_path,
-                                list_files_distributions=None,
-                                file_plots_bleed_thru = None,
-                                file_plots_int_ratio=None,
-                                file_plots_int_pseudo_ratio=None,
-                                channels_spots=None,
-                                save_pdf_report=True):
-        #  Moving figures to the final folder 
-        if not (list_files_distributions is None) and (type(list_files_distributions) is list):
-            file_plots_distributions = list_files_distributions[0]
-            file_plots_cell_size_vs_num_spots = list_files_distributions[1]
-            file_plots_cell_intensity_vs_num_spots = list_files_distributions[2]
-            file_plots_spot_intensity_distributions = list_files_distributions[3]
-            for i in range (len(file_plots_distributions)):
-                if not (file_plots_distributions is None):
-                    pathlib.Path().absolute().joinpath(file_plots_distributions[i]).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_distributions[i]))
-                if not (file_plots_cell_size_vs_num_spots is None):
-                    pathlib.Path().absolute().joinpath(file_plots_cell_size_vs_num_spots[i]).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_cell_size_vs_num_spots[i]))
-                if not (file_plots_cell_intensity_vs_num_spots is None):
-                    pathlib.Path().absolute().joinpath(file_plots_cell_intensity_vs_num_spots[i]).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_cell_intensity_vs_num_spots[i]))
-                if not (file_plots_spot_intensity_distributions is None):
-                    pathlib.Path().absolute().joinpath(file_plots_spot_intensity_distributions[i]).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_spot_intensity_distributions[i]))
-            
-        if not (file_plots_bleed_thru is None):
-            pathlib.Path().absolute().joinpath(file_plots_bleed_thru).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_bleed_thru))
-        if not (file_plots_int_ratio is None):
-            pathlib.Path().absolute().joinpath(file_plots_int_ratio).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_int_ratio))
-        if not (file_plots_int_pseudo_ratio is None):
-            pathlib.Path().absolute().joinpath(file_plots_int_pseudo_ratio).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),file_plots_int_pseudo_ratio))
-        
-        # all original images
-        pathlib.Path().absolute().joinpath('original_images_' + data_folder_path.name +'.pdf').rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string    ),'original_images_'+ data_folder_path.name +'.pdf'))
-        # all cell images
-        for i in range (len(channels_spots)):
-            temp_plot_name = 'cells_channel_'+ str(channels_spots[i])+'_'+ data_folder_path.name +'.pdf'
-            pathlib.Path().absolute().joinpath(temp_plot_name).rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string    ),temp_plot_name))
-        #metadata_path
-        pathlib.Path().absolute().joinpath('images_report_'+ data_folder_path.name +'.csv').rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),'images_report_'+ data_folder_path.name +'.csv'))
-        pathlib.Path().absolute().joinpath('metadata_'+ data_folder_path.name +'.txt').rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),'metadata_'+ data_folder_path.name +'.txt'))
-        #df_path 
-        pathlib.Path().absolute().joinpath('df_' + data_folder_path.name +'.csv').rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string),'df_'+ data_folder_path.name +'.csv'))
-        #pdf_path 
-        if save_pdf_report == True:
-            pathlib.Path().absolute().joinpath('pdf_report_' + data_folder_path.name +'.pdf').rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string    ),'pdf_report_'+ data_folder_path.name +'.pdf'))
-        #pdf_path segmentation 
-        pathlib.Path().absolute().joinpath('segmentation_images_' + data_folder_path.name +'.pdf').rename(pathlib.Path().absolute().joinpath(str('analysis_'+ output_identification_string    ),'segmentation_images_'+ data_folder_path.name +'.pdf'))
-        return None
-
-    def sending_data_to_NAS(self,output_identification_string, data_folder_path, path_to_config_file, path_to_masks_dir, diameter_nucleus, diameter_cytosol, send_data_to_NAS = False, masks_dir = None, share_name = 'share'):
-        # Writing analyses data to NAS
-        analysis_folder_name = 'analysis_'+ output_identification_string
-        if send_data_to_NAS == True:
-            shutil.make_archive(analysis_folder_name,'zip',pathlib.Path().absolute().joinpath(analysis_folder_name))
-            local_file_to_send_to_NAS = pathlib.Path().absolute().joinpath(analysis_folder_name+'.zip')
-            NASConnection(path_to_config_file,share_name = share_name).write_files_to_NAS(local_file_to_send_to_NAS, data_folder_path)
-            os.remove(pathlib.Path().absolute().joinpath(analysis_folder_name+'.zip'))
-        # Writing masks to NAS
-        ## Creating mask directory name
-        if path_to_masks_dir == None: 
-            mask_folder_created_by_pipeline = 'masks_'+ data_folder_path.name # default name by pipeline
-            name_final_masks = data_folder_path.name +'___nuc_' + str(diameter_nucleus) + '__cyto_' + str(diameter_cytosol) 
-            mask_dir_complete_name = 'masks_'+ name_final_masks # final name for masks dir
-            shutil.move(mask_folder_created_by_pipeline, mask_dir_complete_name ) # remaing the masks dir
-        elif masks_dir is None:
-            mask_dir_complete_name = None
-        else: 
-            mask_dir_complete_name = masks_dir.name
-        ## Sending masks to NAS
-        if (send_data_to_NAS == True) and (path_to_masks_dir == None) :
-            shutil.make_archive( mask_dir_complete_name , 'zip', pathlib.Path().absolute().joinpath(mask_dir_complete_name))
-            local_file_to_send_to_NAS = pathlib.Path().absolute().joinpath(mask_dir_complete_name+'.zip')
-            NASConnection(path_to_config_file,share_name = share_name).write_files_to_NAS(local_file_to_send_to_NAS, data_folder_path)
-            os.remove(pathlib.Path().absolute().joinpath(mask_dir_complete_name+'.zip'))
-        return analysis_folder_name, mask_dir_complete_name
-    
-    def move_results_to_analyses_folder(self, output_identification_string,  data_folder_path,mask_dir_complete_name,path_to_masks_dir, save_filtered_images = False, download_data_from_NAS = False):
-        # Moving all results to "analyses" folder
-        if not os.path.exists(str('analyses')):
-            os.makedirs(str('analyses'))
-        # Subfolder name
-        analysis_folder_name = 'analysis_'+ output_identification_string
-        final_dir_name =pathlib.Path().absolute().joinpath('analyses', analysis_folder_name)
-        # Removing directory if exist
-        if os.path.exists(str(final_dir_name)):
-            shutil.rmtree(str(final_dir_name))
-        # Moving results to a subdirectory in 'analyses' folder
-        pathlib.Path().absolute().joinpath(analysis_folder_name).rename(final_dir_name )
-        # Moving masks to a subdirectory in 'analyses' folder
-        if (download_data_from_NAS == True) or (path_to_masks_dir == None):
-            final_mask_dir_name = pathlib.Path().absolute().joinpath('analyses', mask_dir_complete_name)
-            if os.path.exists(str(final_mask_dir_name)):
-                shutil.rmtree(str(final_mask_dir_name))
-            pathlib.Path().absolute().joinpath(mask_dir_complete_name).rename(final_mask_dir_name )
-        if save_filtered_images == True:
-            filtered_folder_name = 'filtered_images_' + data_folder_path.name 
-            pathlib.Path().absolute().joinpath(filtered_folder_name).rename(pathlib.Path().absolute().joinpath('analyses',str('analysis_'+ output_identification_string    ),filtered_folder_name))
-        # Delete local temporal files
-        temp_results_folder_name = pathlib.Path().absolute().joinpath('temp_results_' + data_folder_path.name)
-        shutil.rmtree(temp_results_folder_name)
-        # Removing directory if exist
-        std_format_folder_name = 'temp_'+data_folder_path.name+'_sf'
-        std_format_folder_name_dir_name =pathlib.Path().absolute().joinpath(std_format_folder_name)
-        if os.path.exists(str(std_format_folder_name_dir_name)):
-            shutil.rmtree(str(std_format_folder_name_dir_name))
-        
-        if (download_data_from_NAS == True):
-            # Delete temporal images downloaded from NAS
-            shutil.rmtree('temp_'+data_folder_path.name)
-        return None
     
     def export_data_to_CSV(self,list_spots_total, list_spots_nuc, list_spots_cytosol, destination_folder, plot_title_suffix=''):
         # Exporting data to CSV. 
@@ -9087,33 +6697,33 @@ class Utilities():
         # Save to csv
         df_for_model.to_csv(pathlib.Path().absolute().joinpath(destination_folder,plot_title_suffix+'.csv'))
         return df_for_model
-    def extract_images_masks_dataframe( self,data_folder_path, mandatory_substring, path_to_config_file,connect_to_NAS,path_to_masks_dir=None, rescale=False,max_percentile=99.5):
-        local_folder_path = pathlib.Path().absolute().joinpath('temp_local__'+data_folder_path.name)
-        # This section downloads results including the dataframe
-        if connect_to_NAS == True:
-            list_local_files = Utilities().read_zipfiles_from_NAS(list_dirs=data_folder_path,path_to_config_file=path_to_config_file,share_name='share', mandatory_substring=mandatory_substring, local_folder_path=local_folder_path)
-            list_local_folders = Utilities().unzip_local_folders(list_local_files,local_folder_path)
-        else: 
-            list_local_folders = data_folder_path # Use this line to process files from a local repository
-        # Extracting the dataframe
-        df_file_path = glob.glob( str(list_local_folders[0].joinpath('df_*')) )[0]
-        dataframe = pd.read_csv(df_file_path)
-        # Extracting the dataframe with cell ids
-        try:
-            df_file_path_metadata = glob.glob( str(list_local_folders[0].joinpath('images_report_*')) )[0]     
-            images_metadata = pd.read_csv(df_file_path_metadata)
-        except:
-            images_metadata = None
-        # Extracting Original images
-        local_data_dir, masks_dir, number_images, number_color_channels, list_files_names,_ = Utilities().read_images_from_folder( path_to_config_file, data_folder_path = data_folder_path, path_to_masks_dir = path_to_masks_dir,  download_data_from_NAS = connect_to_NAS, substring_to_detect_in_file_name = '.*_C0.tif')        
-        # Reading images from folders
-        list_images, path_files, list_files_names, _ = ReadImages(directory= local_data_dir).read()
-        if not (path_to_masks_dir is None):
-            list_masks, path_files_masks, list_files_names_masks, _ = ReadImages(directory= masks_dir).read()
-        else:
-            list_masks = None
-        # Converting the images to int8
-        return list_images, list_masks, dataframe, number_images, number_color_channels,list_local_folders,local_data_dir, images_metadata
+    # def extract_images_masks_dataframe( self,data_folder_path, mandatory_substring, path_to_config_file,connect_to_NAS,path_to_masks_dir=None, rescale=False,max_percentile=99.5):
+    #     local_folder_path = pathlib.Path().absolute().joinpath('temp_local__'+data_folder_path.name)
+    #     # This section downloads results including the dataframe
+    #     if connect_to_NAS == True:
+    #         list_local_files = Utilities().read_zipfiles_from_NAS(list_dirs=data_folder_path,path_to_config_file=path_to_config_file,share_name='share', mandatory_substring=mandatory_substring, local_folder_path=local_folder_path)
+    #         list_local_folders = Utilities().unzip_local_folders(list_local_files,local_folder_path)
+    #     else: 
+    #         list_local_folders = data_folder_path # Use this line to process files from a local repository
+    #     # Extracting the dataframe
+    #     df_file_path = glob.glob( str(list_local_folders[0].joinpath('df_*')) )[0]
+    #     dataframe = pd.read_csv(df_file_path)
+    #     # Extracting the dataframe with cell ids
+    #     try:
+    #         df_file_path_metadata = glob.glob( str(list_local_folders[0].joinpath('images_report_*')) )[0]     
+    #         images_metadata = pd.read_csv(df_file_path_metadata)
+    #     except:
+    #         images_metadata = None
+    #     # Extracting Original images
+    #     local_data_dir, masks_dir, number_images, number_color_channels, list_files_names,_ = Utilities().read_images_from_folder( path_to_config_file, data_folder_path = data_folder_path, path_to_masks_dir = path_to_masks_dir,  download_data_from_NAS = connect_to_NAS, substring_to_detect_in_file_name = '.*_C0.tif')        
+    #     # Reading images from folders
+    #     list_images, path_files, list_files_names, _ = ReadImages(directory= local_data_dir).read()
+    #     if not (path_to_masks_dir is None):
+    #         list_masks, path_files_masks, list_files_names_masks, _ = ReadImages(directory= masks_dir).read()
+    #     else:
+    #         list_masks = None
+    #     # Converting the images to int8
+    #     return list_images, list_masks, dataframe, number_images, number_color_channels,list_local_folders,local_data_dir, images_metadata
     
     
     def image_cell_selection(self,cell_id, list_images, dataframe, mask_cell=None, mask_nuc=None, scaling_value_radius_cell=1.1):
@@ -9240,8 +6850,6 @@ class Plots():
     '''
     def __init__(self):
         pass
-
-
     def display_visualization_plot(self, ax, frame_idx, image_data,
                                 channels=None, merge=False,
                                 min_percent=1.0, max_percent=99.0,
@@ -9364,10 +6972,8 @@ class Plots():
                 scale=(1, z_correction, 1, 1),
                 visible=channel_visibility[i]
             )
-
         # Convert DataFrame to numpy once
         track_data = tracks_df[['particle', 'frame', 'z', 'y', 'x']].to_numpy()
-
         # Add tracks
         tracks_layer = viewer.add_tracks(
             track_data,
@@ -9434,10 +7040,8 @@ class Plots():
         number_color_channels = image_TZYXC.shape[-1]
         image_size_x = image_TZYXC.shape[3]
         image_size_y = image_TZYXC.shape[2]
-
         if len(list_max_percentile) == 1:
             list_max_percentile = list_max_percentile * number_color_channels
-
         # Check if time_point is within the valid range
         if time_point is not None:
             if time_point >= image_TZYXC.shape[0]:
@@ -9447,7 +7051,6 @@ class Plots():
             image_to_plot = image_TZYXC[0,... ]
         else:
             image_to_plot = image_TZYXC[time_point,... ]
-
         # Filter data at this time point
         if time_point is None:
             df_time = df
@@ -9455,7 +7058,6 @@ class Plots():
             df_time = df[df['frame'] == time_point]
         number_spots = len(df_time)
         print('Number of spots detected at this time point: ', number_spots)    
-
         # Extract spot positions
         if number_spots > 0:
             # If a selected_spot is provided, find its index
@@ -9480,7 +7082,6 @@ class Plots():
         else:
             y_spot_locations = []
             x_spot_locations = []
-
         # Determine zoom coords if not provided
         if zoom_coords is None:
             if selected_spot is not None and number_spots > 0 and selected_spot in df_time['particle'].values:
@@ -9488,7 +7089,6 @@ class Plots():
                             int(y_spot_locations[index_selected_spot]) - zoom_size // 2)
             else:
                 zoom_coords = None
-
         # Apply gaussian filter if requested
         if use_gaussian_filter:
             filtered_image = gaussian_filter(image_to_plot, sigma=1)
@@ -9496,13 +7096,10 @@ class Plots():
             max_subsection_image = np.max(filtered_image, axis=0)
         else:
             max_subsection_image = np.max(image_to_plot, axis=0)
-
         # Define custom colormaps and cmap_list_imagej as previously described
         cmap_list_imagej = [green_colormap, magenta_colormap, yellow_colormap, red_colormap]
-
         # Create combined image from custom colormaps
         combined_image = np.zeros((image_size_y, image_size_x, 3), dtype=np.float32)
-
         if number_color_channels > 0:
             channel_0_img = max_subsection_image[:, :, 0]
             min_val_ch0 = np.percentile(channel_0_img, min_percentile)
@@ -9511,7 +7108,6 @@ class Plots():
             norm_ch0 = (channel_0_img - min_val_ch0) / (max_val_ch0 - min_val_ch0 + 1e-8)
         else:
             norm_ch0 = None
-
         # Channel 1 normalized:
         if number_color_channels > 1:
             channel_1_img = max_subsection_image[:, :, 1]
@@ -9521,7 +7117,6 @@ class Plots():
             norm_ch1 = (channel_1_img - min_val_ch1) / (max_val_ch1 - min_val_ch1 + 1e-8)
         else:
             norm_ch1 = None
-
         # Construct combined image from selected channels
         for i, ch in enumerate(list_channel_order_to_plot):
             if ch >= number_color_channels:
@@ -9541,10 +7136,8 @@ class Plots():
                 colored_channel = cmap_list_imagej[ch](norm_channel)
                 colored_channel_rgb = colored_channel[:, :, :3]
                 combined_image += colored_channel_rgb
-
         # Clip final combined image to [0,1]
         combined_image = np.clip(combined_image, 0, 1)
-
         # Plot the combined image
         fig, ax = plt.subplots(figsize=figsize, facecolor='black')
         ax.set_facecolor('black')
@@ -9552,27 +7145,23 @@ class Plots():
         ax.grid(False)
         ax.set_xticks([])
         ax.set_yticks([])
-
         # Add scalebar if microns_per_pixel provided
         if microns_per_pixel:
             scalebar = ScaleBar(dx=microns_per_pixel, units='um', length_fraction=0.2, 
                                 location='lower right', box_color='black', color='white', 
                                 font_properties=font_props)
             ax.add_artist(scalebar)
-
         # Plot spots
         if show_spots and number_spots > 0:
             for i in range(number_spots):
                 circ = plt.Circle((x_spot_locations[i], y_spot_locations[i]), spot_mark_size, 
                                 color=spot_color, fill=False, lw=1)
                 ax.add_artist(circ)
-
         # Plot spot IDs
         if show_spots_ids and number_spots > 0:
             for i, txt in enumerate(df_time['particle'].values):
                 ax.annotate(txt, (df_time['x'].iloc[i] + 4, df_time['y'].iloc[i] + 4), 
                             fontsize=8, color='white')
-
         # Highlight selected spot
         if selected_spot is not None and selected_spot in df_time['particle'].values:
             rec_spot_mark_size = spot_mark_size * 3
@@ -9582,7 +7171,6 @@ class Plots():
                                 rec_spot_mark_size*2, rec_spot_mark_size*2, linewidth=2.5, 
                                 edgecolor='w', facecolor='none')
             ax.add_patch(rect)
-
         # Zoom insets
         if zoom_coords is not None and norm_ch0 is not None and norm_ch1 is not None:
             xz, yz = zoom_coords
@@ -9647,7 +7235,6 @@ class Plots():
         number_color_channels = image_TZYXC.shape[-1]
         image_size_x = image_TZYXC.shape[3]
         image_size_y = image_TZYXC.shape[2]
-
         if selected_spot is not None:
             frames = sorted(df['frame'].unique())
             spot_int_values_ch0 = []
@@ -9660,15 +7247,12 @@ class Plots():
                 else:
                     spot_int_values_ch0.append(0)
                     spot_int_values_ch1.append(0)
-
         if len(list_max_percentile) == 1:
             list_max_percentile = list_max_percentile * number_color_channels
-
         # Check time_point
         if time_point is not None and (time_point < 0 or time_point >= image_TZYXC.shape[0]):
             print("Error: 'time_point' is out of the image stack range.")
             return
-
         if time_point is None:
             image_to_plot = image_TZYXC[0,...]
             df_time = df
@@ -9677,7 +7261,6 @@ class Plots():
             df_time = df[df['frame'] == time_point]
         number_spots = len(df_time)
         print('Number of spots detected at this time point: ', number_spots)
-
         # Spots
         if number_spots > 0:
             particles_detected = df_time.particle.values
@@ -9691,7 +7274,6 @@ class Plots():
             x_spot_locations = []
             y_spot_locations = []
             index_selected_spot = None
-
         # Determine zoom coords if not provided
         if zoom_coords is None and selected_spot is not None and index_selected_spot is not None:
             zoom_coords = (int(x_spot_locations[index_selected_spot]) - zoom_size // 2, 
@@ -9701,10 +7283,8 @@ class Plots():
             max_subsection_image = np.max(filtered_image, axis=0)
         else:
             max_subsection_image = np.max(image_to_plot, axis=0)
-
         # Custom colormaps assumed defined: green_colormap, magenta_colormap, yellow_colormap, red_colormap
         cmap_list_imagej = [green_colormap, magenta_colormap, yellow_colormap, red_colormap]
-
         # Normalize channels for zoom
         if number_color_channels > 0:
             channel_0_img = max_subsection_image[:, :, 0]
@@ -9714,7 +7294,6 @@ class Plots():
             norm_ch0 = (channel_0_img - min_val_ch0) / (max_val_ch0 - min_val_ch0 + 1e-8)
         else:
             norm_ch0 = None
-
         if number_color_channels > 1:
             channel_1_img = max_subsection_image[:, :, 1]
             min_val_ch1 = np.percentile(channel_1_img, min_percentile)
@@ -9723,7 +7302,6 @@ class Plots():
             norm_ch1 = (channel_1_img - min_val_ch1) / (max_val_ch1 - min_val_ch1 + 1e-8)
         else:
             norm_ch1 = None
-
         # Combined image
         combined_image = np.zeros((image_size_y, image_size_x, 3), dtype=np.float32)
         for i, ch in enumerate(list_channel_order_to_plot):
@@ -9742,40 +7320,34 @@ class Plots():
             else:
                 combined_image [:, :, i ] = norm_channel
         combined_image = np.clip(combined_image, 0, 1)
-
         # Figure and gridspec
         fig = plt.figure(figsize=figsize, facecolor='black')
         # width_ratios=[1,2]: first subplot square, second double width than height
         gs = fig.add_gridspec(1, 2, width_ratios=[1,2]) 
         ax = fig.add_subplot(gs[0,0])
         ax_plot = fig.add_subplot(gs[0,1], facecolor='black')
-
         ax.set_facecolor('black')
         ax.imshow(combined_image)
         ax.grid(False)
         ax.set_xticks([])
         ax.set_yticks([])
-
         # Scalebar
         if microns_per_pixel:
             scalebar = ScaleBar(dx=microns_per_pixel, units='um', length_fraction=0.2, 
                                 location='lower right', box_color='black', color='white', 
                                 font_properties=font_props)
             ax.add_artist(scalebar)
-
         # Spots
         if show_spots and number_spots > 0:
             for i in range(number_spots):
                 circ = plt.Circle((x_spot_locations[i], y_spot_locations[i]), spot_mark_size, 
                                 color=spot_color, fill=False, lw=1)
                 ax.add_artist(circ)
-
         # Spot IDs
         if show_spots_ids and number_spots > 0:
             for i, txt in enumerate(df_time['particle'].values):
                 ax.annotate(txt, (df_time['x'].iloc[i] + 4, df_time['y'].iloc[i] + 4), 
                             fontsize=8, color='white')
-
         # Highlight selected spot
         if selected_spot is not None and selected_spot in df_time['particle'].values:
             rec_spot_mark_size = spot_mark_size * 3
@@ -9784,7 +7356,6 @@ class Plots():
                                 rec_spot_mark_size*2, rec_spot_mark_size*2, linewidth=3, 
                                 edgecolor='red', facecolor='none')
             ax.add_patch(rect)
-
         # Plot zoom insets outside the plot area (above second subplot) if zoom_coords available
         if zoom_coords is not None:
             # Clip zoom coords to image bounds
@@ -9815,12 +7386,10 @@ class Plots():
                 ax_inset.add_patch(rect)
                 ax_inset.set_title(f'Ch {ch}', fontsize=8, color='white', fontweight='bold')
                 ax_inset.axis('off')
-
         if title:
             ax.set_title(title, fontsize=16, color='white')
         if plot_title:
             ax.set_title(plot_title, fontsize=16, color='white')
-
         # Plot the time course on the right subplot (ax_plot)
         if selected_spot is not None:
             ax_plot.set_facecolor('black')
@@ -9852,14 +7421,11 @@ class Plots():
                 ch1_val = spot_int_values_ch1[frames.index(time_point)]
                 ax_plot.text(time_point, ch0_val, f"{ch0_val:.1f}", color='cyan', fontsize=8)
                 ax_plot.text(time_point, ch1_val, f"{ch1_val:.1f}", color='magenta', fontsize=8)
-
         if save_image and image_name:
             image_name += '.png' if not image_name.endswith('.png') else ''
             plt.savefig(image_name, transparent=False, dpi=360, bbox_inches='tight', facecolor='black', format='png')
-
         if show_plot:
             plt.show()
-
         return fig, (ax, ax_plot)
     
     
@@ -9894,15 +7460,6 @@ class Plots():
         frame_rate_sec=1,
         frame_units='s',
     ):
-        # —————————————— Styling to match plot_trajectories ——————————————
-        plt.rcParams["font.family"] = "Arial"
-        plt.rcParams["figure.facecolor"] = "white"
-        plt.rcParams["axes.facecolor"]   = "white"
-        # black color for the fonts
-        plt.rcParams["text.color"] = "black"
-        plt.rcParams["axes.labelcolor"] = "black"
-        plt.rcParams["xtick.color"] = "black"
-        plt.rcParams["ytick.color"] = "black"
 
         font_props = {'size': 20}
         n_ch = image_TZYXC.shape[-1]
@@ -10503,47 +8060,38 @@ class Plots():
             sigma_y_vector = list_sigma_y[ch]
             sigma_z_vector = list_sigma_z[ch]
             offset_vector = list_offset[ch]
-
             # Skip if vectors are empty
             if amplitude_vector.size == 0 or offset_vector.size == 0:
                 continue
-
             # Means
             mean_amplitude = np.mean(amplitude_vector)
             mean_sigma_x = np.mean(sigma_x_vector)
             mean_sigma_y = np.mean(sigma_y_vector)
             mean_sigma_z = np.mean(sigma_z_vector)
             mean_offset = np.mean(offset_vector)
-
             # Define gridspec
             gs = gridspec.GridSpec(number_of_channels, 5, width_ratios=[0.5, 1, 0.5, 0.5, 0.75])
-
             ax0 = fig.add_subplot(gs[ch, 0])
             ax1 = fig.add_subplot(gs[ch, 1], projection='3d')
             ax2 = fig.add_subplot(gs[ch, 2])
             ax3 = fig.add_subplot(gs[ch, 3])
             ax4 = fig.add_subplot(gs[ch, 4])
-
             # Reconstructed 2D spot (central slice)
             size = crop_size
             x = np.linspace(0, size - 1, size)
             y = np.linspace(0, size - 1, size)
             z = np.linspace(0, size - 1, size)
             X, Y = np.meshgrid(x, y)
-
             # Generate 3D Gaussian data
             def gaussian_3d(x, y, z, amplitude, x0, y0, z0, sigma_x, sigma_y, sigma_z, offset):
                 return amplitude * np.exp(-(((x - x0) ** 2) / (2 * sigma_x ** 2)
                                           + ((y - y0) ** 2) / (2 * sigma_y ** 2)
                                           + ((z - z0) ** 2) / (2 * sigma_z ** 2))) + offset
-
             # Central z slice index
             z0 = size // 2
-
             # Compute the central slice
             Z = gaussian_3d(X, Y, z0, mean_amplitude, size / 2, size / 2, size / 2,
                             mean_sigma_x, mean_sigma_y, mean_sigma_z, mean_offset)
-
             # Plot central z slice
             ax0.imshow(Z, cmap='binary')
             props = dict(boxstyle='round', facecolor='white', alpha=0.9)
@@ -10554,24 +8102,19 @@ class Plots():
             ax0.set_aspect('equal')
             ax0.grid(False)
             ax0.set_title(f'Central Slice of 3D Gaussian, Ch: {ch}', fontsize=subtitles_fotsize)
-
             # Plotting the 3D Gaussian Isosurface
             X3D, Y3D, Z3D = np.meshgrid(x, y, z)
             V = gaussian_3d(X3D, Y3D, Z3D, mean_amplitude, size / 2, size / 2, size / 2,
                             mean_sigma_x, mean_sigma_y, mean_sigma_z, mean_offset)
-
             # Flatten the data for plotting
             X_flat = X3D.flatten()
             Y_flat = Y3D.flatten()
             Z_flat = Z3D.flatten()
             V_flat = V.flatten()
-
             # Define an isosurface value
             iso_value = mean_amplitude * 0.2
-
             # Select points where V >= iso_value
             indices = V_flat >= iso_value
-
             # Plot the isosurface using scatter plot
             ax1.scatter(X_flat[indices], Y_flat[indices], Z_flat[indices],
                         c=V_flat[indices], cmap='seismic', alpha=0.5, s=5)
@@ -10582,20 +8125,16 @@ class Plots():
             ax1.set_xticks([])
             ax1.set_yticks([])
             ax1.set_zticks([])
-
             # Adding text annotation inside the plot
             props = dict(boxstyle='round', facecolor='white', alpha=0.9)
             text_str = f"Amplitude: {mean_amplitude:.2f}"
             ax1.text2D(0.05, 0.95, text_str, color='black', bbox=props, fontsize=6,
                        transform=ax1.transAxes)
-
             max_intensity = np.max((np.max(amplitude_vector), np.max(offset_vector)))
             min_intensity = np.min((np.min(amplitude_vector), np.min(offset_vector)))
-
             # Ensure min_intensity and max_intensity are finite
             if not np.isfinite(max_intensity) or not np.isfinite(min_intensity):
                 continue
-
             # Plotting the amplitude box plot
             x_positions = np.random.normal(1, 0.02, size=amplitude_vector.shape[0])
             ax2.boxplot(amplitude_vector, patch_artist=True, showfliers=False,
@@ -10603,14 +8142,12 @@ class Plots():
                         whiskerprops=dict(color='black', linewidth=1.5),
                         medianprops=dict(color='black', linewidth=1.5))
             ax2.scatter(x_positions, amplitude_vector, color='k', alpha=0.9, s=3)
-
             if min_intensity > 0:
                 ax2.set_ylim(min_intensity * 0.9, max_intensity * 1.1)
             else:
                 ax2.set_ylim(min_intensity * 1.15, max_intensity * 1.1)
             ax2.set_title(f'Amplitude, Ch: {ch}', fontsize=subtitles_fotsize)
             ax2.set_xticklabels([''])
-
             # Plotting the background offset
             x_positions = np.random.normal(1, 0.02, size=offset_vector.shape[0])
             ax3.boxplot(offset_vector, patch_artist=True, showfliers=False,
@@ -10624,7 +8161,6 @@ class Plots():
                 ax3.set_ylim(min_intensity * 1.15, max_intensity * 1.1)
             ax3.set_title(f'Background, Ch: {ch}', fontsize=subtitles_fotsize)
             ax3.set_xticklabels([''])
-
             # Plotting the sigma_x, sigma_y, sigma_z box plot
             x_positions_sigma_x = np.random.normal(1, 0.02, size=sigma_x_vector.shape[0])
             x_positions_sigma_y = np.random.normal(2, 0.02, size=sigma_y_vector.shape[0])
@@ -10632,7 +8168,6 @@ class Plots():
             x_positions = np.hstack((x_positions_sigma_x, x_positions_sigma_y, x_positions_sigma_z))
             std_spot_size = np.hstack((sigma_x_vector, sigma_y_vector, sigma_z_vector))
             labels = ['Sigma X', 'Sigma Y', 'Sigma Z']
-
             ax4.boxplot([sigma_x_vector, sigma_y_vector, sigma_z_vector], positions=[1, 2, 3],
                         patch_artist=True, showfliers=False,
                         boxprops=dict(facecolor='royalblue', alpha=0.2),
@@ -10642,11 +8177,9 @@ class Plots():
             ax4.set_xticks([1, 2, 3])
             ax4.set_xticklabels(labels)
             ax4.set_title(f'Sigma Values, Ch: {ch}', fontsize=subtitles_fotsize)
-
         # Add supertitle
         fig.suptitle(f'Spot Properties', fontsize=12)
         plt.tight_layout()
-
         # Save plot if required
         if save_plots:
             plt.savefig(plot_name, dpi=300, bbox_inches='tight')
@@ -11274,9 +8807,6 @@ class Plots():
         plt.show()
         return None
     
-
-
-
 
     def plot_3d_video_detected_spots(self, original_image, filtered_image, spots=None, df_spots=None, colocalized_spots=None, df_colocalized_spots=None, clusters=None, masks=None, cmap='binary_r', threshold_for_spot_detection=None, voxel_xy_um=None, show_intensity_distribution=False, remove_outliers=True, maximum_percentile=99.7, bins=40, color='orangered', save_plots=False, show_plot=True, image_name='temp.pdf'):
         """
@@ -12013,9 +9543,7 @@ class Plots():
         plt.rcdefaults()
         stacked_df = df.stack()
         pct = stacked_df.quantile(q=0.99)
-        #color_palete = 'colorblind'
         color_palete = 'CMRmap'
-        #color_palete = 'OrRd'
         sns.set_style("white")
         if not os.path.exists(destination_folder):
             os.makedirs(destination_folder)
@@ -12246,8 +9774,6 @@ class Plots():
         plt.savefig(file_name, transparent=False,dpi=360, bbox_inches = 'tight', format='pdf' )
         plt.show()
         return file_name
-
-
 
     def plot_scatter_and_distributions(self, x,y, plot_title,  x_label_scatter='cell_size', y_lable_scatter = 'number_of_spots_per_cell', destination_folder=None, selected_color = '#1C00FE',save_plot=False,temporal_figure=False):
         plt.rcdefaults()
@@ -13516,7 +11042,6 @@ class SliderPlotting:
                 description=f'Ch{ch}:', continuous_update=False
             ) for ch in range(self.number_color_channels)
         ]
-
         slider_sigma = widgets.FloatSlider(
             value=self.sigma, min=0.01, max=5.0, step=0.05,
             description='Sigma:', continuous_update=False
@@ -13587,7 +11112,6 @@ class VideoTracking:
         def update(frame):
             im.set_data(video_frames[frame])
             return im,
-
         ani = FuncAnimation(fig, update, frames=len(video_frames), blit=True, repeat=True)
         plt.close(fig)  # Prevent extra empty plot from showing in notebook
         return HTML(ani.to_jshtml())
