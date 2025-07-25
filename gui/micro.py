@@ -4522,129 +4522,78 @@ class GUI(QMainWindow):
         self.index_max_lag_for_fit = index_max
         self.correlation_results = []
         if correlation_type == 'autocorrelation':
-            for ch in selected_channels:
-                # **FIX: Ensure channel exists in intensity_arrays**
-                if ch not in intensity_arrays:
-                    print(f"Warning: Channel {ch} not found in intensity arrays, skipping")
-                    continue
-                    
+            for ch, data in intensity_arrays.items():
                 corr = mi.Correlation(
-                    primary_data=intensity_arrays[ch],
-                    max_lag=index_max,
+                    primary_data=data,
+                    nan_handling='ignore',
                     time_interval_between_frames_in_seconds=step_size_in_sec,
-                    index_max_lag_for_fit=index_max,
-                    color_channel=ch,
                     start_lag=start_lag,
-                    correct_baseline=self.correct_baseline,
+                    show_plot=False,
+                    return_full=False,
+                    use_linear_projection_for_lag_0=True,
                     fit_type=self.correlation_fit_type,
                     de_correlation_threshold=self.de_correlation_threshold,
+                    correct_baseline=self.correct_baseline,
                     remove_outliers=self.remove_outliers,
                     multi_tau=use_multi,
-                    show_plot=False
                 )
-                result = corr.run()
-                self.correlation_results.append(result)
-        else:  # crosscorrelation
-            if len(selected_channels) >= 2:
-                ch1, ch2 = selected_channels[0], selected_channels[1]
-                # **FIX: Ensure both channels exist**
-                if ch1 in intensity_arrays and ch2 in intensity_arrays:
-                    corr = mi.Correlation(
-                        primary_data=intensity_arrays[ch1],
-                        secondary_data=intensity_arrays[ch2],
-                        max_lag=index_max,
-                        time_interval_between_frames_in_seconds=step_size_in_sec,
-                        index_max_lag_for_fit=index_max,
-                        color_channel=ch1,
-                        start_lag=start_lag,
-                        correct_baseline=self.correct_baseline,
-                        fit_type=self.correlation_fit_type,
-                        de_correlation_threshold=self.de_correlation_threshold,
-                        remove_outliers=self.remove_outliers,
-                        multi_tau=use_multi,
-                        show_plot=False
-                    )
-                    result = corr.run()
-                    self.correlation_results.append(result)
-                else:
-                    missing_chs = [ch for ch in [ch1, ch2] if ch not in intensity_arrays]
-                    QMessageBox.warning(self, "Missing Channels", 
-                                    f"Channels {missing_chs} not found in intensity data.")
-                    return
-        # self.correlation_results = []
-        # if correlation_type == 'autocorrelation':
-        #     for ch, data in intensity_arrays.items():
-        #         corr = mi.Correlation(
-        #             primary_data=data,
-        #             nan_handling='ignore',
-        #             time_interval_between_frames_in_seconds=step_size_in_sec,
-        #             start_lag=start_lag,
-        #             show_plot=False,
-        #             return_full=False,
-        #             use_linear_projection_for_lag_0=True,
-        #             fit_type=self.correlation_fit_type,
-        #             de_correlation_threshold=self.de_correlation_threshold,
-        #             correct_baseline=self.correct_baseline,
-        #             remove_outliers=self.remove_outliers,
-        #             multi_tau=use_multi,
-        #         )
-        #         mean_corr, std_corr, lags, _, _ = corr.run()
-        #         if index_max >= len(lags):
-        #             QMessageBox.warning(
-        #                 self, "Max-Lag Adjusted",
-        #                 f"Requested lag {index_max} exceeds available {len(lags)-1} "
-        #                 f"for {'multi-tau' if use_multi else 'linear'} mode.\n"
-        #                 f"Using {len(lags)-1} instead.")
-        #             index_max = len(lags) - 1
-        #             self.index_max_lag_for_fit_input.setValue(index_max)
-        #         self.correlation_results.append({
-        #             'type': 'autocorrelation',
-        #             'channel': ch,
-        #             'intensity_array': data,
-        #             'mean_corr': mean_corr,
-        #             'std_corr': std_corr,
-        #             'lags': lags,
-        #             'step_size_in_sec': step_size_in_sec,
-        #             'normalize_plot_with_g0': normalize_g0,
-        #             'index_max_lag_for_fit': index_max,
-        #             'start_lag': start_lag,
-        #             'multi_tau': use_multi,
-        #         })
+                mean_corr, std_corr, lags, _, _ = corr.run()
+                if index_max >= len(lags):
+                    QMessageBox.warning(
+                        self, "Max-Lag Adjusted",
+                        f"Requested lag {index_max} exceeds available {len(lags)-1} "
+                        f"for {'multi-tau' if use_multi else 'linear'} mode.\n"
+                        f"Using {len(lags)-1} instead.")
+                    index_max = len(lags) - 1
+                    self.index_max_lag_for_fit_input.setValue(index_max)
+                self.correlation_results.append({
+                    'type': 'autocorrelation',
+                    'channel': ch,
+                    'intensity_array': data,
+                    'mean_corr': mean_corr,
+                    'std_corr': std_corr,
+                    'lags': lags,
+                    'step_size_in_sec': step_size_in_sec,
+                    'normalize_plot_with_g0': normalize_g0,
+                    'index_max_lag_for_fit': index_max,
+                    'start_lag': start_lag,
+                    'multi_tau': use_multi,
+                })
 
-        # else:  # crosscorrelation
-        #     ch1, ch2 = selected_channels
-        #     d1 = intensity_arrays.get(ch1)
-        #     d2 = intensity_arrays.get(ch2)
-        #     if d1 is None or d2 is None:
-        #         return
-        #     corr = mi.Correlation(
-        #         primary_data=d1,
-        #         secondary_data=d2,
-        #         nan_handling='ignore',
-        #         time_interval_between_frames_in_seconds=step_size_in_sec,
-        #         show_plot=False,
-        #         return_full=True,
-        #         de_correlation_threshold=self.de_correlation_threshold,
-        #         correct_baseline=self.correct_baseline,
-        #         fit_type=self.correlation_fit_type,
-        #         remove_outliers=self.remove_outliers,
-        #     )
-        #     mean_corr, std_corr, lags, _, _ = corr.run()
-        #     self.correlation_results.append({
-        #         'type': 'crosscorrelation',
-        #         'channel1': ch1,
-        #         'channel2': ch2,
-        #         'intensity_array1': d1,
-        #         'intensity_array2': d2,
-        #         'mean_corr': mean_corr,
-        #         'std_corr': std_corr,
-        #         'lags': lags,
-        #         'step_size_in_sec': step_size_in_sec,
-        #         'normalize_plot_with_g0': normalize_g0,
-        #         'index_max_lag_for_fit': index_max,
-        #         'start_lag': start_lag,
-        #         'multi_tau': use_multi,
-        #     })
+        else:  # crosscorrelation
+            ch1, ch2 = selected_channels
+            d1 = intensity_arrays.get(ch1)
+            d2 = intensity_arrays.get(ch2)
+            if d1 is None or d2 is None:
+                return
+            corr = mi.Correlation(
+                primary_data=d1,
+                secondary_data=d2,
+                nan_handling='ignore',
+                time_interval_between_frames_in_seconds=step_size_in_sec,
+                show_plot=False,
+                return_full=True,
+                de_correlation_threshold=self.de_correlation_threshold,
+                correct_baseline=self.correct_baseline,
+                fit_type=self.correlation_fit_type,
+                remove_outliers=self.remove_outliers,
+            )
+            mean_corr, std_corr, lags, _, _ = corr.run()
+            self.correlation_results.append({
+                'type': 'crosscorrelation',
+                'channel1': ch1,
+                'channel2': ch2,
+                'intensity_array1': d1,
+                'intensity_array2': d2,
+                'mean_corr': mean_corr,
+                'std_corr': std_corr,
+                'lags': lags,
+                'step_size_in_sec': step_size_in_sec,
+                'normalize_plot_with_g0': normalize_g0,
+                'index_max_lag_for_fit': index_max,
+                'start_lag': start_lag,
+                'multi_tau': use_multi,
+            })
         self.display_correlation_plot()
 
 
