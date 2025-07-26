@@ -617,106 +617,100 @@ The peak lag time in cross-correlation indicates the temporal relationship betwe
 - Report confidence intervals from bootstrap analysis
 - Document outlier removal criteria and percentages
 
+
 ## Colocalization Analysis
 
-### Automated Analysis
-**ML Method:**
-- **Machine Learning**: Use trained models for spot classification
-- **Threshold Control**: Adjust ML confidence threshold (0.5-1.0)
-- **Consistency**: Best for uniform spot morphologies
+MicroLive provides comprehensive colocalization analysis tools to quantify spatial relationships between fluorescent signals in different channels. The analysis combines automated detection methods with manual verification capabilities for robust and accurate results.
 
-**Intensity Method:**
-- **Signal-to-Noise**: Based on SNR thresholds
-- **Flexibility**: Better for variable spot appearances
-- **Threshold Range**: Typically 2-5 for SNR values
+### Overview
 
-### Manual Verification
-**Interface:**
-- **Crop Grid**: Visual inspection of individual spots
-- **Checkboxes**: Manual marking of colocalized spots
-- **Populate Function**: Auto-fill based on algorithmic results
-- **Statistics**: Real-time percentage calculations
-
-**Workflow:**
-1. **Run Automated Analysis**: Execute ML or intensity-based detection
-2. **Review Results**: Examine colocalization matrix
-3. **Manual Verification**: Switch to manual tab for detailed inspection
-4. **Populate Results**: Load algorithmic results for manual review
-5. **Individual Review**: Check/uncheck spots based on visual inspection
-6. **Export Data**: Save manual verification results
-
-### Quality Control
-- **Visual Matrix**: Color-coded representation of colocalization
-- **Percentage Metrics**: Quantitative colocalization measurements
-- **Export Options**: Save analysis images and data tables
-- **Documentation**: Include analysis parameters in exported metadata
-
-## Data Export
-
-### Export Types
-**Images:**
-- **PNG**: High-resolution images at 300 DPI
-- **OME-TIFF**: Complete image stacks with metadata
-- **Video**: MP4 or GIF animations
-
-**Data:**
-- **CSV Files**: Tracking data, colocalization results, correlation data
-- **Metadata**: Complete parameter logs and analysis settings
-- **User Comments**: Custom annotations and notes
-
-### Batch Export
-1. **Export Tab**: Navigate to the Export tab
-2. **Select Items**: Check desired export items from the table
-3. **Add Comments**: Include user comments and observations
-4. **Choose Folder**: Select parent directory for export
-5. **Execute Export**: All selected items exported to organized subfolder
-
-### File Organization
-Exported data is organized in structured folders:
-- **Images**: All image exports (PNG, TIFF)
-- **Data**: CSV files and numerical results
-- **Metadata**: Parameter files and analysis logs
-- **Comments**: User annotations and notes
-
-### Custom Naming
-- **Automatic Names**: Based on original filename and analysis type
-- **Timestamp Integration**: Includes creation dates
-- **Parameter Integration**: Incorporates key analysis parameters
-
-## Best Practices
-
-### Experimental Design
-- **Adequate Sampling**: Ensure sufficient temporal resolution
-- **Control Conditions**: Include appropriate negative and positive controls
-- **Documentation**: Record acquisition parameters and experimental conditions
-
-### Image Quality
-- **Signal-to-Noise**: Optimize acquisition parameters for good SNR
-- **Photobleaching**: Minimize photobleaching during acquisition
-- **Stability**: Ensure stable imaging conditions throughout acquisition
+Colocalization analysis determines whether particles detected in one channel (reference channel) are also present in another channel (colocalization channel).
 
 ### Analysis Workflow
-- **Parameter Validation**: Test parameters on subset of data first
-- **Quality Control**: Always perform visual inspection of automated results
-- **Reproducibility**: Document all analysis parameters for reproducibility
-- **Controls**: Use random spot generation for validation
 
-### Data Management
-- **Backup**: Keep backups of original data files
-- **Version Control**: Track different analysis versions
-- **Documentation**: Maintain detailed analysis logs
-- **Organization**: Use consistent file naming and folder structures
+#### 1. Prerequisites
+- **Completed particle tracking**: Spots must be detected and tracked in at least one channel
+- **Multi-channel data**: Minimum of 2 fluorescence channels required
+- **Channel assignment**: Reference channel is automatically set to the tracking channel
 
-### Performance Optimization
-- **Memory Management**: Close unused files to free memory
-- **Processing Time**: Use maximum projection for faster analysis when appropriate
-- **Batch Processing**: Process multiple files with consistent parameters
+#### 2. Automated Detection Methods
 
-### Troubleshooting Common Issues
-- **Poor Detection**: Adjust threshold and spot size parameters
-- **Broken Trajectories**: Increase search range and memory parameters
-- **Memory Issues**: Reduce image size or close unused files
-- **Performance**: Use 2D projection mode for faster processing
+**Machine Learning (ML) Method:**
+- **Technology**: Convolutional Neural Network (CNN) trained on manually-annotated image crops
+- **Training data**: Combination of real experimental data and synthetic augmented datasets
+- **Input**: Image crops centered on detected particles from both channels
+- **Output**: Confidence score (0.5-1.0) indicating colocalization probability
+
+
+**Intensity-Based Method:**
+- **Technology**: Signal-to-noise ratio (SNR) thresholding
+- **Calculation**: `SNR = (mean_spot - mean_background) / std_background`
+- **Threshold range**: Typically 2-5 (adjustable 0-10)
+
+#### 3. Parameter Configuration
+
+**Channel Selection:**
+- **Reference Channel**: Source of particle coordinates (auto-set from tracking)
+- **Colocalization Channel**: Target channel for colocalization assessment
+- **Validation**: Prevents selection of identical channels
+
+**Method-Specific Parameters:**
+
+*ML Method:*
+- **ML Threshold**: Confidence cutoff (0.5-1.0, default: 0.50)
+  - Higher values: More stringent, fewer false positives
+  - Lower values: More permissive, captures weaker colocalizations
+
+*Intensity Method:*
+- **SNR Threshold**: Signal strength requirement (0-10, default: 3.0)
+  - Threshold = 2: Permissive, includes dim spots
+  - Threshold = 5: Stringent, only bright spots
+
+**Display Options:**
+- **Crop Columns**: Grid layout for visualization (1-100, default: 50)
+- **Export Format**: PNG images, CSV data tables
+
+#### 4. Results Interpretation
+
+**Quantitative Metrics:**
+- **Total Reference Spots**: Number of particles in reference channel
+- **Colocalized Spots**: Number meeting colocalization criteria
+- **Colocalization Percentage**: `(Colocalized / Total Reference) × 100`
+- **Threshold Value**: Applied detection threshold
+- **Method Used**: ML or Intensity-based classification
+
+**Visual Output:**
+- **Paired Crop Display**: Side-by-side comparison of both channels
+- **Color Coding**: Flagged spots highlighted with colored borders
+- **Grid Layout**: Organized display for systematic review
+- **Summary Statistics**: Real-time percentage calculations
+
+### Manual Verification Workflow
+
+#### 1. Data Population
+```
+Colocalization → Run Automated Analysis → Colocalization Manual → Populate
+```
+
+#### 2. Visual Inspection Interface
+- **Thumbnail Grid**: Individual spot crops at 4× magnification
+- **Side-by-Side Display**: Reference and colocalization channels paired
+- **Interactive Checkboxes**: Toggle colocalization status per spot
+- **Real-Time Statistics**: Updated percentages during review
+
+#### 3. Quality Control Features
+- **Scalable Thumbnails**: Adjustable crop size for detail examination
+- **Consistent Scaling**: Normalized intensity display across crops
+- **Systematic Layout**: Organized grid prevents missed spots
+- **Progress Tracking**: Live count of reviewed vs. total spots
+
+#### 4. Manual Verification Process
+1. **Load Results**: Click "Populate" to import automated classifications
+2. **Systematic Review**: Examine each crop pair sequentially
+3. **Adjust Classifications**: Check/uncheck based on visual assessment
+4. **Monitor Progress**: Track completion via statistics display
+5. **Export Data**: Save final manual classifications
+
 
 ## Data Structures
 

@@ -130,7 +130,7 @@ if src_dir is not None:
         import ML_SpotDetection as ML
         ML_folder = src_dir.parents[0] /'modeling' / 'machine_learning'
         model_ML = ML.ParticleDetectionCNN()
-        model_path = ML_folder / 'particle_detection_cnn_human_selected_data.pth'
+        model_path = ML_folder / 'spot_detection_cnn.pth'
         ML.load_model(model_ML, model_path)
     except Exception as e:
         print(f"Error loading machine learning model: {e}")
