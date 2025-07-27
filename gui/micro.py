@@ -514,9 +514,7 @@ class Metadata:
         min_percentage_data_in_trajectory,
         use_maximum_projection,
         photobleaching_mode,
-        #photobleaching_model,
         photobleaching_radius,
-        #photobleaching_number_removed_initial_points,
         file_path,
         use_ml_checkbox,
         ml_threshold_input,
@@ -570,10 +568,8 @@ class Metadata:
 
         # --- Photobleaching Tab ---
         self.photobleaching_calculated = photobleaching_calculated
-        #self.photobleaching_model = photobleaching_model
         self.photobleaching_mode = photobleaching_mode
         self.photobleaching_radius = photobleaching_radius
-        #self.photobleaching_number_removed_initial_points = photobleaching_number_removed_initial_points
 
         # --- File Path for metadata ---
         self.file_path = file_path
@@ -634,10 +630,8 @@ class Metadata:
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nPHOTOBLEACHING')
                 fd.write('\n    photobleaching_calculated: ' + str(self.photobleaching_calculated))
-                #fd.write('\n    photobleaching_model: ' + str(self.photobleaching_model))
                 fd.write('\n    photobleaching_mode: ' + str(self.photobleaching_mode))
                 fd.write('\n    photobleaching_radius: ' + str(self.photobleaching_radius))
-                #fd.write('\n    photobleaching_number_removed_initial_points: ' + str(self.photobleaching_number_removed_initial_points))
                 fd.write('\n')
                 # Tracking Parameters
                 fd.write('#' * number_spaces_pound_sign)
@@ -798,9 +792,7 @@ class GUI(QMainWindow):
         self.min_percentage_data_in_trajectory = 0.3
         self.use_maximum_projection = True
         self.photobleaching_mode = 'inside_cell'
-        #self.photobleaching_model = 'exponential'
-        self.photobleaching_radius = 20
-        #self.photobleaching_number_removed_initial_points = None
+        self.photobleaching_radius = 30
         self.corrected_image = None
         self.colocalization_results = None
         self.link_using_3d_coordinates = True
@@ -6015,9 +6007,7 @@ class GUI(QMainWindow):
             min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
             use_maximum_projection=self.use_maximum_projection,
             photobleaching_mode=self.photobleaching_mode,
-            #photobleaching_model=self.photobleaching_model,
             photobleaching_radius=self.photobleaching_radius,
-            #photobleaching_number_removed_initial_points=self.photobleaching_number_removed_initial_points,
             file_path=file_path,
             use_ml_checkbox=self.method_ml_radio.isChecked(),
             ml_threshold_input=self.ml_threshold_input,
@@ -6084,9 +6074,7 @@ class GUI(QMainWindow):
             min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
             use_maximum_projection=self.use_maximum_projection,
             photobleaching_mode=self.photobleaching_mode,
-            #photobleaching_model=self.photobleaching_model,
             photobleaching_radius=self.photobleaching_radius,
-            #photobleaching_number_removed_initial_points=self.photobleaching_number_removed_initial_points,
             file_path=file_path,
             use_ml_checkbox=self.use_ml_checkbox,
             ml_threshold_input=self.ml_threshold_input,

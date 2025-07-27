@@ -80,7 +80,6 @@ z_spot_size_in_px: int           # Spot size in Z pixels (range: 1-10, default: 
 threshold_spot_detection: float  # Detection intensity threshold (image-dependent)
 user_selected_threshold: float   # User-defined threshold override
 use_maximum_projection: bool     # Use 2D projection for tracking (default: True)
-max_spots_for_threshold: int     # Maximum spots for threshold calculation (range: 100-10000, default: 3000)
 
 # Trajectory Linking (consistent with User Guide)
 min_length_trajectory: int       # Minimum trajectory length (range: 1-200, default: 20)
@@ -120,9 +119,8 @@ index_max_lag_for_fit: int       # Maximum lag for fitting
 **Photobleaching Parameters:**
 ```python
 photobleaching_calculated: bool  # Correction applied flag
-photobleaching_mode: str         # "inside_cell", "outside_cell", "use_circular_region"
-photobleaching_radius: int       # Circular region radius (default: 20)
-photobleaching_number_removed_initial_points: int # Excluded initial points
+photobleaching_mode: str         # "inside_cell", "outside_cell", "use_circular_region" , "entire_image"
+photobleaching_radius: int       # Circular region radius (default: 30)
 photobleaching_data: dict        # Photobleaching analysis results
 ```
 

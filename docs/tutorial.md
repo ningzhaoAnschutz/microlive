@@ -203,9 +203,6 @@ Correct for photobleaching artifacts that affect quantitative fluorescence measu
 
 3. **Configure Parameters**
    - **Radius**: Size of analysis region (for circular mode)
-   - **Remove Time Points**: Exclude initial frames if needed (typically 0-5)
-   - **Model Type**: Choose appropriate decay model
-     - **Exponential**: Most common, single exponential decay
 
 ### Step 3: Execute Correction
 
@@ -264,7 +261,7 @@ Detect particles and link them into trajectories for dynamic analysis.
 2. **Configure Image Source**
    - Select "Original Image" or "Photobleaching Corrected"
    - Use corrected images for quantitative intensity measurements
-   - 2D projection checkbox controls Z-processing
+   - 2D projection checkbox controls Z-processing (default **on**, i.e. 3D detection is used unless you disable 2D)
 
 3. **Set Display Parameters**
    - Adjust "Min Int" and "Max Int" percentiles

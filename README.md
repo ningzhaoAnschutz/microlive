@@ -144,13 +144,16 @@ When launching Micro for the first time:
 
 -----
 
+
 ## 📁 Project Structure 
 
 ```
 microlive/
 ├── 📁 src/                                                   # Core source code
 │   ├── microscopy.py                                         # Main analysis classes and functions
-│   └── imports.py                                            # Central import management
+│   ├── imports.py                                            # Central import management
+│   ├── ML_SpotDetection.py                                   # Machine learning spot detection
+│   └── 📁 pipelines/                                         # Analysis pipeline modules
 ├── 📁 gui/                                                   # Graphical user interface
 │   ├── micro.py                                              # Main GUI application
 │   ├── micro_mac.command                                     # macOS launcher script
@@ -159,21 +162,27 @@ microlive/
 │   ├── user_guide.md                                         # Complete user manual
 │   ├── tutorial.md                                           # Step-by-step tutorials
 │   ├── api_reference.md                                      # Technical API documentation
-│   ├── gui_image.png                                         # GUI screenshot logo (PNG)
-│   ├── 📁 icons/                                             # Folder with GUI icons
-│   │   └── icon_micro                                        # Application logo (PNG, ICO, JPEG)
+│   ├── gui_image.png                                         # GUI screenshot
+│   ├── code_architecture.png                                 # Architecture diagram
+│   ├── Microlive_video_720_fast.gif                          # Demo video
+│   ├── tracking_video_fast.gif                               # Tracking demo
+│   └── 📁 icons/                                             # Application icons
+│       ├── icon_micro.png                                    # PNG icon
+│       ├── icon_micro.ico                                    # Windows icon
+│       └── icon_micro.jpeg                                   # JPEG icon
 ├── 📁 notebooks/                                             # Example Jupyter notebooks
-│   ├── converter.ipynb                                       # Notebook to convert to standard format
+│   └── converter.ipynb                                       # Format conversion notebook
 ├── 📁 modeling/                                              # Machine learning models
 │   └── 📁 machine_learning/                                  # ML-based analysis tools
 │       ├── ML_Pipeline_and_Data_Validation.ipynb             # Complete ML pipeline
-│       └── particle_detection_cnn_human_selected_data.pth    # Trained model and weights
-├── LICENSE                                                   # BSD 3-Clause License
+│       └── spot_detection_cnn.pth                            # Trained CNN model
+├── micro_env.yml                                             # Conda environment file
 ├── requirements.txt                                          # Python dependencies
+├── LICENSE                                                   # BSD 3-Clause License
 ├── .gitignore                                                # Git ignore patterns
-└── README.md                                                 # README file
+└── README.md                                                 # This file
 ```
------
+```
 
 
 ## 🎯 Quick Start Workflows

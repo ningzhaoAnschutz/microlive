@@ -151,11 +151,9 @@ Photobleaching correction compensates for the gradual loss of fluorescence inten
 
 ### Mathematical Models
 
-The photobleaching correction implements three mathematical models to characterize intensity decay:
+The photobleaching correction implements a single exponential decay model:
 
 #### 1. Single Exponential Decay
-
-The most commonly used model for photobleaching follows first-order kinetics:
 
 ```
 I(t) = I₀ × exp(-τ t) + C
@@ -327,14 +325,11 @@ When **"Use 2D Projection for Tracking"** is disabled:
 
 **2D Projection (Default)**:
 - Thin samples (≤5 μm)
-- Membrane proteins
 - High-speed imaging requirements
 - Limited computational resources
 
 **3D Tracking**:
 - Thick samples (>5 μm) 
-- Nuclear proteins
-- Clustered/aggregated proteins
 - When precise Z-localization is critical
 
 ### Cluster Detection and Analysis
