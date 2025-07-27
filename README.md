@@ -24,15 +24,19 @@
 - **File Management**: Tree view interface for managing multiple datasets simultaneously
 - **Metadata Preservation**: Comprehensive metadata handling and export
 
+### ✂️ **Segmentation**  
+- **Manual & Automated**: Draw polygonal ROIs or apply watershed segmentation with an adjustable threshold factor for cell boundaries.  
+- **Mask Overlay & Export**: Display segmented regions as overlays and export binary mask images (TIFF format).
+
 ### 🎯 **Particle Tracking**
 - **Automated Detection**: Spot detection with customizable size and intensity filtering
 - **Trajectory Linking**: Advanced linking algorithms with memory and search range controls
-- **Clustering Analysis**: Handle aggregated particles with radius and size parameters
+- **Clustering Analysis**: Handle aggregated particles by merging spots within a specified radius (in nm) and reporting cluster sizes.
 - **Quality Control**: Random spot generation for validation and trajectory length filtering
 - **Real-time Visualization**: Live tracking overlays with customizable display options
 
 ### 🔍 **Colocalization Analysis**
-- **ML-Based Detection**: Machine learning models for automated colocalization classification
+- **Machine Learning-Assisted Analysis**: Machine learning model for automated colocalization classification between channels  
 - **Intensity-Based Methods**: Signal-to-noise ratio thresholds for spot colocalization
 - **Manual Verification**: Grid-based interface for expert validation of automated results
 - **Threshold Control**: Adjustable ML confidence or SNR thresholds
@@ -42,7 +46,7 @@
 - **Distribution Analysis**: Histogram plots of particle properties (intensity, size, SNR, cluster size)
 - **Time Course Analysis**: Temporal analysis of particle metrics with percentile filtering
 - **Correlation Analysis**: Auto- and cross-correlation with linear/exponential fitting
-- **Photobleaching Correction**: Multiple model types (exponential, linear, double-exponential)
+- **Photobleaching Correction**: Model based on exponential decay
 
 ### 🎨 **Advanced Visualization**
 - **Multi-channel Display**: Individual channel selection with ImageJ-style colormaps
@@ -77,8 +81,8 @@ To install this repository and all its dependencies, we recommend using [Anacond
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/ningzhaoAnschutz/microlive.git
-cd micro
+git clone https://github.com/ningzhaoAnschutz/microlive.git  
+cd microlive 
 ```
 
 ### 2. Create Environment from YAML File
@@ -205,7 +209,6 @@ microlive/
 
 <img src="docs/tracking_visualization_fast.gif" alt="Tracking" width="600" />
 
-
 ### Correlation Analysis
 1. **Quality Tracking**: Ensure good quality particle trajectories
 2. **Select Data**: Choose field and channels for analysis
@@ -261,7 +264,7 @@ For questions about specific research applications or collaborations, please con
 If you use Micro in your research, please cite it as follows:
 
 > **Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao** *MicrLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* GitHub, 2025.  
-> [https://github.com/luisub/micro](https://github.com/ningzhaoAnschutz/microlive)  
+> [https://github.com/ningzhaoAnschutz/microlive](https://github.com/ningzhaoAnschutz/microlive) 
 > Licensed under the BSD 3-Clause License.
 
 
