@@ -186,8 +186,6 @@ microlive/
 ├── .gitignore                                                # Git ignore patterns
 └── README.md                                                 # This file
 ```
-```
-
 
 ## 🎯 Quick Start Workflows
 
