@@ -470,6 +470,10 @@ class Photobleaching:
             if len(time_array) < 2:
                 print(f"Skipping photobleaching correction for channel {ch} (not enough data points).")
                 continue
+            intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / raw_intensities[0]
+            if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
+                print(f"Photobleaching correction not necessary for channel {ch}. No correction applied.")
+                continue 
             slope, intercept = np.polyfit(time_array, log_int, 1)
             k_fit = -slope
             I0_fit = np.exp(intercept)
@@ -4636,6 +4640,21 @@ class Correlation:
                     data2 = trim_nans_from_edges(self.secondary_data[i, :]) if self.secondary_data is not None else None
                     if data2 is None:
                         data2 = data1
+                    def validate_trajectory_quality(data, min_length=20, max_nan_fraction=0.3):
+                        """Check if trajectory has sufficient quality for correlation analysis"""
+                        valid_points = np.sum(~np.isnan(data))
+                        total_points = len(data)
+                        
+                        if valid_points < min_length:
+                            return False
+                        if (total_points - valid_points) / total_points > max_nan_fraction:
+                            return False
+                        return True
+                    
+                    # Validate data quality
+                    if not validate_trajectory_quality(data1) or not validate_trajectory_quality(data2):
+                        return np.full(2 * self.max_lag + 1, np.nan)
+                    
                     # Handle NaNs according to strategy
                     if self.nan_handling == "mean":
                         mean_val1 = np.nanmean(data1) if len(data1) > 0 else 0.0
@@ -4673,7 +4692,7 @@ class Correlation:
                     # Compute raw full cross-correlation
                     raw_corr = np.correlate(cdata1, cdata2, mode="full")
                     mid = N - 1
-                    min_overlap = max(5, int(0.2 * N))
+                    min_overlap = max(5, int(0.1 * N))
                     final_corr = np.empty_like(raw_corr, dtype=np.float64)
                     for j in range(len(raw_corr)):
                         lag = j - mid
@@ -4806,7 +4825,7 @@ class Correlation:
                             end_i = min(2 * m - 1, int(self.max_lag // dt_factor), current_N - 1)
                         if start_i > end_i:
                             break
-                        min_overlap = max(5, int(0.2 * current_N))
+                        min_overlap = max(5, int(0.1 * current_N))
                         for j in range(start_i, end_i + 1):
                             overlap = current_N - j
                             if overlap < min_overlap:

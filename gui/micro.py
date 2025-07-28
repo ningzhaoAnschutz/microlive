@@ -255,11 +255,11 @@ class Plots:
         fig.tight_layout()
 
 
-    def plot_autocorrelation(self, mean_correlation, error_correlation, lags,
+    def plot_autocorrelation(self, mean_correlation, error_correlation, lags, correlations_array=None,
                             time_interval_between_frames_in_seconds=1, channel_label=0,
                             index_max_lag_for_fit=None, start_lag=0, line_color='blue',
                             plot_title=None, fit_type='linear', de_correlation_threshold=0.05,
-                            normalize_plot_with_g0=False, axes=None, max_lag_index=None,
+                            normalize_plot_with_g0=False, axes=None, max_lag_index=None, plot_individual_trajectories=False,
                             y_min_percentile=None, y_max_percentile=None):
         
         def single_exponential_decay(tau, A, tau_c, C):
@@ -278,6 +278,11 @@ class Plots:
                         normalized_correlation[start_lag:] - error_correlation[start_lag:],
                         normalized_correlation[start_lag:] + error_correlation[start_lag:],
                         color=line_color, alpha=0.1)
+        # plotting individual trajectories.
+        print(correlations_array)
+        if plot_individual_trajectories and correlations_array is not None:    
+            for i in range(correlations_array.shape[0]):
+                ax.plot(lags[start_lag:], correlations_array[i][start_lag:], '-', color='cyan', linewidth=1, alpha=0.5)
         if fit_type == 'linear':
             decorrelation_successful = False
             if index_max_lag_for_fit is None:
@@ -381,7 +386,6 @@ class Plots:
         computed_y_max = np.nanpercentile(normalized_correlation[start_lag:], y_max_percentile)
         # leave some room for computed_y_max value, use 20% more than the maximum
         computed_y_max += 0.2 * computed_y_max
-
         if not (np.isfinite(computed_y_min) and np.isfinite(computed_y_max)):
             ax.relim()            
             ax.autoscale_view()   
@@ -2034,19 +2038,144 @@ class GUI(QMainWindow):
         if idx >= 0:
             self.image_tree.takeTopLevelItem(idx)
         # If this file was currently displayed, clear the display area
+        # if hasattr(self, 'data_folder_path') and str(self.data_folder_path) == file_path:
+        #     # Clear image stack and canvas
+        #     self.image_stack = None
+        #     self.figure_display.clear()
+        #     self.canvas_display.draw()
+        #     # Clear info labels
+        #     for lbl in (self.file_label, self.frames_label, self.z_scales_label, self.y_pixels_label, self.x_pixels_label,
+        #                 self.channels_label, self.voxel_yx_size_label, self.voxel_z_nm_label, self.bit_depth_label, self.time_interval_label):
+        #         lbl.setText("")
+        #     # Clear controls
+        #     self.channelControlsTabs.clear()
+        #     self.time_slider_display.setEnabled(False)
+        #     self.play_button_display.setEnabled(False)
         if hasattr(self, 'data_folder_path') and str(self.data_folder_path) == file_path:
-            # Clear image stack and canvas
+            # Clear core data
             self.image_stack = None
-            self.figure_display.clear()
-            self.canvas_display.draw()
+            self.data_folder_path = None
+            self.df_tracking = pd.DataFrame()
+            self.has_tracked = False
+            self.detected_spots_frame = None
+            self.corrected_image = None
+            self.segmentation_mask = None
+            self.colocalization_results = None
+            self.correlation_results = []
+            self.photobleaching_calculated = False
+            
+            # Reset all tabs
+            self.reset_display_tab()
+            self.reset_segmentation_tab()
+            self.reset_photobleaching_tab()
+            self.reset_tracking_tab()
+            self.reset_distribution_tab()
+            self.reset_time_course_tab()
+            self.reset_correlation_tab()
+            self.reset_colocalization_tab()
+            self.reset_crops_tab()
+            self.reset_tracking_visualization_tab()
+            self.reset_export_comment()
+            
+            # Clear manual colocalization
+            if hasattr(self, 'manual_scroll_area'):
+                self.manual_scroll_area.setWidget(QWidget())
+            if hasattr(self, 'manual_checkboxes'):
+                self.manual_checkboxes = []
+            if hasattr(self, 'manual_mean_crop'):
+                self.manual_mean_crop = None
+            if hasattr(self, 'df_manual_colocalization'):
+                self.df_manual_colocalization = pd.DataFrame()
+            if hasattr(self, 'manual_stats_label'):
+                self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
+            
             # Clear info labels
-            for lbl in (self.file_label, self.frames_label, self.z_scales_label, self.y_pixels_label, self.x_pixels_label,
-                        self.channels_label, self.voxel_yx_size_label, self.voxel_z_nm_label, self.bit_depth_label, self.time_interval_label):
-                lbl.setText("")
-            # Clear controls
-            self.channelControlsTabs.clear()
-            self.time_slider_display.setEnabled(False)
-            self.play_button_display.setEnabled(False)
+            for lbl in (self.file_label, self.frames_label, self.z_scales_label, 
+                    self.y_pixels_label, self.x_pixels_label, self.channels_label, 
+                    self.voxel_yx_size_label, self.voxel_z_nm_label, 
+                    self.bit_depth_label, self.time_interval_label):
+                if hasattr(self, lbl.objectName()) if hasattr(lbl, 'objectName') else True:
+                    lbl.setText("")
+            
+            # Clear additional info labels if they exist
+            if hasattr(self, 'laser_lines_label'):
+                self.laser_lines_label.setText("")
+            if hasattr(self, 'intensities_label'):
+                self.intensities_label.setText("")
+            if hasattr(self, 'wave_ranges_label'):
+                self.wave_ranges_label.setText("")
+            
+            # Clear channel controls
+            if hasattr(self, 'channelControlsTabs'):
+                self.channelControlsTabs.clear()
+            
+            # Clear channel buttons
+            for btn_list in [getattr(self, 'channel_buttons_display', []),
+                            getattr(self, 'channel_buttons_tracking', []),
+                            getattr(self, 'channel_buttons_tracking_vis', []),
+                            getattr(self, 'channel_buttons_crops', []),
+                            getattr(self, 'segmentation_channel_buttons', [])]:
+                for btn in btn_list:
+                    if btn:
+                        btn.setParent(None)
+            
+            # Reset button lists
+            self.channel_buttons_display = []
+            self.channel_buttons_tracking = []
+            if hasattr(self, 'channel_buttons_tracking_vis'):
+                self.channel_buttons_tracking_vis = []
+            if hasattr(self, 'channel_buttons_crops'):
+                self.channel_buttons_crops = []
+            if hasattr(self, 'segmentation_channel_buttons'):
+                self.segmentation_channel_buttons = []
+            
+            # Clear channel checkboxes for correlation
+            if hasattr(self, 'channel_checkboxes'):
+                for cb in self.channel_checkboxes:
+                    if cb:
+                        cb.setParent(None)
+                self.channel_checkboxes = []
+            
+            # Clear combo boxes
+            if hasattr(self, 'intensity_channel_combo'):
+                self.intensity_channel_combo.clear()
+            if hasattr(self, 'time_course_channel_combo'):
+                self.time_course_channel_combo.clear()
+            if hasattr(self, 'channel_combo_box_1'):
+                self.channel_combo_box_1.clear()
+            if hasattr(self, 'channel_combo_box_2'):
+                self.channel_combo_box_2.clear()
+            
+            # Disable controls
+            if hasattr(self, 'time_slider_display'):
+                self.time_slider_display.setEnabled(False)
+                self.time_slider_display.setValue(0)
+            if hasattr(self, 'play_button_display'):
+                self.play_button_display.setEnabled(False)
+                self.play_button_display.setText("Play")
+            if hasattr(self, 'time_slider_tracking'):
+                self.time_slider_tracking.setValue(0)
+            if hasattr(self, 'time_slider_tracking_vis'):
+                self.time_slider_tracking_vis.setValue(0)
+            
+            # Stop any playing timers
+            if hasattr(self, 'playing') and self.playing:
+                self.play_pause()
+            
+            # Reset current indices
+            self.current_frame = 0
+            self.current_channel = 0
+            
+            # Clear display parameters
+            if hasattr(self, 'channelDisplayParams'):
+                self.channelDisplayParams.clear()
+            
+            # Reset tracking visualization
+            if hasattr(self, 'tracked_particles_list'):
+                self.tracked_particles_list.clear()
+            
+            # Reset variables
+            self.manual_current_image_name = None
 
     def on_tree_current_item_changed(self, current, previous):
         """
@@ -4299,7 +4428,7 @@ class GUI(QMainWindow):
         controls_layout.addWidget(max_percentile_label)
         controls_layout.addWidget(self.max_percentile_spinbox)
 
-        # **New: Show Individual Traces checkbox**
+        # Show Individual Traces checkbox
         self.show_traces_checkbox = QCheckBox("Show Individual Traces")
         self.show_traces_checkbox.setChecked(False)
         controls_layout.addWidget(self.show_traces_checkbox)
@@ -4529,7 +4658,7 @@ class GUI(QMainWindow):
                     remove_outliers=self.remove_outliers,
                     multi_tau=use_multi,
                 )
-                mean_corr, std_corr, lags, _, _ = corr.run()
+                mean_corr, std_corr, lags, correlations_array, _ = corr.run()
                 if index_max >= len(lags):
                     QMessageBox.warning(
                         self, "Max-Lag Adjusted",
@@ -4544,6 +4673,7 @@ class GUI(QMainWindow):
                     'intensity_array': data,
                     'mean_corr': mean_corr,
                     'std_corr': std_corr,
+                    'correlations_array': correlations_array,
                     'lags': lags,
                     'step_size_in_sec': step_size_in_sec,
                     'normalize_plot_with_g0': normalize_g0,
@@ -4579,6 +4709,7 @@ class GUI(QMainWindow):
                 'intensity_array2': d2,
                 'mean_corr': mean_corr,
                 'std_corr': std_corr,
+                'correlations_array': correlations_array,
                 'lags': lags,
                 'step_size_in_sec': step_size_in_sec,
                 'normalize_plot_with_g0': normalize_g0,
@@ -4723,6 +4854,7 @@ class GUI(QMainWindow):
         self.snr_threshold_for_acf.valueChanged.connect(self.update_snr_threshold_for_acf)
         right_panel_layout.addRow(QLabel("SNR Threshold for ACF:"), self.snr_threshold_for_acf)
         self.snr_threshold_for_acf_value = self.snr_threshold_for_acf.value()
+        # add a checkbox to use multi-tau
         # Normalize with G(0) checkbox
         # self.normalize_g0_checkbox = QCheckBox("")
         # self.normalize_g0_checkbox.setChecked(False)
@@ -4731,7 +4863,7 @@ class GUI(QMainWindow):
         self.correct_baseline_checkbox = QCheckBox("")
         self.correct_baseline_checkbox.setChecked(True)
         self.correct_baseline_checkbox.stateChanged.connect(self.update_correct_baseline)
-        right_panel_layout.addRow(QLabel("Baseline correction:"), self.correct_baseline_checkbox)
+        right_panel_layout.addRow(QLabel("Baseline correction:"), self.correct_baseline_checkbox)    
         # Remove outliers from correlation plot checkbox
         self.remove_outliers_checkbox = QCheckBox("")
         self.remove_outliers_checkbox.setChecked(True)
@@ -6954,6 +7086,7 @@ class GUI(QMainWindow):
                     error_correlation                  = r['std_corr'],
                     lags                               = np.array(r['lags']) , #* r['step_size_in_sec']
                     time_interval_between_frames_in_seconds = r['step_size_in_sec'],
+                    correlations_array                  = r['correlations_array'],
                     channel_label                      = r['channel'],
                     axes                               = ax,
                     fit_type                           = self.correlation_fit_type,
@@ -7086,7 +7219,7 @@ class GUI(QMainWindow):
                 fill_value=np.nan,
                 total_frames=total_frames
             )
-            # **Plot individual traces if option is enabled** 
+            # Plot individual traces if option is enabled
             if self.show_traces_checkbox.isChecked():
                 for idx in range(intensity_array.shape[0]):
                     trace = intensity_array[idx, :]
