@@ -44,7 +44,6 @@ df*
 spatio_temporal_models/
 gene_sequences/
 *.csv
-*.dna
 *particle*.png
 dev/
 human_genome/
