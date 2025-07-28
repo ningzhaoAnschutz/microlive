@@ -24,10 +24,6 @@ out-*
 masks_*
 mask_*
 tests/
-results/
-results*/
-/results/
-results*
 test*/
 test*
 filtered_images_*/
