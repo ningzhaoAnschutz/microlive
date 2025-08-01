@@ -182,7 +182,7 @@ microlive/
 │       └── spot_detection_cnn.pth                            # Trained CNN model
 ├── micro_env.yml                                             # Conda environment file
 ├── requirements.txt                                          # Python dependencies
-├── LICENSE                                                   # BSD 3-Clause License
+├── LICENSE                                                   # GPL v3 License
 ├── .gitignore                                                # Git ignore patterns
 └── README.md                                                 # This file
 ```
@@ -263,7 +263,7 @@ If you use Micro in your research, please cite it as follows:
 
 > **Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao** *MicrLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* GitHub, 2025.  
 > [https://github.com/ningzhaoAnschutz/microlive](https://github.com/ningzhaoAnschutz/microlive) 
-> Licensed under the BSD 3-Clause License.
+> Licensed under the GPL v3 License.
 
 
 
@@ -275,7 +275,7 @@ If you use Micro in your research, please cite it as follows:
   year         = {2025},
   publisher    = {GitHub},
   howpublished = {\url{https://github.com/ningzhaoAnschutz/microlive}},
-  note         = {Licensed under the BSD 3-Clause License},
+  note         = {Licensed under the GPL v3 License},
   keywords     = {microscopy, single-molecule, particle tracking, colocalization, image analysis}
 }
 ```
