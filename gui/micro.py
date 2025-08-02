@@ -1498,7 +1498,6 @@ class GUI(QMainWindow):
                 pass
         self.image_tree.expandAll()
 
-
     def on_tree_item_clicked(self, item, column):
         info = item.data(0, Qt.UserRole) or {}
         if info.get('tif'):
@@ -2039,20 +2038,7 @@ class GUI(QMainWindow):
         idx = self.image_tree.indexOfTopLevelItem(item)
         if idx >= 0:
             self.image_tree.takeTopLevelItem(idx)
-        # If this file was currently displayed, clear the display area
-        # if hasattr(self, 'data_folder_path') and str(self.data_folder_path) == file_path:
-        #     # Clear image stack and canvas
-        #     self.image_stack = None
-        #     self.figure_display.clear()
-        #     self.canvas_display.draw()
-        #     # Clear info labels
-        #     for lbl in (self.file_label, self.frames_label, self.z_scales_label, self.y_pixels_label, self.x_pixels_label,
-        #                 self.channels_label, self.voxel_yx_size_label, self.voxel_z_nm_label, self.bit_depth_label, self.time_interval_label):
-        #         lbl.setText("")
-        #     # Clear controls
-        #     self.channelControlsTabs.clear()
-        #     self.time_slider_display.setEnabled(False)
-        #     self.play_button_display.setEnabled(False)
+       
         if hasattr(self, 'data_folder_path') and str(self.data_folder_path) == file_path:
             # Clear core data
             self.image_stack = None
@@ -4133,7 +4119,6 @@ class GUI(QMainWindow):
         tracking_right_main_layout.addLayout(self.msd_layout)
 
 
-
 # =============================================================================
 # =============================================================================
 # DISTRIBUTION TAB
@@ -4293,98 +4278,7 @@ class GUI(QMainWindow):
             self.show_traces_checkbox.setEnabled(False)
         else:
             self.show_traces_checkbox.setEnabled(True)
-
-    # def setup_time_course_tab(self):
-    #     """
-    #     Initialize and configure the "Time Course" tab in the GUI.
-    #     This method sets up the layout and widgets for displaying time‐course plots
-    #     of selected imaging data. It constructs:
-    #       - A vertical main layout (`time_course_layout`) attached to `self.time_course_tab`.
-    #       - A top row of controls (`controls_layout`) including:
-    #         • Channel selection combo box (`time_course_channel_combo`).
-    #         • Data type combo box (`data_type_combo`) with options:
-    #           ["particles", "spot_int", "spot_size", "psf_amplitude",
-    #            "psf_sigma", "total_spot_int", "snr"].
-    #         • Minimum and maximum percentile spin boxes (`min_percentile_spinbox`,
-    #           `max_percentile_spinbox`) for range filtering.
-    #         • A "Plot Time Course" button (`plot_time_course_button`) that
-    #           triggers `self.plot_intensity_time_course`.
-    #       - A Matplotlib figure and axes (`figure_time_course`, `ax_time_course`)
-    #         with a black background, embedded in a `FigureCanvas`.
-    #       - A bottom horizontal layout (`bottom_layout`) containing:
-    #         • A Matplotlib navigation toolbar (`toolbar_time_course`).
-    #         • A stretch to align controls.
-    #         • An "Export Time Courses Image" button
-    #           (`export_time_course_button`) that triggers
-    #           `self.export_time_course_image`.
-    #     It also applies consistent black/white styling to the axes, ticks,
-    #     spines, labels, and grid lines, and calls `tight_layout` for proper spacing.
-    #     Returns
-    #     -------
-    #     None
-    #     """
-    #     time_course_layout = QVBoxLayout(self.time_course_tab)
-    #     # Top row of controls
-    #     controls_layout = QHBoxLayout()
-    #     time_course_layout.addLayout(controls_layout)
-    #     # Channel selection
-    #     channel_label = QLabel("Select Channel:")
-    #     self.time_course_channel_combo = QComboBox()
-    #     controls_layout.addWidget(channel_label)
-    #     controls_layout.addWidget(self.time_course_channel_combo)
-    #     # Data type selection
-    #     data_type_label = QLabel("Data Type:")
-    #     self.data_type_combo = QComboBox()
-    #     self.data_type_combo.addItems(["particles", "spot_int", "spot_size", "psf_amplitude", "psf_sigma", "total_spot_int", "snr"])
-    #     controls_layout.addWidget(data_type_label)
-    #     controls_layout.addWidget(self.data_type_combo)
-    #     # Percentile controls
-    #     min_percentile_label = QLabel("Min Percentile:")
-    #     self.min_percentile_spinbox = QDoubleSpinBox()
-    #     self.min_percentile_spinbox.setRange(0.0, 50.0)
-    #     self.min_percentile_spinbox.setValue(5.0)
-    #     self.min_percentile_spinbox.setSuffix("%")
-    #     controls_layout.addWidget(min_percentile_label)
-    #     controls_layout.addWidget(self.min_percentile_spinbox)
-    #     max_percentile_label = QLabel("Max Percentile:")
-    #     self.max_percentile_spinbox = QDoubleSpinBox()
-    #     self.max_percentile_spinbox.setRange(50.0, 100.0)
-    #     self.max_percentile_spinbox.setValue(95.0)
-    #     self.max_percentile_spinbox.setSuffix("%")
-    #     controls_layout.addWidget(max_percentile_label)
-    #     controls_layout.addWidget(self.max_percentile_spinbox)
-    #     # Plot button
-    #     self.plot_time_course_button = QPushButton("Plot Time Course", self)
-    #     self.plot_time_course_button.clicked.connect(self.plot_intensity_time_course)
-    #     controls_layout.addWidget(self.plot_time_course_button)
-    #     # Main figure for time courses
-    #     self.figure_time_course, self.ax_time_course = plt.subplots(figsize=(8, 10))
-    #     self.figure_time_course.patch.set_facecolor('black')
-    #     self.canvas_time_course = FigureCanvas(self.figure_time_course)
-    #     time_course_layout.addWidget(self.canvas_time_course)
-    #     # Navigation toolbar + export button at bottom
-    #     bottom_layout = QHBoxLayout()
-    #     self.toolbar_time_course = NavigationToolbar(self.canvas_time_course, self)
-    #     bottom_layout.addWidget(self.toolbar_time_course)
-    #     # Spacer to push the button to right
-    #     bottom_layout.addStretch()
-    #     # Export button
-    #     self.export_time_course_button = QPushButton("Export Time Courses Image", self)
-    #     self.export_time_course_button.clicked.connect(self.export_time_course_image)
-    #     bottom_layout.addWidget(self.export_time_course_button)
-    #     time_course_layout.addLayout(bottom_layout)
-    #     # Set up axis appearance
-    #     self.ax_time_course.set_facecolor('black')
-    #     self.ax_time_course.tick_params(colors='white', which='both')
-    #     self.ax_time_course.spines['bottom'].set_color('white')
-    #     self.ax_time_course.spines['top'].set_color('white')
-    #     self.ax_time_course.spines['left'].set_color('white')
-    #     self.ax_time_course.spines['right'].set_color('white')
-    #     self.ax_time_course.xaxis.label.set_color('white')
-    #     self.ax_time_course.yaxis.label.set_color('white')
-    #     self.ax_time_course.title.set_color('white')
-    #     self.ax_time_course.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-    #     self.figure_time_course.tight_layout()
+    
 
     def setup_time_course_tab(self):
         """
@@ -4615,9 +4509,6 @@ class GUI(QMainWindow):
                     QMessageBox.warning(self, "Correlation Error", str(e))
                     return
                 # compute mean SNR per trajectory, then filter
-                #mean_snr = np.nanmean(arr_snr, axis=1)
-                #valid_idx = np.where(mean_snr >= threshold)[0]
-                #intensity_arrays[ch] = arr_int[valid_idx]
                 mean_snr = np.nanmean(arr_snr, axis=1)
                 valid_idx = np.where(mean_snr >= threshold)[0]
                 valid_idx = np.array(valid_idx, dtype=int)
@@ -5896,7 +5787,6 @@ class GUI(QMainWindow):
                             print(f"Error exporting random spots data: {e}")
                     else:
                         print("No random spots data to export.")
-
         QMessageBox.information(
             self,
             "Export Complete",
@@ -6324,20 +6214,10 @@ class GUI(QMainWindow):
         )
         if not file_path:
             return
-        # Parse ignore-frames list from the line edit
-        #ignore_text = self.ignore_frames_line_edit.text()
-        #ignore_frames = []
-        # if ignore_text:
-        #     try:
-        #         ignore_frames = [int(x.strip()) for x in ignore_text.split(",") if x.strip().isdigit()]
-        #     except Exception:
-        #         QMessageBox.warning(self, "Input Error", "Invalid ignore frames format. Please provide comma-separated integers.")
-        #         return
+
         frames = []
         total_frames = self.image_stack.shape[0]
         for i in range(total_frames):
-            # if i in ignore_frames:
-            #     continue
             # Update the current frame and let plot_image() redraw everything (colormaps, segmentation overlay, etc.)
             self.current_frame = i
             self.plot_image()
