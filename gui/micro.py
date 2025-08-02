@@ -1492,10 +1492,12 @@ class GUI(QMainWindow):
             first_path = file_paths[0]
             first_item = self.image_tree.topLevelItem(0)
             self.image_tree.setCurrentItem(first_item)
-            # if first_path.lower().endswith('.lif'):
-            #     self.load_lif_image(first_path, 0)
-            # else:
-            #     self.load_tif_image(first_path)
+            if first_path.lower().endswith('.lif'):
+                self.load_lif_image(first_path, 0)
+            else:
+                pass
+        self.image_tree.expandAll()
+
 
     def on_tree_item_clicked(self, item, column):
         info = item.data(0, Qt.UserRole) or {}
