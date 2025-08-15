@@ -4388,7 +4388,10 @@ class Correlation:
         plot_individual_trajectories=False,
         y_axes_min_max_list_values=None,
         x_axes_min_max_list_values=None,
-        multi_tau=False
+        multi_tau=False,
+        multi_tau_raw_points: int = 20,
+        multi_tau_bins_per_stage: int = 8, 
+
     ):
         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
             """
@@ -4463,6 +4466,8 @@ class Correlation:
         self.y_axes_min_max_list_values = y_axes_min_max_list_values
         self.x_axes_min_max_list_values = x_axes_min_max_list_values
         self.multi_tau = multi_tau
+        self.multi_tau_raw_points = multi_tau_raw_points
+        self.multi_tau_bins_per_stage = multi_tau_bins_per_stage
 
     def run(self):
         """
@@ -4609,32 +4614,54 @@ class Correlation:
             )
         else:
             # Multi-tau correlation for each sample (positive lags, non-uniform spacing)
-            # Set parameter m (channels per stage after initial). m=8 gives 16 initial points, then groups of 8.
-            m = 8
+            # Use multi_tau_raw_points for the initial high-resolution stage (not binned)
+            # Then use multi_tau_bins_per_stage for subsequent stages
             N0 = self.primary_data.shape[1]
             global_lags_idx = []
             current_length = N0
             dt_factor = 1
             stage = 0
+            
             while True:
                 if stage == 0:
+                    # First stage: use raw points (high resolution, no binning)
                     start_i = 0
-                    end_i = min(2 * m - 1, self.max_lag, current_length - 1)
+                    end_i = min(self.multi_tau_raw_points - 1, self.max_lag, current_length - 1)
                 else:
-                    start_i = m
-                    end_i = min(2 * m - 1, int(self.max_lag // dt_factor), current_length - 1)
+                    # Subsequent stages: use bins_per_stage parameter
+                    start_i = self.multi_tau_bins_per_stage // 2  # Overlap for smooth transition
+                    end_i = min(self.multi_tau_bins_per_stage + start_i - 1, 
+                               int(self.max_lag // dt_factor), current_length - 1)
+                
                 if start_i > end_i:
                     break
+                    
                 for i_val in range(start_i, end_i + 1):
-                    global_lags_idx.append(i_val * dt_factor)
-                if end_i < 2 * m - 1 or (end_i * dt_factor) >= self.max_lag or current_length < 2:
-                    break
+                    lag_val = i_val * dt_factor
+                    if lag_val <= self.max_lag:
+                        global_lags_idx.append(lag_val)
+                
+                # Check termination conditions
+                if stage == 0:
+                    # After raw points stage, check if we need to continue
+                    if end_i >= self.multi_tau_raw_points - 1 or end_i * dt_factor >= self.max_lag:
+                        if current_length < 4:  # Need minimum points for binning
+                            break
+                else:
+                    # For binned stages
+                    if end_i < self.multi_tau_bins_per_stage + start_i - 1 or \
+                       (end_i * dt_factor) >= self.max_lag or current_length < 2:
+                        break
+                
+                # Prepare for next stage (downsample by factor of 2)
                 new_length = current_length // 2
-                if new_length < 1:
+                if new_length < 2:
                     break
+                    
                 current_length = new_length
                 dt_factor *= 2
                 stage += 1
+                
             global_lags_idx = sorted(set(global_lags_idx))
             global_lags_idx = np.array(global_lags_idx, dtype=int)
             idx_map = {lag: idx for idx, lag in enumerate(global_lags_idx)}
@@ -4693,13 +4720,18 @@ class Correlation:
                     stage = 0
                     while True:
                         if stage == 0:
+                            # First stage: use raw points (high resolution, no binning)
                             start_i = 0
-                            end_i = min(2 * m - 1, self.max_lag, current_N - 1)
+                            end_i = min(self.multi_tau_raw_points - 1, self.max_lag, current_N - 1)
                         else:
-                            start_i = m
-                            end_i = min(2 * m - 1, int(self.max_lag // dt_factor), current_N - 1)
+                            # Subsequent stages: use bins_per_stage parameter
+                            start_i = self.multi_tau_bins_per_stage // 2  # Overlap for smooth transition
+                            end_i = min(self.multi_tau_bins_per_stage + start_i - 1, 
+                                       int(self.max_lag // dt_factor), current_N - 1)
+                        
                         if start_i > end_i:
                             break
+                            
                         MIN_OVERLAP_MULTI_TAU = 5 # this defines the minimum overlap of frames to calculate the correlation.
                         for j in range(start_i, end_i + 1):
                             overlap = current_N - j
@@ -4716,8 +4748,19 @@ class Correlation:
                             lag_index = j * dt_factor
                             if lag_index in idx_map:
                                 output_corr[idx_map[lag_index]] = corr_val
-                        if end_i < 2 * m - 1 or (end_i * dt_factor) >= self.max_lag or current_N < 2:
-                            break
+                        
+                        # Check termination conditions
+                        if stage == 0:
+                            # After raw points stage, check if we need to continue
+                            if end_i >= self.multi_tau_raw_points - 1 or end_i * dt_factor >= self.max_lag:
+                                if current_N < 4:  # Need minimum points for binning
+                                    break
+                        else:
+                            # For binned stages
+                            if end_i < self.multi_tau_bins_per_stage + start_i - 1 or \
+                               (end_i * dt_factor) >= self.max_lag or current_N < 2:
+                                break
+                        
                         new_length = current_N // 2
                         if new_length < 1:
                             break
