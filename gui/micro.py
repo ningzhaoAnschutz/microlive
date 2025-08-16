@@ -795,7 +795,7 @@ class GUI(QMainWindow):
         self.df_random_spots = pd.DataFrame()
         self.min_percentage_data_in_trajectory = 0.3
         self.use_maximum_projection = True
-        self.photobleaching_mode = 'inside_cell'
+        self.photobleaching_mode = 'entire_image'
         self.photobleaching_radius = 30
         self.corrected_image = None
         self.colocalization_results = None
@@ -1414,6 +1414,13 @@ class GUI(QMainWindow):
 # =============================================================================
 # =============================================================================
 
+    def set_display_controls_enabled(self, enabled: bool) -> None:
+        """Enable/disable the Display tab’s time slider and Play button."""
+        if hasattr(self, 'time_slider_display') and self.time_slider_display is not None:
+            self.time_slider_display.setEnabled(enabled)
+        if hasattr(self, 'play_button_display') and self.play_button_display is not None:
+            self.play_button_display.setEnabled(enabled)
+
     def convert_to_standard_format(self, image_stack):
         """
         Convert the loaded image_stack to standard 5D format [T, Z, Y, X, C].
@@ -1697,6 +1704,11 @@ class GUI(QMainWindow):
         self.current_channel = 0
         self.time_slider_display.setMaximum(T - 1)
         self.time_slider_display.setValue(0)
+        
+        self.set_display_controls_enabled(True)
+        self.playing = False
+        self.play_button_display.setText("Play")
+
         self.time_slider_tracking.setMaximum(T - 1)
         self.time_slider_tracking.setValue(0)
         self.time_slider_tracking_vis.setMaximum(T - 1)
@@ -1819,6 +1831,11 @@ class GUI(QMainWindow):
             self.max_lag_input.setValue(self.max_lag - 1)
         self.time_slider_display.setMaximum(T - 1)
         self.time_slider_display.setValue(0)
+
+        self.set_display_controls_enabled(True)
+        self.playing = False
+        self.play_button_display.setText("Play")
+
         self.time_slider_tracking.setMaximum(T - 1)
         self.time_slider_tracking.setValue(0)
         self.time_slider_tracking_vis.setMaximum(T - 1)
@@ -1856,7 +1873,6 @@ class GUI(QMainWindow):
         if self.playing:
             self.play_pause() 
         self.current_frame = 0
-        
         self.plot_image()
         self.plot_tracking()
 
@@ -4101,7 +4117,7 @@ class GUI(QMainWindow):
         self.random_points_input.setValue(20)
         # Create checkbox to enable random spot generation
         generate_random_points_checkbox = QCheckBox("Generate Random Spots")
-        generate_random_points_checkbox.setChecked(False)
+        generate_random_points_checkbox.setChecked(True)
         generate_random_points_checkbox.stateChanged.connect(self.generate_random_spots)
         # Create horizontal layout for checkbox and spin box
         hbox = QHBoxLayout()
@@ -4838,20 +4854,48 @@ class GUI(QMainWindow):
             self.channel_combo_box_2.setCurrentIndex(0)
         self.compute_colocalization_button.setEnabled(len(self.channel_names) >= 2)
 
+    # def compute_colocalization(self):
+    #     """Perform colocalization analysis and display results."""
+    #     if not getattr(self, 'has_tracked', False) and self.df_tracking.empty:
+    #         QMessageBox.warning(self, "Colocalization Error", "Please run 'All frames' detection and complete tracking before colocalization.")
+    #         return
+    #     ch1 = self.channel_combo_box_1.currentIndex()
+    #     ch2 = self.channel_combo_box_2.currentIndex()
+    #     if ch1 == ch2:
+    #         QMessageBox.warning(self, "Invalid Selection", "Select two different channels.")
+    #         return
+    #     image = self.corrected_image if self.corrected_image is not None else self.image_stack
+    #     if image is None:
+    #         QMessageBox.warning(self, "No Image Data", "Please load and process an image first.")
+    #         return
+        
     def compute_colocalization(self):
         """Perform colocalization analysis and display results."""
-        if not getattr(self, 'has_tracked', False) and self.df_tracking.empty:
-            QMessageBox.warning(self, "Colocalization Error", "Please run 'All frames' detection and complete tracking before colocalization.")
+        invoked_by_run = (
+            hasattr(self, 'compute_colocalization_button')
+            and self.sender() is not None
+            and self.sender() == self.compute_colocalization_button
+        )
+        # Require tracking results
+        if (not getattr(self, 'has_tracked', False)) and self.df_tracking.empty:
+            if invoked_by_run:
+                QMessageBox.warning(self, "Colocalization Error",
+                                    "Please complete all frames' detection and complete tracking before colocalization.")
             return
+        # Require two distinct channels for colocalization
         ch1 = self.channel_combo_box_1.currentIndex()
         ch2 = self.channel_combo_box_2.currentIndex()
         if ch1 == ch2:
-            QMessageBox.warning(self, "Invalid Selection", "Select two different channels.")
+            if invoked_by_run:
+                QMessageBox.warning(self, "Invalid Selection", "Select two different channels.")
             return
+        # Require image data
         image = self.corrected_image if self.corrected_image is not None else self.image_stack
         if image is None:
-            QMessageBox.warning(self, "No Image Data", "Please load and process an image first.")
+            if invoked_by_run:
+                QMessageBox.warning(self, "No Image Data", "Please load and process an image first.")
             return
+        
         if self.use_maximum_projection:
             num_z = image.shape[1]
             max_proj = np.max(image, axis=1, keepdims=True)
@@ -4859,7 +4903,7 @@ class GUI(QMainWindow):
         crop_size = int(self.yx_spot_size_in_px) + 5
         if crop_size % 2 == 0:
             crop_size += 1
-        croparray, mean_crop, _, crop_size = mi.CropArray(
+        _, mean_crop, _, crop_size = mi.CropArray(
             image=image,
             df_crops=self.df_tracking,
             crop_size=crop_size,

@@ -4,13 +4,11 @@ PyQt5_sip>=12.14
 fastremap~=1.14.0
 numpy~=1.26.4
 numba==0.61.2
-pysmb~= 1.2.9.1
 joblib~=1.4.2
 tqdm>=4.66.4
 tifffile==2025.6.11
 ipykernel~=6.29.4
 scikit-image~=0.23.2
-fpdf==1.7.2
 seaborn==0.13.2
 PyYAML>=6.0.1
 matplotlib-scalebar==0.8.1

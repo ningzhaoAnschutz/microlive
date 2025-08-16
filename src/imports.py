@@ -62,7 +62,6 @@ from scipy.optimize import curve_fit
 from scipy.stats import linregress, pearsonr, gaussian_kde, mannwhitneyu,ttest_ind
 from statsmodels.stats.multitest import multipletests
 from snapgene_reader import snapgene_file_to_dict, snapgene_file_to_seqrecord
-from fpdf import FPDF
 from IPython.display import Image as IPImage, display
 import ipywidgets as widgets
 import imageio
