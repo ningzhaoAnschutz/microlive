@@ -808,7 +808,7 @@ class GUI(QMainWindow):
         self.rect_zoom = None
         self.zoom_layout = QVBoxLayout()
         self.channelDisplayParams = {}
-        self.random_mode_enabled = False
+        self.random_mode_enabled = True
         self.segmentation_mask = None
         self.total_frames = 0
         self.tracking_remove_background_checkbox = False
@@ -3775,7 +3775,7 @@ class GUI(QMainWindow):
                 link_particles=True,
                 generate_random_particles=True,
                 number_of_random_particles_trajectories=self.random_points_input.value(),
-                step_size_in_sec=self(self.time_interval_value),
+                step_size_in_sec=float(self.time_interval_value),
             )
             random_df_list, _ = random_tracking.run()
             self.df_random_spots = random_df_list[0] if random_df_list else pd.DataFrame()
