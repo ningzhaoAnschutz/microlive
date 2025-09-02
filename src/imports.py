@@ -22,6 +22,7 @@ from numba import njit, types
 from numba.typed import List as TypedList
 import cv2
 import io
+import fpdf
 
 # Import third-party libraries
 import shutil

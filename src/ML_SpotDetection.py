@@ -70,28 +70,58 @@ def normalize_crop(crop):
     crop= ((crop - np.min(crop)) / (np.max(crop) - np.min(crop))) #* 255
     return crop
 
-def predict_crops(model, list_crops,threshold=0.5):
+# def predict_crops(model, list_crops,threshold=0.5):
+#     model.eval()
+#     if torch.cuda.is_available():
+#         device = torch.device('cuda')
+#     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+#         device = torch.device('mps')
+#     else:
+#         device = torch.device('cpu')
+#     model.to(device)
+#     flag_vector = []
+#     ml_prediction_value = []
+#     for crop in list_crops:
+#         # normalize the original image from 255 to 0-1
+#         crop = np.array(Image.fromarray(crop).resize((RESHAPE_IMAGE_SIZE, RESHAPE_IMAGE_SIZE))).astype(np.float32)  / 255.0
+#         crop_tensor = torch.tensor(crop).unsqueeze(0).unsqueeze(0).to(device)  # Move input to the same device as the model
+#         with torch.no_grad():  # Disable gradient computation
+#             output = model(crop_tensor)
+#             # ml threshold 
+#             ml_prediction_value = torch.sigmoid(output).float().item() 
+#             prediction = (torch.sigmoid(output) > threshold).float().item()  # Convert output to label (0 or 1)
+#         flag_vector.append(int(prediction))
+#         ml_prediction_value.append(ml_prediction_value)
+#     return np.array(flag_vector), np.array(ml_prediction_value)
+
+def predict_crops(model, list_crops, threshold=0.5):
     model.eval()
-    #device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
-    #model.to(device)
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         device = torch.device('mps')
     else:
         device = torch.device('cpu')
-    
     model.to(device)
+    
     flag_vector = []
+    ml_prediction_values = []  # Changed name to be clearer it's a list
+    
     for crop in list_crops:
         # normalize the original image from 255 to 0-1
-        crop = np.array(Image.fromarray(crop).resize((RESHAPE_IMAGE_SIZE, RESHAPE_IMAGE_SIZE))).astype(np.float32)  / 255.0
+        crop = np.array(Image.fromarray(crop).resize((RESHAPE_IMAGE_SIZE, RESHAPE_IMAGE_SIZE))).astype(np.float32) / 255.0
         crop_tensor = torch.tensor(crop).unsqueeze(0).unsqueeze(0).to(device)  # Move input to the same device as the model
+        
         with torch.no_grad():  # Disable gradient computation
             output = model(crop_tensor)
-            prediction = (torch.sigmoid(output) > threshold).float().item()  # Convert output to label (0 or 1)
+            # Get sigmoid probability value
+            sigmoid_value = torch.sigmoid(output).float().item() 
+            prediction = (sigmoid_value > threshold)  # Use the sigmoid_value directly
+            
         flag_vector.append(int(prediction))
-    return np.array(flag_vector)
+        ml_prediction_values.append(sigmoid_value)  # Append the sigmoid value to the list
+    
+    return np.array(flag_vector), np.array(ml_prediction_values)
 
 def save_model(model, path='particle_detection_model.pth'):
     torch.save(model.state_dict(), path)

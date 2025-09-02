@@ -4921,23 +4921,33 @@ class GUI(QMainWindow):
                 selected_color_channel=ch2,
                 normalize_to_255=True
             )
-            flag_vector = ML.predict_crops(model_ML, crops_norm, threshold=threshold)
+            flag_vector, prediction_values_vector = ML.predict_crops(model_ML, crops_norm, threshold=threshold)
         else:
             threshold = self.snr_threshold_input.value()
             method_used = "Intensity"
             num_crops = mean_crop.shape[0] // crop_size
-            flag_vector = np.array([mi.Utilities().is_spot_in_crop(
-                i, crop_size=crop_size, selected_color_channel=ch2,
-                array_crops_YXC=mean_crop,
-                show_plot=False,
-                snr_threshold=threshold)
-                for i in range(num_crops)])
+            # flag_vector, snr_values = np.array([mi.Utilities().is_spot_in_crop(
+            #     i, crop_size=crop_size, selected_color_channel=ch2,
+            #     array_crops_YXC=mean_crop,
+            #     show_plot=False,
+            #     snr_threshold=threshold)
+            #     for i in range(num_crops)])
+            results_snr = [mi.Utilities().is_spot_in_crop(
+                        i, crop_size=crop_size, selected_color_channel=ch2,
+                        array_crops_YXC=mean_crop,
+                        show_plot=False,
+                        snr_threshold=threshold)
+                        for i in range(num_crops)]
+            flag_vector, prediction_values_vector = zip(*results_snr)
+            flag_vector = np.array(flag_vector)
+            prediction_values_vector = np.array(prediction_values_vector)
         colocal_perc = 0 if len(flag_vector) == 0 else (np.sum(flag_vector) / len(flag_vector)) * 100
         self.colocalization_percentage_label.setText(f"Colocalization Percentage: {colocal_perc:.2f}%")
         self.colocalization_results = {
             'mean_crop_filtered': mean_crop,
             'crop_size': crop_size,
             'flag_vector': flag_vector,
+            'prediction_values_vector': prediction_values_vector,
             'ch1_index': ch1,
             'ch2_index': ch2,
             'num_spots_reference': len(flag_vector),
@@ -5327,6 +5337,77 @@ class GUI(QMainWindow):
             self.on_colocalization_hover
         )
 
+    def sort_manual_colocalization(self):
+        """Sort the manual colocalization results by prediction metric (lowest to highest) and refresh the display."""
+        if not hasattr(self, 'manual_checkboxes') or len(self.manual_checkboxes) == 0:
+            return  # Only proceed if manual data is loaded
+
+        values = self.colocalization_results.get('prediction_values_vector') if hasattr(self, 'colocalization_results') else None
+        if values is None:
+            return  # No values to sort by
+
+        sorted_idx = np.argsort(np.array(values))  # sort indices from lowest to highest prediction value
+
+        # Preserve current checked states (if none checked yet, use initial prediction flags)
+        current_flags = [chk.isChecked() for chk in self.manual_checkboxes]
+        if any(current_flags):
+            sorted_flags = [current_flags[i] for i in sorted_idx]
+        else:
+            pred_flags = self.colocalization_results.get('flag_vector', [])
+            sorted_flags = [bool(pred_flags[i]) for i in sorted_idx]
+
+        mean_crop = getattr(self, 'manual_mean_crop', None)
+        crop_size = getattr(self, 'manual_crop_size', None)
+        if mean_crop is None or crop_size is None:
+            return
+
+        num_spots = len(self.manual_checkboxes)
+        # Rebuild the scroll area content in sorted order
+        self.manual_scroll_area.takeWidget()
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(3)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        new_checkboxes = []
+        scale_factor = getattr(self, 'coloc_thumbnail_scale', 4)
+
+        for rank, orig_idx in enumerate(sorted_idx.tolist()):
+            spot_layout = QHBoxLayout()
+            spot_layout.setSpacing(1)
+            spot_layout.setContentsMargins(0, 0, 0, 0)
+            crop_block = mean_crop[orig_idx * crop_size : (orig_idx + 1) * crop_size, :, :]
+            channels = crop_block.shape[-1]
+            for ch in range(channels):
+                channel_crop = crop_block[:, :, ch]
+                cmin, cmax = np.nanmin(channel_crop), np.nanmax(channel_crop)
+                if cmax > cmin:
+                    norm = ((channel_crop - cmin) / (cmax - cmin) * 255).astype(np.uint8)
+                else:
+                    norm = np.zeros_like(channel_crop, np.uint8)
+                h, w = norm.shape
+                qimg = QImage(norm.data, w, h, w, QImage.Format_Grayscale8).copy()
+                pix = QPixmap.fromImage(qimg)
+                pix = pix.scaled(w * scale_factor, h * scale_factor, Qt.IgnoreAspectRatio, Qt.FastTransformation)
+                lbl = QLabel()
+                lbl.setPixmap(pix)
+                spot_layout.addWidget(lbl)
+            chk = QCheckBox(f"Spot {rank+1}")
+            chk.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            chk.setChecked(bool(sorted_flags[rank]))
+            chk.toggled.connect(self.update_manual_stats_label)
+            spot_layout.addWidget(chk)
+            new_checkboxes.append(chk)
+            container_layout.addLayout(spot_layout)
+            if rank < num_spots - 1:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.HLine)
+                sep.setFrameShadow(QFrame.Sunken)
+                container_layout.addWidget(sep)
+
+        self.manual_checkboxes = new_checkboxes
+        self.manual_scroll_area.setWidget(container)
+        self.update_manual_stats_label()
+
 
     def setup_colocalization_manual_tab(self):
         manual_layout = QVBoxLayout()
@@ -5339,6 +5420,11 @@ class GUI(QMainWindow):
         self.populate_manual_coloc_button = QPushButton("Populate")
         self.populate_manual_coloc_button.clicked.connect(self.populate_manual_checkboxes)
         top_bar.addWidget(self.populate_manual_coloc_button)
+        
+        self.sort_manual_coloc_button = QPushButton("Sort")
+        self.sort_manual_coloc_button.clicked.connect(self.sort_manual_colocalization)
+        top_bar.addWidget(self.sort_manual_coloc_button)
+        
         self.cleanup_manual_coloc_button = QPushButton("Cleanup")
         self.cleanup_manual_coloc_button.clicked.connect(self.cleanup_manual_colocalization)
         top_bar.addWidget(self.cleanup_manual_coloc_button)

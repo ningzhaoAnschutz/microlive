@@ -6832,7 +6832,7 @@ class Utilities():
             plt.title("Detected Blobs")
             plt.show()
         
-        return detected_spot
+        return detected_spot, snr
 
         
 
