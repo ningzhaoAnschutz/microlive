@@ -1,8 +1,8 @@
+numpy~=1.26.4
 PyQt5>=5.15
 PyQt5-Qt5>=5.14
 PyQt5_sip>=12.14
 fastremap~=1.14.0
-numpy~=1.26.4
 numba==0.61.2
 joblib~=1.4.2
 tqdm>=4.66.4
