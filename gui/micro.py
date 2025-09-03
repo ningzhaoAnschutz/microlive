@@ -4943,6 +4943,14 @@ class GUI(QMainWindow):
             prediction_values_vector = np.array(prediction_values_vector)
         colocal_perc = 0 if len(flag_vector) == 0 else (np.sum(flag_vector) / len(flag_vector)) * 100
         self.colocalization_percentage_label.setText(f"Colocalization Percentage: {colocal_perc:.2f}%")
+        
+        # Clear manual colocalization UI so new results can load
+        self.manual_scroll_area.setWidget(QWidget())
+        self.manual_checkboxes = []
+        self.manual_mean_crop = None
+        self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
+        self.manual_current_image_name = None
+
         self.colocalization_results = {
             'mean_crop_filtered': mean_crop,
             'crop_size': crop_size,
