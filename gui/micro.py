@@ -4420,7 +4420,8 @@ class GUI(QMainWindow):
         self.min_percentage_data_in_trajectory = value
 
     def update_de_correlation_threshold(self, value):
-        self.de_correlation_threshold = value
+        #self.de_correlation_threshold = value
+        self.de_correlation_threshold = max(value, 0.0)
 
     def update_max_lag(self, value):
         self.max_lag = value
@@ -4609,7 +4610,16 @@ class GUI(QMainWindow):
                 fit_type=self.correlation_fit_type,
                 remove_outliers=self.remove_outliers,
             )
-            mean_corr, std_corr, lags, _, _ = corr.run()
+            mean_corr, std_corr, lags, correlations_array, _ = corr.run()
+            if index_max >= len(lags):
+                QMessageBox.warning(
+                    self, "Max-Lag Adjusted",
+                    f"Requested lag {index_max} exceeds available {len(lags)-1} "
+                    f"for {'multi-tau' if use_multi else 'linear'} mode.\n"
+                    f"Using {len(lags)-1} instead."
+                )
+                index_max = len(lags) - 1
+                self.index_max_lag_for_fit_input.setValue(index_max)
             self.correlation_results.append({
                 'type': 'crosscorrelation',
                 'channel1': ch1,
