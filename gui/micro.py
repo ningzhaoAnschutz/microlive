@@ -4505,12 +4505,51 @@ class GUI(QMainWindow):
                 QMessageBox.warning(self, "Correlation Error", str(e))
                 return
             intensity_arrays[ch] = arr
+        # threshold = getattr(self, 'snr_threshold_for_acf_value', 0)
+        # if threshold > 0:
+        #     for ch, arr_int in list(intensity_arrays.items()):
+        #         col = f'snr_ch_{ch}'
+        #         if col not in self.df_tracking.columns:
+        #             continue
+        #         arr_snr = mi.Utilities().df_trajectories_to_array(
+        #             dataframe=self.df_tracking,
+        #             selected_field=col,
+        #             fill_value=np.nan,
+        #             total_frames=self.total_frames
+        #         )
+        #         try:
+        #             arr_snr = mi.Utilities().shift_trajectories(
+        #                 arr_snr,
+        #                 min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
+        #             )
+        #         except ValueError as e:
+        #             QMessageBox.warning(self, "Correlation Error", str(e))
+        #             return
+        #         # compute mean SNR per trajectory, then filter
+        #         mean_snr = np.nanmean(arr_snr, axis=1)
+        #         valid_idx = np.where(mean_snr >= threshold)[0]
+        #         valid_idx = np.array(valid_idx, dtype=int)
+        #         if valid_idx.size > 0:
+        #             arr_len = arr_int.shape[0]
+        #             invalid = valid_idx[(valid_idx < 0) | (valid_idx >= arr_len)]
+        #             if invalid.size > 0:
+        #                 bad = int(invalid[0])
+        #                 raise IndexError(
+        #                     f"Index {bad} out of bounds for intensity array "
+        #                     f"of length {arr_len} (channel {ch}). "
+        #                     "Please adjust your SNR threshold or data filtering."
+        #                 )
+        #         intensity_arrays[ch] = arr_int[valid_idx]
         threshold = getattr(self, 'snr_threshold_for_acf_value', 0)
         if threshold > 0:
+            new_intensity_arrays = {}
             for ch, arr_int in list(intensity_arrays.items()):
                 col = f'snr_ch_{ch}'
                 if col not in self.df_tracking.columns:
+                    # No SNR column for this channel—keep as-is
+                    new_intensity_arrays[ch] = arr_int
                     continue
+                # Build SNR trajectories
                 arr_snr = mi.Utilities().df_trajectories_to_array(
                     dataframe=self.df_tracking,
                     selected_field=col,
@@ -4518,28 +4557,29 @@ class GUI(QMainWindow):
                     total_frames=self.total_frames
                 )
                 try:
-                    arr_snr = mi.Utilities().shift_trajectories(
-                        arr_snr,
+                    # VERY IMPORTANT: align intensity & SNR with the SAME mask/trim
+                    arr_int_aligned, arr_snr_aligned = mi.Utilities().shift_trajectories(
+                        arr_int, arr_snr,
                         min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
                     )
                 except ValueError as e:
                     QMessageBox.warning(self, "Correlation Error", str(e))
                     return
-                # compute mean SNR per trajectory, then filter
-                mean_snr = np.nanmean(arr_snr, axis=1)
-                valid_idx = np.where(mean_snr >= threshold)[0]
-                valid_idx = np.array(valid_idx, dtype=int)
-                if valid_idx.size > 0:
-                    arr_len = arr_int.shape[0]
-                    invalid = valid_idx[(valid_idx < 0) | (valid_idx >= arr_len)]
-                    if invalid.size > 0:
-                        bad = int(invalid[0])
-                        raise IndexError(
-                            f"Index {bad} out of bounds for intensity array "
-                            f"of length {arr_len} (channel {ch}). "
-                            "Please adjust your SNR threshold or data filtering."
-                        )
-                intensity_arrays[ch] = arr_int[valid_idx]
+                # Mean SNR per trajectory → keep the good ones
+                mean_snr = np.nanmean(arr_snr_aligned, axis=1)
+                valid_idx = np.flatnonzero(mean_snr >= float(threshold)).astype(int)
+                if valid_idx.size == 0:
+                    print(f"No trajectories passed SNR ≥ {threshold} in channel {ch}.")
+                    # Option: skip this channel entirely
+                    continue
+                # Defensive clipping in case anything drifted
+                n_traj = arr_int_aligned.shape[0]
+                valid_idx = valid_idx[(valid_idx >= 0) & (valid_idx < n_traj)]
+                if valid_idx.size == 0:
+                    print(f"After alignment, no valid indices remain for channel {ch}.")
+                    continue
+                new_intensity_arrays[ch] = arr_int_aligned[valid_idx]
+            intensity_arrays = new_intensity_arrays
 
         step_size_in_sec = (float(self.list_time_intervals[self.selected_image_index])
                             if getattr(self, 'list_time_intervals', None) else 1.0)
