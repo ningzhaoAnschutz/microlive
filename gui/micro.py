@@ -4549,36 +4549,57 @@ class GUI(QMainWindow):
                     # No SNR column for this channel—keep as-is
                     new_intensity_arrays[ch] = arr_int
                     continue
-                # Build SNR trajectories
-                arr_snr = mi.Utilities().df_trajectories_to_array(
+                # Build intensity & SNR using the SAME particle intersection & order
+                arr_int_raw, arr_snr_raw, _ = mi.Utilities().df_fields_to_arrays_aligned(
                     dataframe=self.df_tracking,
-                    selected_field=col,
-                    fill_value=np.nan,
-                    total_frames=self.total_frames
+                    selected_field_a=f'{field_base}_ch_{ch}',
+                    selected_field_b=f'snr_ch_{ch}',
+                    total_frames=self.total_frames,
+                    require_both_non_nan=True,
                 )
-                try:
-                    # VERY IMPORTANT: align intensity & SNR with the SAME mask/trim
-                    arr_int_aligned, arr_snr_aligned = mi.Utilities().shift_trajectories(
-                        arr_int, arr_snr,
-                        min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
-                    )
-                except ValueError as e:
-                    QMessageBox.warning(self, "Correlation Error", str(e))
-                    return
-                # Mean SNR per trajectory → keep the good ones
+                # Now jointly filter/shift/trim with one mask and one cut length
+                arr_int_aligned, arr_snr_aligned = mi.Utilities().shift_trajectories(
+                    arr_int_raw,
+                    arr_snr_raw,
+                    min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
+                )
+                # SNR gating
                 mean_snr = np.nanmean(arr_snr_aligned, axis=1)
-                valid_idx = np.flatnonzero(mean_snr >= float(threshold)).astype(int)
-                if valid_idx.size == 0:
-                    print(f"No trajectories passed SNR ≥ {threshold} in channel {ch}.")
-                    # Option: skip this channel entirely
-                    continue
-                # Defensive clipping in case anything drifted
-                n_traj = arr_int_aligned.shape[0]
-                valid_idx = valid_idx[(valid_idx >= 0) & (valid_idx < n_traj)]
+                valid_idx = np.where(mean_snr >= threshold)[0]
                 if valid_idx.size == 0:
                     print(f"After alignment, no valid indices remain for channel {ch}.")
                     continue
                 new_intensity_arrays[ch] = arr_int_aligned[valid_idx]
+                # Build SNR trajectories
+                # arr_snr = mi.Utilities().df_trajectories_to_array(
+                #     dataframe=self.df_tracking,
+                #     selected_field=col,
+                #     fill_value=np.nan,
+                #     total_frames=self.total_frames
+                # )
+                # try:
+                #     # VERY IMPORTANT: align intensity & SNR with the SAME mask/trim
+                #     arr_int_aligned, arr_snr_aligned = mi.Utilities().shift_trajectories(
+                #         arr_int, arr_snr,
+                #         min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
+                #     )
+                # except ValueError as e:
+                #     QMessageBox.warning(self, "Correlation Error", str(e))
+                #     return
+                # # Mean SNR per trajectory → keep the good ones
+                # mean_snr = np.nanmean(arr_snr_aligned, axis=1)
+                # valid_idx = np.flatnonzero(mean_snr >= float(threshold)).astype(int)
+                # if valid_idx.size == 0:
+                #     print(f"No trajectories passed SNR ≥ {threshold} in channel {ch}.")
+                #     # Option: skip this channel entirely
+                #     continue
+                # # Defensive clipping in case anything drifted
+                # n_traj = arr_int_aligned.shape[0]
+                # valid_idx = valid_idx[(valid_idx >= 0) & (valid_idx < n_traj)]
+                # if valid_idx.size == 0:
+                #     print(f"After alignment, no valid indices remain for channel {ch}.")
+                #     continue
+                # new_intensity_arrays[ch] = arr_int_aligned[valid_idx]
             intensity_arrays = new_intensity_arrays
 
         step_size_in_sec = (float(self.list_time_intervals[self.selected_image_index])
