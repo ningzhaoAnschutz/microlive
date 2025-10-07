@@ -760,7 +760,7 @@ class GUI(QMainWindow):
         self.selected_image_index = 0
         self.current_channel = 0
         self.current_frame = 0
-        self.channels_spots = 0
+        self.channels_spots = [0]
         self.channels_cytosol = [0]
         self.channels_nucleus = [None]
         self.min_length_trajectory = 20
@@ -1893,6 +1893,7 @@ class GUI(QMainWindow):
 
     def update_channel(self, channel):
         self.current_channel = channel
+        self._sync_tracking_channel()
         self.merged_mode = False
         if hasattr(self, 'channelControlsTabs'):
             self.channelControlsTabs.blockSignals(True)   
@@ -3137,6 +3138,9 @@ class GUI(QMainWindow):
 # =============================================================================
 # =============================================================================
 
+    def _sync_tracking_channel(self):
+        self.channels_spots = [self.current_channel]
+
     def scale_spots(self):
         """
         Determine the scale for displaying spots based on the platform.
@@ -3392,6 +3396,7 @@ class GUI(QMainWindow):
         # Prepare mask
         mask = (self.segmentation_mask > 0).astype(int) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
         self.tracking_channel = self.current_channel
+        self._sync_tracking_channel()
         # Run spot detection (no linking)
         list_dataframes_trajectories, _ = mi.ParticleTracking(
             image=image_to_use,
@@ -3647,28 +3652,6 @@ class GUI(QMainWindow):
         self.figure_tracking.tight_layout()
         self.canvas_tracking.draw_idle()
 
-
-    def detect_spots_in_current_frame(self):
-        if self.image_stack is None:
-            QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
-            return
-        image_to_use = self.get_current_image_source()
-        image_channel = np.expand_dims(image_to_use[self.current_frame, :, :, :, self.current_channel], axis=3)
-        if self.voxel_z_nm == 0:
-            self.voxel_z_nm = 0.1 
-        list_voxels = [self.voxel_z_nm, self.voxel_yx_nm]
-        threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else np.percentile(image_channel, 99)
-        mask = (self.segmentation_mask > 0).astype(int) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
-        spots = self.detect_spots(image_channel, threshold, list_voxels, mask)
-        if spots is not None and not spots.empty:
-            spots['frame'] = self.current_frame
-            self.detected_spots_frame = spots
-            self.df_tracking = spots.copy()
-        else:
-            self.detected_spots_frame = None
-            self.df_tracking = pd.DataFrame()
-        self.plot_tracking()
-
     def detect_spots(self, image, threshold, list_voxels, mask):
         z_sp_sz = self.z_spot_size_in_px if self.z_spot_size_in_px is not None else 1
         yx_sp_sz = self.yx_spot_size_in_px if self.yx_spot_size_in_px is not None else 5
@@ -3689,7 +3672,27 @@ class GUI(QMainWindow):
                 calculate_intensity=False,
             ).get_dataframe()[0]
         return dataframe
-
+    
+    def detect_spots_in_current_frame(self):
+        if self.image_stack is None:
+            QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
+            return
+        image_to_use = self.get_current_image_source()
+        image_channel = np.expand_dims(image_to_use[self.current_frame, :, :, :, self.current_channel], axis=3)
+        if self.voxel_z_nm == 0:
+            self.voxel_z_nm = 0.1 
+        list_voxels = [self.voxel_z_nm, self.voxel_yx_nm]
+        threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else np.percentile(image_channel, 99)
+        mask = (self.segmentation_mask > 0).astype(int) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
+        spots = self.detect_spots(image_channel, threshold, list_voxels, mask)
+        if spots is not None and not spots.empty:
+            spots['frame'] = self.current_frame
+            self.detected_spots_frame = spots
+            self.df_tracking = spots.copy()
+        else:
+            self.detected_spots_frame = None
+            self.df_tracking = pd.DataFrame()
+        self.plot_tracking()
 
     def perform_particle_tracking(self):
         if self.image_stack is None:
@@ -3725,6 +3728,7 @@ class GUI(QMainWindow):
         screen = QGuiApplication.primaryScreen()
         progress.show()
         QApplication.processEvents()
+        self._sync_tracking_channel()
         self.tracking_button.setText("Tracking in progress...")
         self.tracking_button.setEnabled(False)
         parameters = {
