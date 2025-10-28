@@ -23,6 +23,7 @@ from numba.typed import List as TypedList
 import cv2
 import io
 import fpdf
+import json
 
 # Import third-party libraries
 import shutil
@@ -48,14 +49,14 @@ from skimage.filters import threshold_local
 from skimage.morphology import disk, binary_opening, binary_closing
 from skimage.measure import label, regionprops
 from skimage.filters import threshold_otsu
-from scipy.ndimage import binary_opening as binary_opening_ndi 
-from scipy.ndimage import binary_closing as binary_closing_ndi
 from skimage.transform import hough_circle, hough_circle_peaks
 import openpyxl
 import bigfish.stack as stack
 from PIL import Image
 from joblib import Parallel, delayed
-from scipy.ndimage import gaussian_filter, binary_dilation,gaussian_filter1d #label
+from scipy.ndimage import binary_opening as binary_opening_ndi 
+from scipy.ndimage import binary_closing as binary_closing_ndi
+from scipy.ndimage import gaussian_filter, binary_dilation,gaussian_filter1d , uniform_filter1d#label
 from scipy.ndimage import label as ndi_label
 from scipy.signal import find_peaks
 from scipy.integrate import odeint, solve_ivp
@@ -81,11 +82,10 @@ import trackpy as tp
 tp.quiet(suppress=True)
 from PIL import Image
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import to_rgb
 
 try:
     import torch
-    #import napari
-    #from napari_animation import Animation
 except ImportError:
     print("Warning: napari and/or napari-animation not found. Some functionality will not be available.")
     napari = None

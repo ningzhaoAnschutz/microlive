@@ -3829,7 +3829,7 @@ class GUI(QMainWindow):
                         show_plot=False, 
                         remove_drift=False
                     )
-                    D_um2_s, D_px2_s, _, _, _, _ = pm.calculate_msd()
+                    D_um2_s, D_px2_s, _, _, _, _ ,_= pm.calculate_msd()
                     self.msd_label.setText(f"Mean Square Displacement: {D_um2_s:.4f} μm²/s " + f" | {D_px2_s:.4f} px²/s")
                 else:
                     self.msd_label.setText("Mean Square Displacement: Not enough data")

@@ -1,8 +1,13 @@
 import sys; from pathlib import Path
 from Bio.SeqRecord import SeqRecord
+from collections import Counter
+from Bio.Data import CodonTable
+import json
 src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
 sys.path.append(str(src_dir))
 from imports import *
+
+
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 human_genome_path = src_dir.parents[0].joinpath('modeling/TASEP/human_genome/Homo_sapiens.GRCh38.cds.all.fa')
 
@@ -27,11 +32,32 @@ U_TAG = 'MSLPGRWKPKM'
 SUN_TAG = 'EELLSKNYHLENEVARLKK'
 ALFA_TAG = 'SRLEEELRRRLTE'
 MCHERRY_TAG = 'EGRHSTG'
+XBP1 = 'KDPVPYQPPFLCQWGRHQPAWKPLMN'
 
 
 # create a dictionary with the tag sequences.
 tag_dict = {'GFP': GFP_TAG, 'HA': HA_TAG, 'U': U_TAG, 'SUN': SUN_TAG, 'ALFA': ALFA_TAG, 'mCherry': MCHERRY_TAG}
 
+# Sequences that pause ribosome elongation
+pause_dict = {'XBP1': XBP1}
+
+# Loading human codon weights as global
+# TASEP_DIR = src_dir.parents[0].joinpath('modeling/TASEP')
+# CODON_WEIGHTS_PATH = TASEP_DIR / 'human_codon_weights.json'
+
+# determine where this file is located
+TASEP_DIR = Path(__file__).resolve().parent
+CODON_WEIGHTS_PATH = TASEP_DIR / 'human_codon_weights.json'
+
+
+try:
+    with open(CODON_WEIGHTS_PATH, 'r') as f:
+        HUMAN_CODON_WEIGHTS = json.load(f)
+except FileNotFoundError:
+    raise FileNotFoundError(
+        f"Could not find 'human_codon_weights.json' at {CODON_WEIGHTS_PATH}. "
+        f"Please ensure the file exists in the TASEP directory: {TASEP_DIR}"
+    )
 
 def simulate_missing_data(matrix1, matrix2=None, percentage_to_remove_data=0, replace_with='nan'):
     if percentage_to_remove_data ==0: 
@@ -133,31 +159,46 @@ for line in human_codon_frequency.strip().split('\n'):
         frequency = float(parts[i + 1])  
         codon_frequency_dict[codon] = frequency  
 
+# dictionary of synonymous codons mixed T/U
 synonymous_codons = {
-                'A':['GCA', 'GCC', 'GCG', 'GCT', 'GCU'],
-                'R':['CGA', 'CGC', 'CGG', 'CGT', 'AGG', 'AGA', 'CGU'],
-                'N':['AAC', 'AAT', 'AAU'],
-                'D':['GAC', 'GAT', 'GAU'],
-                'C':['TGC', 'TGT', 'UGC', 'UGU'],
+                'A':['GCA', 'GCC', 'GCG', 'GCT', 
+                                          'GCU'],
+                'R':['CGT', 'CGA', 'CGC', 'CGG',  'AGG', 'AGA', 
+                     'CGU'],
+                'N':['AAC', 'AAT',
+                            'AAU'],
+                'D':['GAC', 'GAT', 
+                            'GAU'],
+                'C':['TGC', 'TGT', 
+                     'UGC', 'UGU'],
                 'Q':['CAA', 'CAG'],
                 'E':['GAA', 'GAG'],
-                'G':['GGT', 'GGC', 'GGA', 'GGG', 'GGU'],
-                'H':['CAC', 'CAT', 'CAU'],
-                'I':['ATT', 'ATC', 'ATA', 'AUU', 'AUC', 'AUA'],
-                'L':['CTA', 'CTC', 'CTG', 'CTT', 'TTA', 'TTG', 'CUA',
-                    'CUC', 'CUG', 'CUU', 'UUA', 'UUG'],
+                'G':['GGT', 'GGC', 'GGA', 'GGG', 
+                     'GGU'],
+                'H':['CAC', 'CAT',
+                            'CAU'],
+                'I':['ATT', 'ATC', 'ATA', 
+                     'AUU', 'AUC', 'AUA'],
+                'L':['CTA', 'CTC', 'CTG', 'CTT', 'TTA', 'TTG', 
+                     'CUA', 'CUC', 'CUG', 'CUU', 'UUA', 'UUG'],
                 'K':['AAA', 'AAG'],
-                'M':['ATG', 'AUG'],
-                'F':['TTC', 'TTT', 'UUC', 'UUU'],
+                'M':['ATG', 
+                     'AUG'],
+                'F':['TTC', 'TTT',
+                     'UUC', 'UUU'],
                 'P':['CCT', 'CCC', 'CCG', 'CCA', 'CCU'],
-                'S':['TCA', 'TCC', 'TCG', 'TCT', 'AGC', 'AGT',
-                    'UCA', 'UCC', 'UCG', 'UCU', 'AGU'],
-                'T':['ACA', 'ACC', 'ACG', 'ACT', 'ACU'],
-                'W':['TGG', 'UGG'],
-                'Y':['TAT', 'TAC', 'UAC', 'UAU'],
-                'V':['GTA', 'GTC', 'GTT', 'GTG', 'GUG', 'GUU',
-                    'GUC', 'GUA'],
-                '*':['TGA', 'TAG', 'TAA', 'UGA', 'UAG', 'UAA']
+                'S':['TCA', 'TCC', 'TCG', 'TCT', 'AGT', 'AGC',
+                     'UCA', 'UCC', 'UCG', 'UCU', 'AGU'],
+                'T':['ACA', 'ACC', 'ACG', 'ACT',
+                                          'ACU'],
+                'W':['TGG', 
+                     'UGG'],
+                'Y':['TAT', 'TAC', 
+                     'UAU', 'UAC'],
+                'V':['GTA', 'GTC', 'GTT', 'GTG', 
+                     'GUA', 'GUG', 'GUU', 'GUC'],
+                '*':['TGA', 'TAG', 'TAA', 
+                     'UGA', 'UAG', 'UAA']
                 }
 
 # 1) First, normalize your usage table to U-based codons (since your Kazusa data uses U)
@@ -214,7 +255,6 @@ def optimize_sequence(sequence, ):
     download_human_genome_cds (human_genome_path)
     seq_rna = sequence.upper().replace('T', 'U')
     out = []
-
     for i in range(0, len(seq_rna), 3):
         cod = seq_rna[i:i+3]
         aa = codon_to_aa.get(cod)
@@ -232,9 +272,333 @@ def optimize_sequence(sequence, ):
                 continue
         # fallback: emit original codon
         out.append(cod)
-
     # convert back to DNA for output
     return ''.join(out).replace('U', 'T')
+
+
+
+def compute_CAI(sequence):
+    """
+    Matches BioPython's calculation method.
+    Exclude Met (ATG) and Trp (TGG) which have only one codon.
+    """
+    sequence = sequence.upper().replace("U", "T")
+    codons = [sequence[i:i+3] for i in range(0, len(sequence), 3)]
+    # Codons to exclude (following Sharp & Li 1987 convention)
+    STOP_CODONS = {'TAA', 'TAG', 'TGA'}
+    SINGLE_CODON_AA = {'ATG', 'TGG'}  # Met and Trp - only one codon each
+    valid_weights = []
+    for i, codon in enumerate(codons):
+        # Skip first codon (start)
+        if i == 0:
+            continue
+        if codon in STOP_CODONS:
+            continue
+        if codon in SINGLE_CODON_AA:
+            continue
+        if codon in HUMAN_CODON_WEIGHTS and HUMAN_CODON_WEIGHTS[codon] > 0:
+            valid_weights.append(HUMAN_CODON_WEIGHTS[codon])
+    if not valid_weights:
+        return 0.0
+    # Geometric mean
+    return math.exp(sum(math.log(w) for w in valid_weights) / len(valid_weights))
+
+
+def sliding_window_cai(sequence, cai_calc, window_size=30, step=1):
+    """
+    Calculate CAI for sliding windows along a sequence.
+    
+    Parameters:
+    -----------
+    sequence : str
+        DNA sequence (must be divisible by 3)
+    cai_calc : CodonAdaptationIndex
+        Initialized CAI calculator
+    window_size : int
+        Window size in codons (default: 30)
+    step : int
+        Step size in codons (default: 1)
+    
+    Returns:
+    --------
+    positions : np.ndarray
+        Center position of each window (in codons)
+    cai_values : np.ndarray
+        CAI value for each window
+    """
+    # Ensure sequence length is divisible by 3
+    seq_length_codons = len(sequence) // 3
+    positions = []
+    cai_values = []
+    # Slide the window
+    for start_codon in range(0, seq_length_codons - window_size + 1, step):
+        # Extract window in nucleotides (3 bases per codon)
+        start_nt = start_codon * 3
+        end_nt = (start_codon + window_size) * 3
+        window_seq = sequence[start_nt:end_nt]
+        try:
+            cai = compute_CAI(window_seq)
+            positions.append(start_codon + window_size / 2)  # center of window
+            cai_values.append(cai)
+        except:
+            continue
+    return np.array(positions), np.array(cai_values)
+
+
+def plot_sliding_window_cai(
+    sequences, 
+    cai_calc, 
+    sequence_names=None, 
+    window_size=20, 
+    step=1,
+    figsize=(12, 6),
+    save_path=None,
+    colors = None,
+    markers = None
+
+):
+    """
+    Plot sliding window CAI for multiple sequences on the same plot.
+    
+    Parameters:
+    -----------
+    sequences : list of str
+        List of DNA sequences
+    sequence_names : list of str
+        Names for each sequence
+    cai_calc : CodonAdaptationIndex
+        Initialized CAI calculator
+    window_size : int
+        Window size in codons (default: 30 codons = 90 bp)
+    step : int
+        Step size in codons (default: 1)
+    figsize : tuple
+        Figure size (width, height)
+    save_path : str or Path, optional
+        Path to save the figure
+    """
+    
+    fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+    if not isinstance(sequences, list):
+        sequences = [sequences] 
+    if colors is None:
+        cmap = plt.get_cmap('tab10')
+        colors = cmap(np.linspace(0, 1, len(sequences)))
+
+    if markers is None:
+        markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
+    if sequence_names is None:
+        sequence_names = [f'Sequence {i+1}' for i in range(len(sequences))]
+
+    # Plot each sequence
+    for idx, (seq, name) in enumerate(zip(sequences, sequence_names)):
+        positions, cai_values = sliding_window_cai(
+            seq, cai_calc, window_size=window_size, step=step
+        )
+        marker = markers[idx % len(markers)]
+        ax.plot(positions, cai_values, 
+                marker=marker,           # Add marker
+                linestyle='-',           # Line style
+                color=colors[idx], 
+                linewidth=3, 
+                markersize=6,            # Marker size
+                markevery=5,             # Show marker every N points (adjust for clarity)
+                label=name, 
+                alpha=0.8)
+    # Formatting
+    ax.set_xlabel(f'Position (codons)', fontsize=18)
+    ax.set_ylabel(f'CAI (window = {window_size} codons)', fontsize=18)
+    ax.set_title(f'Sliding Window CAI Comparison', fontsize=18)
+    ax.legend(loc='upper right', fontsize=14, frameon=False)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    # y-axis limits
+    ax.set_ylim(0.2, 1.2)
+    # Set spines
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.5)
+        spine.set_color('black')
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.show()
+    return fig, ax
+
+
+
+
+def calculate_codon_usage(sequence):
+    """
+    Calculate codon usage frequency for a DNA sequence.
+    
+    Parameters:
+    -----------
+    sequence : str
+        DNA sequence (must be divisible by 3)
+    
+    Returns:
+    --------
+    codon_counts : dict
+        Dictionary with codon counts
+    codon_frequencies : dict
+        Dictionary with codon frequencies (normalized by amino acid)
+    """
+    # Extract codons
+    codons = [sequence[i:i+3] for i in range(0, len(sequence), 3)]
+    
+    # Count codons
+    codon_counts = Counter(codons)
+    
+    # Get standard genetic code
+    standard_table = CodonTable.unambiguous_dna_by_name["Standard"]
+    
+    # Group codons by amino acid
+    aa_to_codons = {}
+    for codon, aa in standard_table.forward_table.items():
+        if aa not in aa_to_codons:
+            aa_to_codons[aa] = []
+        aa_to_codons[aa].append(codon)
+    
+    # Add stop codons
+    aa_to_codons['*'] = ['TAA', 'TAG', 'TGA']
+    
+    # Calculate frequencies per amino acid
+    codon_frequencies = {}
+    for aa, codon_list in aa_to_codons.items():
+        total_aa_codons = sum(codon_counts.get(codon, 0) for codon in codon_list)
+        for codon in codon_list:
+            if total_aa_codons > 0:
+                codon_frequencies[codon] = codon_counts.get(codon, 0) / total_aa_codons
+            else:
+                codon_frequencies[codon] = 0
+    
+    return codon_counts, codon_frequencies
+
+
+def plot_codon_usage_grouped(
+    sequences, 
+    sequence_names, 
+    x_label_type='aa_codon',
+    figsize=(28, 8),
+    save_path=None,
+    include_stop_codons=True,
+    color_map='tab10'
+):
+    """
+    Plot codon usage frequency for multiple sequences as grouped bars.
+    
+    Parameters:
+    -----------
+    sequences : list of str
+        List of DNA sequences
+    sequence_names : list of str
+        Names for each sequence
+    x_label_type : str, optional
+        Type of x-axis labels:
+        - 'codon': Show 3-letter codon names (e.g., 'ATG')
+        - 'aa': Show 1-letter amino acid codes only (e.g., 'M')
+        - 'aa_codon': Show amino acid with codon (e.g., 'M(ATG)')
+    figsize : tuple
+        Figure size (width, height)
+    save_path : str or Path, optional
+        Path to save the figure
+    include_stop_codons : bool, optional
+        Whether to include stop codons in the plot (default: True)
+    
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+    """
+    if x_label_type not in ['codon', 'aa', 'aa_codon']:
+        raise ValueError("x_label_type must be 'codon', 'aa', or 'aa_codon'")
+    
+    # Get standard genetic code
+    standard_table = CodonTable.unambiguous_dna_by_name["Standard"]
+    
+    # Create amino acid to codon mapping
+    aa_to_codons = {}
+    for codon, aa in standard_table.forward_table.items():
+        if aa not in aa_to_codons:
+            aa_to_codons[aa] = []
+        aa_to_codons[aa].append(codon)
+    
+    # Add start codon (Methionine)
+    aa_to_codons['M'] = ['ATG']
+    
+    if include_stop_codons:
+        aa_to_codons['*'] = ['TAA', 'TAG', 'TGA']
+    
+    # Sort amino acids (M first, then alphabetically, then stop codon last)
+    amino_acids = ['M'] + sorted([aa for aa in aa_to_codons.keys() if aa not in ['M', '*']])
+    if include_stop_codons:
+        amino_acids.append('*')  # Add stop codon at the end
+    
+    # Calculate codon usage for all sequences
+    all_frequencies = []
+    for seq in sequences:
+        _, codon_freq = calculate_codon_usage(seq)
+        all_frequencies.append(codon_freq)
+    
+    # Prepare data and labels
+    all_codons = []
+    x_labels = []
+    
+    for aa in amino_acids:
+        codons_for_aa = sorted(aa_to_codons[aa])
+        all_codons.extend(codons_for_aa)
+        
+        # Build labels based on user choice
+        if x_label_type == 'codon':
+            x_labels.extend(codons_for_aa)
+        elif x_label_type == 'aa':
+            x_labels.extend([aa] * len(codons_for_aa))
+        elif x_label_type == 'aa_codon':
+            # Use "STOP" instead of "*" for better readability
+            aa_display = 'STOP' if aa == '*' else aa
+            x_labels.extend([f"{aa_display}({codon})" for codon in codons_for_aa])
+    
+    # Create grouped bar plot
+    fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+    
+    n_sequences = len(sequences)
+    bar_width = 0.8 / n_sequences
+    x = np.arange(len(all_codons))
+    
+    cmap = plt.get_cmap(color_map)
+    colors = [cmap(i) for i in range(n_sequences)] 
+    
+    for idx, (freq_dict, name) in enumerate(zip(all_frequencies, sequence_names)):
+        frequencies = [freq_dict.get(codon, 0) for codon in all_codons]
+        offset = (idx - n_sequences/2) * bar_width + bar_width/2
+        ax.bar(x + offset, frequencies, bar_width, 
+               label=name, color=colors[idx], alpha=0.8, edgecolor='black', linewidth=0.5)
+    
+    # Formatting
+    xlabel_dict = {
+        'codon': 'Codon',
+        'aa': 'Amino Acid',
+        'aa_codon': 'Amino Acid (Codon)'
+    }
+    ax.set_xlabel(xlabel_dict[x_label_type], fontsize=14, fontweight='bold')
+    ax.set_ylabel('Frequency', fontsize=14, fontweight='bold')
+    #ax.set_title('Codon Usage Comparison', fontsize=20, fontweight='bold', loc='left')
+    ax.set_xticks(x)
+    
+    # Adjust font size based on label type
+    label_fontsize = 14
+    ax.set_xticklabels(x_labels, rotation=45, fontsize=label_fontsize, ha='right')
+    ax.legend(fontsize=10, frameon=False)
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.set_ylim(0, 1.1)
+    ax.set_xlim(-1, len(all_codons) +2)
+    plt.tight_layout()
+    
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    
+    plt.show()
+    
+    return fig, ax
+
 
 
 
@@ -259,9 +623,13 @@ def find_TAG_location(protein, TAG, max_mismatches=1):
         mismatches = sum(1 for x, y in zip(window, TAG) if x != y)
         if mismatches <= max_mismatches:
             indexes_tags.append(i)
+    # if not tag found return None
+    if not indexes_tags:
+        return None
     return indexes_tags
 
-def calculate_codon_elongation_rates( rna, global_elongation_rate=10):
+
+def calculate_codon_elongation_rates( rna, global_elongation_rate=10,remove_last_stop_codon=True):
     """
     Calculate the elongation rates for each codon in an RNA sequence based on global elongation rate and codon usage.
 
@@ -274,15 +642,40 @@ def calculate_codon_elongation_rates( rna, global_elongation_rate=10):
         np.array: An array of elongation rates for each codon in the RNA sequence.
     """
     stop_codons = ['UAA', 'UAG', 'UGA']
-    
     #average_codon_velocity = np.mean(list(codon_frequency_dict.values()))
     average_codon_frequency = np.mean([freq for codon, freq in codon_frequency_dict.items() if codon not in stop_codons])
     codon_frequency_in_gene = np.array([codon_frequency_dict[rna[i:i+3]] for i in range(0, len(rna), 3)])
     codon_frequency_normalized = codon_frequency_in_gene / average_codon_frequency
     codon_elongation_rates = codon_frequency_normalized * global_elongation_rate
+    if remove_last_stop_codon:
+        codon_elongation_rates = codon_elongation_rates[:-1]
     return codon_elongation_rates
 
-def read_sequence(seq, min_protein_length=20, TAG='YPYDVPDYA'):
+# The codon elongation rate should be calculated using the formal definition using the codon usage frequency for each type of aminoacid.
+
+"""
+Codon Usage by Etsuko N. Moriyama
+
+The codon adaptation index (CAI) estimates the extent of
+bias toward codons that are known to be favored in highly ex-
+pressed genes (Sharp and Li, 1987a). A “relative adaptedness”
+value, wi, for codon i is calculated from its relative frequency
+of use in a species-specific reference set of very highly ex-
+pressed genes.
+where RSCUmax and X
+max are the RSCU and X values for the
+most frequently used codon for an amino acid. The CAI for a
+gene is then defined as the geometric mean of w values for co-
+dons in that gene:
+
+where L is the number of codons in the gene excluding methionine, tryptophan, and stop codons. The CAI ranges from 0
+for no bias (all synonymous codons are used equally) to 1 for the strongest bias (only optimal codons are used).
+
+"""
+
+
+
+def read_sequence(seq, min_protein_length=20, TAG='YPYDVPDYA', PAUSE_SEQUENCE=None):
     """
     Reads a DNA sequence, translates it to protein, searches for ORFs, TAG sequences, and calculates codon elongation rates.
 
@@ -345,9 +738,19 @@ def read_sequence(seq, min_protein_length=20, TAG='YPYDVPDYA'):
         indexes_tags = find_TAG_location(protein, TAG=TAG)
     if not indexes_tags:
         print('No HA tag found in the protein sequence.')
-    return protein, rna, dna, indexes_tags, seqrecord, graphic_features
 
-def create_probe_vector(tag_positions, gene_length):
+    # detect if pause sequences are in the protein sequence
+    if PAUSE_SEQUENCE:
+        index_pauses = find_TAG_location(protein, PAUSE_SEQUENCE)[0]
+    else:
+        index_pauses = None
+
+    return protein, rna, dna, indexes_tags, index_pauses, seqrecord, graphic_features
+
+
+
+
+def create_probe_vector(tag_positions, gene_length, efficiency=1):
     """
     Create a probe vector based on specified tag positions.
 
@@ -361,8 +764,10 @@ def create_probe_vector(tag_positions, gene_length):
     probe_vector = np.zeros(gene_length)
     for tag in tag_positions:
         if tag < gene_length:  # Ensure the tag position is within the gene length
-            probe_vector[tag:] += 1
+            if np.random.rand() <= efficiency:  # Apply efficiency check
+                probe_vector[tag:] += 1 
     return probe_vector
+
 
 
 def read_gene_sequence_return_probes(gene_sequence, min_protein_length=50, list_tag_sequences=[HA_TAG]):
@@ -375,16 +780,33 @@ def read_gene_sequence_return_probes(gene_sequence, min_protein_length=50, list_
     second_probe_position_vector = create_probe_vector(tag_positions_second_probe_vector, gene_length) if tag_positions_second_probe_vector is not None else None
     return protein, rna, gene_length, first_probe_position_vector, second_probe_position_vector
 
-# example usage
 
+def read_gene_sequence(file_path, TAG_list, PAUSE_SEQUENCE=None):
+    protein, rna, _, indexes_tags, indexes_pause, seq_record, graphic_features = read_sequence(
+        seq=file_path, TAG=TAG_list, PAUSE_SEQUENCE=PAUSE_SEQUENCE, min_protein_length=50
+    )
+    plasmid_figure = plot_plasmid(seq_record, graphic_features, figure_width=25, figure_height=3)
+    gene_length = len(protein) + 1  # adding 1 to account for the stop codon
+    probe_data = {}
+    for i, (tag, tag_positions) in enumerate(zip(TAG_list, indexes_tags)):
+        probe_vector = create_probe_vector(tag_positions, gene_length)
+        probe_data[f'tag_{i}'] = {
+            'tag_sequence': tag,
+            'positions': tag_positions,
+            'position_cumulative_vector': probe_vector
+        }
+    return {
+        "protein": protein,
+        "rna": rna,
+        "gene_length": gene_length,
+        "probe_data": probe_data,  # Dictionary with all probe information
+        "plasmid_figure": plasmid_figure,
+        "seq_record": seq_record,
+        "graphic_features": graphic_features,
+        "num_probes": len(indexes_tags),
+        "pause_indexes": indexes_pause
+    }
 
-
-
-    # second_probe_position_vector = create_probe_vector(tag_positions_second_probe_vector, gene_length)
-
-# Function to read SnapGene file
-#def snapgene_file_to_seqrecord(file_path: str) -> SeqRecord:
-#    return snapgene_reader.snapgene_file_to_seqrecord(file_path)
 
 # Function to get feature color
 def get_feature_color(feature_type: str, qualifiers) -> str:
@@ -443,10 +865,6 @@ def plot_plasmid(seq_record: SeqRecord, graphic_features: List[GraphicFeature], 
 
 
 
-
-
-
-
 def TASEP_ODE(p, t, ki, k_elongation, k_termination):
     """
     ODE system for a simplified TASEP-like model (deterministic).
@@ -471,7 +889,9 @@ def simulate_TASEP_ODE(
     first_probe_position_vector,
     second_probe_position_vector=None,
     burnin_time=0,
-    time_interval_in_seconds=1.0
+    time_interval_in_seconds=1.0,
+    pause_location=None, 
+    pause_elongation_rate=None,
 ):
     """
     Solves a simplified TASEP ODE system deterministically from t=0 to t=t_max,
@@ -518,6 +938,13 @@ def simulate_TASEP_ODE(
         # user-supplied array (must match gene_length)
         k_elongation = np.array(ke, dtype=float)
 
+    if pause_location is not None and pause_elongation_rate is not None:
+        if 0 <= pause_location < gene_length:
+            k_elongation[pause_location] = pause_elongation_rate  # Set elongation rate at pause location
+        else:
+            raise ValueError("pause_location must be within the range of gene_length.")
+
+
     # 4) For simplicity, define termination rate as mean of the elongation rates (or up to you)
     k_termination = np.mean(k_elongation)
 
@@ -531,11 +958,6 @@ def simulate_TASEP_ODE(
         t,
         args=(ki, k_elongation, k_termination)
     )
-    # p_solution has shape (#timepoints, gene_length)
-
-    # 7) Compute intensities
-    #    The ODE solution for each time => p_solution[i, :] = occupancy
-    #    Dot product with each probe => sum(probe * occupancy)
     intensity_vector_first_signal_ode = np.dot(first_probe_position_vector, p_solution.T)
     if second_probe_position_vector is not None:
         intensity_vector_second_signal_ode = np.dot(second_probe_position_vector, p_solution.T)
@@ -555,6 +977,127 @@ def simulate_TASEP_ODE(
 
 
 
+# -----------------------------------------------------------------------------
+# Per-event folding-delay gating (ribosome-resolved)
+# -----------------------------------------------------------------------------
+def _probe_start_codon_index(probe_vec):
+    """
+    Return the 1-based codon index where a probe becomes active (first nonzero entry).
+    If probe is None or has no nonzero entries, return None.
+    """
+    if probe_vec is None:
+        return None
+    probe_vec = np.asarray(probe_vec)
+    nz = np.flatnonzero(probe_vec > 0)
+    return int(nz[0] + 1) if nz.size > 0 else None
+
+
+def _per_event_second_signal_for_rep(
+    ribo_traj_rep,              # shape (n_rib, T) int codon positions; 0 when absent
+    t_array,                    # shape (T,)
+    first_probe_position_vector,
+    second_probe_position_vector,
+    folding_delay_seconds
+):
+    """
+    Build a per-event delayed second signal by gating EACH ribosome's contribution:
+      - the ribosome must have reached the first probe (if provided)
+      - the ribosome must have reached the second probe
+      - folding_delay_seconds elapsed after second-probe arrival
+    After the gate opens, that ribosome contributes second_probe_vector[pos-1] at each timepoint.
+    """
+    T = t_array.shape[0]
+    if ribo_traj_rep is None or ribo_traj_rep.size == 0:
+        return np.zeros(T, dtype=np.float64)
+
+    ribo_traj_rep = np.asarray(ribo_traj_rep, dtype=np.int64)
+    if ribo_traj_rep.ndim == 1:
+        ribo_traj_rep = ribo_traj_rep[None, :]
+
+    first_start  = _probe_start_codon_index(first_probe_position_vector)
+    second_start = _probe_start_codon_index(second_probe_position_vector)
+    if second_start is None:
+        return np.zeros(T, dtype=np.float64)
+
+    second_vec = np.asarray(second_probe_position_vector, dtype=np.float64)
+    out = np.zeros(T, dtype=np.float64)
+
+    for r in range(ribo_traj_rep.shape[0]):
+        pos = ribo_traj_rep[r, :]  # integer codon index (1..L), 0 when absent
+
+        # when does this ribosome first reach the first probe?
+        if first_start is None:
+            idx_first = 0
+        else:
+            hits_first = np.flatnonzero(pos >= first_start)
+            idx_first = int(hits_first[0]) if hits_first.size > 0 else None
+
+        # when does it first reach the second probe?
+        hits_second = np.flatnonzero(pos >= second_start)
+        if hits_second.size == 0:
+            continue
+        idx_second = int(hits_second[0])
+
+        # enforce "first before second" if first probe exists
+        if (idx_first is not None) and (idx_second < idx_first):
+            continue
+
+        # gate time = first time at/after (t_second + folding_delay)
+        t_gate  = t_array[idx_second] + float(folding_delay_seconds)
+        idx_gate = int(np.searchsorted(t_array, t_gate, side='left'))
+        if idx_gate >= T:
+            continue
+
+        # contribution = second_probe_value at current codon (0 if off-gene)
+        contrib = np.zeros(T, dtype=np.float64)
+        valid = pos > 0
+        if np.any(valid):
+            contrib[valid] = second_vec[(pos[valid] - 1).astype(np.int64)]
+        contrib[:idx_gate] = 0.0
+
+        out += contrib
+
+    return out
+
+
+def apply_per_event_folding_delay(
+    list_ribosome_trajectories,     # list of (n_rib, T) int arrays, length = number_repetitions
+    t_array,                        # shape (T,)
+    first_probe_position_vector,
+    second_probe_position_vector,
+    folding_delay_seconds,
+    burnin_time=0.0
+):
+    """
+    Build matrix_intensity_second_signal_RT_delayed using per-event gating.
+    Returns (R, T') where T' = T minus burn-in frames if burnin_time>0; else T.
+    """
+    if (list_ribosome_trajectories is None) or (len(list_ribosome_trajectories) == 0):
+        return None
+
+    out_mat = []
+    for ribo_traj in list_ribosome_trajectories:
+        sig = _per_event_second_signal_for_rep(
+            ribo_traj, t_array,
+            first_probe_position_vector,
+            second_probe_position_vector,
+            folding_delay_seconds
+        )
+        out_mat.append(sig)
+
+    out_mat = np.vstack(out_mat) if len(out_mat) > 0 else None
+
+    if (out_mat is not None) and (burnin_time > 0) and (t_array.size > 1):
+        idx_burn = int(burnin_time / float(t_array[1] - t_array[0]))
+        out_mat = out_mat[:, idx_burn:]
+
+    return out_mat
+
+def _delay_signal_fractional(signal_1d, delay_frames_float):
+    n = len(signal_1d)
+    t = np.arange(n, dtype=float)
+    return np.interp(t - delay_frames_float, t, signal_1d, left=0.0, right=0.0)
+
 
 # -----------------------------------------------------------------------------
 # Numba-accelerated SSA simulation (internal function)
@@ -563,6 +1106,11 @@ def simulate_TASEP_ODE(
 # In full-output mode, intensity_first_signal is empty.
 # In fast-output mode, ribosome_trajectories and occupancy_output are empty.
 # -----------------------------------------------------------------------------
+
+
+
+
+
 @njit
 def TASEP_SSA_numba(k, t_array, timePerturbationApplication, evaluatingInhibitor,
                     evaluatingFRAP, inhibitor_effectiveness, constant_elongation_rate,
@@ -856,12 +1404,13 @@ def TASEP_SSA(k, t_array, timePerturbationApplication=0, evaluatingInhibitor=0, 
     else:
         return ribo_traj, occ_out
 
-
 def simulate_TASEP_SSA(ki, ke, gene_length, t_max, time_interval_in_seconds=1, number_repetitions=1,
                        first_probe_position_vector=None, second_probe_position_vector=None,
                        timePerturbationApplication=0, evaluatingInhibitor=0, evaluatingFRAP=0,
                        n_jobs=-1, folding_delay=0, burnin_time=0, inhibitor_effectiveness=0,
-                       constant_elongation_rate=None, fast_output=False, batch_size='auto'):
+                        efficiency_list=None, constant_elongation_rate=None,
+                       pause_location=None, pause_elongation_rate=None,
+                       fast_output=False, batch_size='auto', gate_by_first_signal_per_event=False):
     """
     Parallel wrapper for TASEP_SSA.
     Returns a tuple:
@@ -880,6 +1429,12 @@ def simulate_TASEP_SSA(ki, ke, gene_length, t_max, time_interval_in_seconds=1, n
     k_termination = k_elongation[-1]
     k_full = np.concatenate(([ki], k_elongation, [k_termination])).astype(np.float64)
 
+    if pause_location is not None and pause_elongation_rate is not None:
+        if 0 <= pause_location < gene_length:
+            k_full[pause_location] = pause_elongation_rate  # Set elongation rate at pause location
+        else:
+            raise ValueError("pause_location must be within the range of gene_length.")
+    
     args_list = []
     for _ in range(number_repetitions):
         args_list.append((k_full, t_array, timePerturbationApplication, evaluatingInhibitor,
@@ -898,13 +1453,23 @@ def simulate_TASEP_SSA(ki, ke, gene_length, t_max, time_interval_in_seconds=1, n
                    'occupancy_output': occ_out}
             if first_probe_position_vector is not None and first_probe_position_vector.size > 0:
                 occ_slice = occ_out[1:-1, :]
-                first_int = np.sum(first_probe_position_vector * occ_slice.T, axis=1)
+                if efficiency_list is not None and len(efficiency_list) > 0:
+                    first_probe_position_detection = np.where(np.diff(first_probe_position_vector) != 0)[0] + 1
+                    first_probe_position_vector_eff = create_probe_vector(first_probe_position_detection, gene_length-1, efficiency=(efficiency_list[0] if efficiency_list is not None else 1.0))
+                else:
+                    first_probe_position_vector_eff = first_probe_position_vector
+                first_int = np.sum(first_probe_position_vector_eff * occ_slice.T, axis=1)
                 res['intensity_first_signal'] = first_int
             else:
                 res['intensity_first_signal'] = None
             if second_probe_position_vector is not None:
                 occ_slice = occ_out[1:-1, :]
-                second_int = np.sum(second_probe_position_vector * occ_slice.T, axis=1)
+                if efficiency_list is not None and len(efficiency_list) > 1:
+                    second_probe_position_detection = np.where(np.diff(second_probe_position_vector) != 0)[0] + 1
+                    second_probe_position_vector_eff = create_probe_vector(second_probe_position_detection, gene_length-1, efficiency=(efficiency_list[1] if efficiency_list is not None else 1.0))
+                else:
+                    second_probe_position_vector_eff = second_probe_position_vector
+                second_int = np.sum(second_probe_position_vector_eff * occ_slice.T, axis=1)
                 res['intensity_second_signal'] = second_int
             else:
                 res['intensity_second_signal'] = None
@@ -931,15 +1496,38 @@ def simulate_TASEP_SSA(ki, ke, gene_length, t_max, time_interval_in_seconds=1, n
                                           if all(x is not None for x in list_second_signal)
                                           else None)
 
+    # if folding_delay > 0 and matrix_intensity_second_signal_RT is not None:
+    #     matrix_intensity_second_signal_RT_delayed = np.zeros_like(matrix_intensity_second_signal_RT)
+    #     delay_frames = int(folding_delay / time_interval_in_seconds)
+    #     for i_rep in range(number_repetitions):
+    #         matrix_intensity_second_signal_RT_delayed[i_rep, :] = delay_signal(
+    #             matrix_intensity_second_signal_RT[i_rep, :], delay_frames
+    #         )
+    # else:
+    #     matrix_intensity_second_signal_RT_delayed = matrix_intensity_second_signal_RT
+
     if folding_delay > 0 and matrix_intensity_second_signal_RT is not None:
-        matrix_intensity_second_signal_RT_delayed = np.zeros_like(matrix_intensity_second_signal_RT)
-        delay_frames = int(folding_delay / time_interval_in_seconds)
-        for i_rep in range(number_repetitions):
-            matrix_intensity_second_signal_RT_delayed[i_rep, :] = delay_signal(
-                matrix_intensity_second_signal_RT[i_rep, :], delay_frames
+        if (not fast_output) and gate_by_first_signal_per_event:
+            # Per-event gating using ribosome trajectories (no pre-trim; burn-in is applied later)
+            matrix_intensity_second_signal_RT_delayed = apply_per_event_folding_delay(
+                list_ribosome_trajectories=list_ribosome_trajectories,
+                t_array=t_array,
+                first_probe_position_vector=first_probe_position_vector,
+                second_probe_position_vector=second_probe_position_vector,
+                folding_delay_seconds=folding_delay,
+                burnin_time=0.0
             )
+        else:
+            # Fallback: global fractional shift of the aggregated second signal
+            delay_frames_float = float(folding_delay) / float(time_interval_in_seconds)
+            matrix_intensity_second_signal_RT_delayed = np.zeros_like(matrix_intensity_second_signal_RT)
+            for i_rep in range(number_repetitions):
+                matrix_intensity_second_signal_RT_delayed[i_rep, :] = _delay_signal_fractional(
+                    matrix_intensity_second_signal_RT[i_rep, :], delay_frames_float
+                )
     else:
         matrix_intensity_second_signal_RT_delayed = matrix_intensity_second_signal_RT
+
 
     if burnin_time > 0:
         idx_burnin = int(burnin_time / time_interval_in_seconds)
@@ -955,6 +1543,7 @@ def simulate_TASEP_SSA(ki, ke, gene_length, t_max, time_interval_in_seconds=1, n
             list_occupancy_output,
             matrix_intensity_first_signal_RT,
             matrix_intensity_second_signal_RT_delayed)
+
 
 
 def plot_trajectories(matrix_intensity_first_signal_RT, intensity_vector_first_signal_ode, time_array, number_repetitions, plot_color = 'orangered'):
@@ -1026,69 +1615,105 @@ def plot_trajectories(matrix_intensity_first_signal_RT, intensity_vector_first_s
     plt.tight_layout()
     plt.show()
 
+
+
 def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_intensity_second_signal_RT,
-                                  time_array, number_repetitions, trajectory_index=0,
+                                  time_array, trajectory_index=0,
                                   colors=['forestgreen', 'indigo'],
-                                  labels=['Signal 1', 'Signal 2'],
+                                  labels=['Signal 1', 'Signal 2'], smooth_window=1,
                                   normalize=True):
     """
-    Plot a single SSA trajectory for two different signals without ODE comparison.
+    Plot a single trajectory for two different signals with proper NaN handling.
     
     Parameters:
     -----------
     matrix_intensity_first_signal_RT : np.ndarray
-        First signal SSA trajectories (shape: number_repetitions x time_points)
+        First signal trajectories (shape: number_trajectories x time_points)
     matrix_intensity_second_signal_RT : np.ndarray  
-        Second signal SSA trajectories (shape: number_repetitions x time_points)
+        Second signal trajectories (shape: number_trajectories x time_points)
     time_array : np.ndarray
         Time points
-    number_repetitions : int
-        Number of repetitions (not used in plotting, but kept for compatibility)
     trajectory_index : int
         Which trajectory to plot (default: 0 for first trajectory)
     colors : list of str
-        Colors for first and second signals (default: ['orangered', 'limegreen'])
+        Colors for first and second signals
     labels : list of str
-        Labels for first and second signals (default: ['Signal 1', 'Signal 2'])
+        Labels for first and second signals
     normalize : bool
         If True, normalize both signals from 0 to 1 (default: True)
     """
-    
-    # --- Set fonts and background ---
-    plt.rcParams["font.family"] = "Arial"
-    plt.rcParams["figure.facecolor"] = "white"
-    plt.rcParams["axes.facecolor"] = "white"
-    plt.rcParams["axes.edgecolor"] = "black"
-    plt.rcParams["axes.labelcolor"] = "black"
-    plt.rcParams["xtick.color"] = "black"
-    plt.rcParams["ytick.color"] = "black"
+
+    # Validate trajectory index
+    max_trajectories = matrix_intensity_first_signal_RT.shape[0]
+    if trajectory_index >= max_trajectories:
+        raise ValueError(f"trajectory_index {trajectory_index} is out of bounds. "
+                        f"Available trajectories: 0-{max_trajectories-1}")
 
     # Extract the selected trajectories
-    first_signal = matrix_intensity_first_signal_RT[trajectory_index, :]
-    second_signal = matrix_intensity_second_signal_RT[trajectory_index, :]
+    first_signal = matrix_intensity_first_signal_RT[trajectory_index, :].copy()
+    second_signal = matrix_intensity_second_signal_RT[trajectory_index, :].copy()
+
+    # Apply smoothing if requested
+    if smooth_window > 1:
+        first_signal = pd.Series(first_signal).rolling(window=smooth_window, min_periods=1, center=True).mean().to_numpy()
+        second_signal = pd.Series(second_signal).rolling(window=smooth_window, min_periods=1, center=True).mean().to_numpy()
+
+    # Check for valid data
+    n_valid_first = np.sum(np.isfinite(first_signal))
+    n_valid_second = np.sum(np.isfinite(second_signal))
+    
+    print(f"Trajectory #{trajectory_index} diagnostics:")
+    print(f"  First signal: {n_valid_first}/{len(first_signal)} valid points")
+    print(f"  Second signal: {n_valid_second}/{len(second_signal)} valid points")
+    
+    if n_valid_first < 2:
+        raise ValueError(f"First signal has insufficient valid data points ({n_valid_first})")
+    if n_valid_second < 2:
+        raise ValueError(f"Second signal has insufficient valid data points ({n_valid_second})")
     
     # Normalize signals if requested
     if normalize:
-        if first_signal.max() > first_signal.min():
-            first_signal = (first_signal - first_signal.min()) / (first_signal.max() - first_signal.min())
+        # First signal normalization
+        first_min = np.nanmin(first_signal)
+        first_max = np.nanmax(first_signal)
+        
+        if np.isfinite(first_min) and np.isfinite(first_max) and first_max > first_min:
+            first_signal = (first_signal - first_min) / (first_max - first_min)
+            print(f"  First signal normalized: [{first_min:.3f}, {first_max:.3f}] → [0, 1]")
         else:
-            first_signal = np.zeros_like(first_signal)
-            
-        if second_signal.max() > second_signal.min():
-            second_signal = (second_signal - second_signal.min()) / (second_signal.max() - second_signal.min())
+            print(f"  WARNING: First signal not normalized (min={first_min}, max={first_max})")
+            first_signal = first_signal - np.nanmean(first_signal)
+        
+        # Second signal normalization
+        second_min = np.nanmin(second_signal)
+        second_max = np.nanmax(second_signal)
+        
+        if np.isfinite(second_min) and np.isfinite(second_max) and second_max > second_min:
+            second_signal = (second_signal - second_min) / (second_max - second_min)
+            print(f"  Second signal normalized: [{second_min:.3f}, {second_max:.3f}] → [0, 1]")
         else:
-            second_signal = np.zeros_like(second_signal)
+            print(f"  WARNING: Second signal not normalized (min={second_min}, max={second_max})")
+            second_signal = second_signal - np.nanmean(second_signal)
 
     # --- Create single plot ---
-    fig, ax = plt.subplots(1, 1, figsize=(10, 3))
+    fig, ax = plt.subplots(1, 1, figsize=(12, 3))
 
-    # --- Plot both signals ---
-    ax.plot(time_array, first_signal, label=labels[0], color=colors[0], linewidth=2, alpha=0.8)
-    ax.plot(time_array, second_signal, label=labels[1], color=colors[1], linewidth=2, alpha=0.8)
+    # --- Plot both signals (handling NaNs) ---
+    # Create masks for valid data
+    valid_first = np.isfinite(first_signal)
+    valid_second = np.isfinite(second_signal)
+    
+    # Plot first signal
+    ax.plot(time_array[valid_first], first_signal[valid_first], 
+           label=labels[0], color=colors[0], linewidth=2, alpha=0.8, marker='o', markersize=3)
+    
+    # Plot second signal
+    ax.plot(time_array[valid_second], second_signal[valid_second], 
+           label=labels[1], color=colors[1], linewidth=2, alpha=0.8, marker='o', markersize=3)
 
     ax.set_xlabel('Time (s)', fontsize=20)
     if normalize:
-        ax.set_ylabel('Normalized Intensity (0-1)', fontsize=20)
+        ax.set_ylabel('Norm. Int.', fontsize=20)
         ax.set_ylim(-0.05, 1.05)
     else:
         ax.set_ylabel('Intensity (a.u.)', fontsize=20)
@@ -1104,11 +1729,14 @@ def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_inten
     legend.get_frame().set_edgecolor('black')
     legend.get_frame().set_linewidth(1.5)
 
-    ax.grid(False)
+    ax.grid(True, alpha=0.3)
     ax.tick_params(axis='both', which='major', labelsize=16)
     
-    # Add trajectory index to title
-    ax.set_title(f'Trajectory #{trajectory_index}', fontsize=18)
+    # Add trajectory index and data quality to title
+    ax.set_title(f'Trajectory #{trajectory_index} '
+                f'({n_valid_first}/{len(first_signal)} pts first, '
+                f'{n_valid_second}/{len(second_signal)} pts second)', 
+                fontsize=16)
 
     plt.tight_layout()
     plt.show()
@@ -1276,11 +1904,6 @@ def plot_RibosomeMovement(RibosomePositions, IntensityVector, probePositions, Se
 
 
 
-
-
-
-
-
 def plot_spot(amplitude, sigma=2, grid_size=13):
     mu_x, mu_y = (grid_size/2)-0.5, (grid_size/2)-0.5
     x = np.linspace(0, grid_size - 1, grid_size)
@@ -1297,217 +1920,237 @@ def plot_spot(amplitude, sigma=2, grid_size=13):
 
 
 
+def plot_RibosomeMovement_and_Microscope(
+    RibosomePositions,
+    IntensityVector,
+    probePositions,
+    frame_rate=1,
+    SecondIntensityVector=None,
+    second_probePositions=None,
+    fileNameGif='temp_gif',
+    color='red',
+    second_color='lime',
+    FrameVelocity=10,
+    timePerturbationApplication=None,
+    pause_location=None,
+):
 
+    def _tint_grayscale(z, color_like):
+        rgb = np.array(to_rgb(color_like)).reshape(1, 1, 3)  # (1,1,3)
+        zf = np.clip(z, 0, 255).astype(np.float32) / 255.0   # (H,W) in [0,1]
+        return zf[..., None] * rgb                           # (H,W,3) float in [0,1]
 
-def plot_RibosomeMovement_and_Microscope(RibosomePositions, IntensityVector, probePositions, SecondIntensityVector=None, second_probePositions=None, fileNameGif='temp_gif', color='red', second_color='lime', FrameVelocity=10, timePerturbationApplication=None):
-    
-    time = np.arange(0, len(IntensityVector),1)
-    geneLength = np.max(RibosomePositions)
-    
-    # Normalize IntensityVector
-    IntensityVector = IntensityVector / np.max(IntensityVector)
-    if SecondIntensityVector is not None:
-        SecondIntensityVector = SecondIntensityVector / np.max(SecondIntensityVector)
-    maxIntensity = 1
+    # --- time / sizes ---
+    time = np.arange(0, len(IntensityVector), 1) * frame_rate
+    geneLength = int(np.nanmax(RibosomePositions))
     Max_No_Ribosomes, num_timepoints = RibosomePositions.shape
-
     timePoints = len(time)
-    if geneLength > 1100:
-        pointSize = 4.5
-    else:
-        pointSize = 6
 
-    # Create figure with a specific size
-    fig = plt.figure(figsize=(12, 4), facecolor='black')
+    # --- safety normalize ---
+    def _safe_norm(v):
+        vmax = np.nanmax(v) if np.nanmax(v) != 0 else 1.0
+        return v / vmax
 
-    # Create a gridspec layout within the figure
-    gs = gridspec.GridSpec(2, 3, height_ratios=[0.3, 0.7], width_ratios=[2, 0.5, 0.5])
-
-    # Create subplots
-    ax1 = fig.add_subplot(gs[0, 0])  # First row, first column
-    ax2 = fig.add_subplot(gs[1, 0])  # Second row, first column
-    ax3 = fig.add_subplot(gs[:, 1])  # Both rows, second column (merged vertically)
-    ax4 = fig.add_subplot(gs[:, 2])  # Both rows, third column (merged vertically)
-
-    normalized_intensity_vector_first_signal = IntensityVector / np.max(IntensityVector)
+    IntensityVector = _safe_norm(np.asarray(IntensityVector))
     if SecondIntensityVector is not None:
-        normalized_intensity_vector_second_signal = SecondIntensityVector / np.max(SecondIntensityVector)
+        SecondIntensityVector = _safe_norm(np.asarray(SecondIntensityVector))
+    maxIntensity = 1.0
+
+    # --- figure layout (unchanged except size tweak) ---
+    fig = plt.figure(figsize=(12, 5.8), facecolor='black')
+    gs = gridspec.GridSpec(
+        2, 3,
+        height_ratios=[1.0, 1.0],
+        width_ratios=[3.0, 0.12, 1.4],
+        wspace=0.25, hspace=0.20
+    )
+    ax1 = fig.add_subplot(gs[0, 0:2])  # Intensity
+    ax2 = fig.add_subplot(gs[1, 0:2])  # Ribosome movement
+
+    n_crops = 2 if SecondIntensityVector is not None else 1
+    subgs = gridspec.GridSpecFromSubplotSpec(n_crops, 1, subplot_spec=gs[0, 2], hspace=0.25)
+    ax3 = fig.add_subplot(subgs[0, 0])                          # Ch 0 crop (tinted with `color`)
+    ax4 = fig.add_subplot(subgs[1, 0]) if n_crops == 2 else None  # Ch 1 crop (tinted with `second_color`)
+
+    normalized_intensity_vector_first_signal = IntensityVector
+    normalized_intensity_vector_second_signal = SecondIntensityVector if SecondIntensityVector is not None else None
 
     stepSize = 5
-
-    # Prepare the frames for animation
     frames = range(0, timePoints, stepSize)
 
-    # Initialize plots
+    def _style_crop_axis(ax, title):
+        ax.set_title(title, color='white', fontsize=10)
+        ax.set_xticks([]); ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_color('white')
+        ax.set_facecolor('black')
+        ax.set_aspect('equal')
+
     def init():
-        # Upper plot (Intensity over time)
         ax1.set_facecolor('black')
-        ax1.set_xlim(0, time[-1])
+        ax1.set_xlim(0, time[-1] if len(time) else 1)
         ax1.set_ylim(0, maxIntensity * 1.2)
-        ax1.set_xticks([])
-        ax1.set_yticks([])
-        ax1.set_xlabel('Time', fontsize=10, color='white')
-        ax1.set_ylabel('Intensity', fontsize=10, color='white')
+        ax1.set_xlabel('Time (s)', fontsize=10, color='white')
+        ax1.set_ylabel('Intensity (a.u.)', fontsize=10, color='white')
+        ax1.tick_params(axis='x', colors='white')
+        ax1.tick_params(axis='y', colors='white')
         ax1.grid(False)
-        
-        # Lower plot (Ribosome movement)
+
         ax2.set_facecolor('black')
         ax2.set_xlim(0, geneLength + 1)
         ax2.set_ylim(0.0, 0.15)
-        ax2.set_xlabel('Gene length:' + str(geneLength-1) , fontsize=10, color='white')
+        ax2.set_xlabel(f'Gene length: {geneLength-1}', fontsize=10, color='white')
         ax2.axis('off')
         ax2.grid(False)
 
-        # Microscope image axes
-        ax3.set_facecolor('black')
-        ax3.set_xticks([])
-        ax3.set_yticks([])
-        ax3.grid(False)
-        ax3.axis('off')
-
-        ax4.set_facecolor('black')
-        ax4.set_xticks([])
-        ax4.set_yticks([])
-        ax4.grid(False)
-        ax4.axis('off')
-        
+        _style_crop_axis(ax3, 'Crop · Ch 0')
+        if ax4 is not None:
+            _style_crop_axis(ax4, 'Crop · Ch 1')
         return []
 
-    # Animation function
     def animate(frame_idx):
         tp = frame_idx
-        ax1.clear()
-        ax2.clear()
-        ax3.clear()
-        ax4.clear()
+        ax1.cla(); ax2.cla(); ax3.cla()
+        if ax4 is not None: ax4.cla()
 
-        # Plot settings for upper plot
+        # -------- Intensity (unchanged styling) --------
         ax1.set_facecolor('black')
-        ax1.set_xlim(0, time[-1])
+        ax1.set_xlim(0, time[-1] if len(time) else 1)
         ax1.set_ylim(0, maxIntensity * 1.2)
-        ax1.set_xlabel('Time', fontsize=10, color='white')
-        ax1.set_ylabel('Intensity', fontsize=10, color='white')
-        ax1.plot([0, time[-1]], [0, 0], '-w', linewidth=2)
+        ax1.set_xlabel('Time (s)', fontsize=10, color='white')
+        ax1.set_ylabel('Intensity (a.u.)', fontsize=10, color='white')
+        ax1.tick_params(axis='x', colors='white'); ax1.tick_params(axis='y', colors='white')
+        ax1.grid(False)
+        if len(time) > 0: ax1.plot([0, time[-1]], [0, 0], '-w', linewidth=2)
         ax1.plot([0, 0], [0, maxIntensity * 1.1], '-w', linewidth=2)
-        ax1.tick_params(axis='x', colors='white')
-        ax1.tick_params(axis='y', colors='white')
 
-        # Plot intensity
         if IntensityVector[tp] > 0:
             ax1.plot(time[tp], IntensityVector[tp], 'o', markersize=5,
                      markeredgecolor=color, markerfacecolor=color)
-        ax1.plot(time[:tp+1], IntensityVector[:tp+1], '-', color=color, linewidth=2)
+        ax1.plot(time[:tp+1], IntensityVector[:tp+1], '-', color=color, linewidth=2, label='Ch 0')
 
         if SecondIntensityVector is not None:
             if SecondIntensityVector[tp] > 0:
                 ax1.plot(time[tp], SecondIntensityVector[tp], 's', markersize=5,
                          markeredgecolor=second_color, markerfacecolor=second_color)
-            ax1.plot(time[:tp+1], SecondIntensityVector[:tp+1], '-', color=second_color, linewidth=2)
+            ax1.plot(time[:tp+1], SecondIntensityVector[:tp+1], '-', color=second_color, linewidth=2, label='Ch 1')
 
-        # Plot perturbation line and label
-        if timePerturbationApplication is not None:
-            if time[tp] >= timePerturbationApplication:
-                ax1.text(5, maxIntensity * 1.3, 'Harringtonine', color='cyan', fontsize=12)
-                ax1.plot([timePerturbationApplication, timePerturbationApplication],
-                         [0, maxIntensity * 1.3],color='cyan', linewidth=2, linestyle='-')
+        if timePerturbationApplication is not None and len(time) > 0 and time[tp] >= timePerturbationApplication:
+            ax1.text(0.02 * time[-1], maxIntensity * 1.28, 'Harringtonine', color='cyan', fontsize=12)
+            ax1.plot([timePerturbationApplication, timePerturbationApplication],
+                     [0, maxIntensity * 1.28], color='cyan', linewidth=2, linestyle='-')
+        ax1.legend(facecolor='black', edgecolor='white', labelcolor='white', fontsize=9, loc='upper left')
 
-        # Add title
-        ax1.text(time[-1] / 2.3, maxIntensity * 1.4, 'Ribosome Movement',
-                 color='white', fontsize=14)
-        ax1.grid(False)
-
-        # Plot settings for lower plot
+        # -------- Ribosome movement (unchanged) --------
         ax2.set_facecolor('black')
         ax2.set_xlim(0, geneLength + 1)
         ax2.set_ylim(0.0, 0.15)
-        ax2.set_xlabel('Gene length:' + str(geneLength-1) , fontsize=10, color='white')
-        ax2.axis('off')
+        ax2.set_xlabel(f'Gene length: {geneLength-1}', fontsize=10, color='white')
+        ax2.axis('off'); ax2.grid(False)
 
-        # Plot gene line and probes
         ax2.plot([0, geneLength], [0.1, 0.1], 'w-', linewidth=2)
         ax2.plot(probePositions, [0.1] * len(probePositions), 's',
                  markersize=3, markeredgecolor=color, markerfacecolor=color)
         if second_probePositions is not None:
-            ax2.plot(second_probePositions,[0.1] * len(second_probePositions), 's',
-                    markersize=4, markeredgecolor=second_color, markerfacecolor=second_color)
+            ax2.plot(second_probePositions, [0.1] * len(second_probePositions), 's',
+                     markersize=4, markeredgecolor=second_color, markerfacecolor=second_color)
 
-        # Plot ribosomes
         for i in range(Max_No_Ribosomes):
             position = RibosomePositions[i, tp]
-            if position > 0 and position <= geneLength:
-                # Ribosome body
-                ribosome_color = 'w' # [0.7, 0.7, 0.7]
-                ax2.plot(position, 0.097, 'o', markersize=10,
-                         markeredgecolor=ribosome_color,
-                         markerfacecolor=ribosome_color)
-                ax2.plot(position, 0.101, 'o', markersize=9,
-                         markeredgecolor=ribosome_color,
-                         markerfacecolor=ribosome_color)  
-                # Ribosome activity indicator
-                # activity indicator for second probe
+            if 0 < position <= geneLength:
+                ax2.plot(position, 0.097, 'o', markersize=10, markeredgecolor='w', markerfacecolor='w')
+                ax2.plot(position, 0.101, 'o', markersize=9, markeredgecolor='w', markerfacecolor='w')
+
+                numberOfProbesPassed_Second = 0
                 if second_probePositions is not None:
-                    numberOfProbesPassed_Second = np.sum(np.array(second_probePositions) < position) #int(np.sum(second_probePositions <= position) / len(second_probePositions))
-                    markerSize =  3 
-                    for j in range(numberOfProbesPassed_Second): 
-                        if numberOfProbesPassed_Second>0 and j ==numberOfProbesPassed_Second-1:
-                            probe_color = color
-                        else:
-                            probe_color = second_color
-                        ax2.plot(position+j*2, 0.105 + j*0.0035, 'o', markersize=markerSize,
-                            markeredgecolor=probe_color, markerfacecolor=probe_color)
-                # Ribosome activity indicator
-                numberOfProbesPassed_First =  np.sum(np.array(probePositions) < position)#int( np.sum(probePositions <= position) / len(probePositions) )
+                    numberOfProbesPassed_Second = np.sum(np.array(second_probePositions) < position)
+                    for j in range(numberOfProbesPassed_Second):
+                        probe_color = color if (numberOfProbesPassed_Second > 0 and j == numberOfProbesPassed_Second - 1) else second_color
+                        ax2.plot(position + j * 2, 0.105 + j * 0.0035, 'o', markersize=3,
+                                 markeredgecolor=probe_color, markerfacecolor=probe_color)
+
+                numberOfProbesPassed_First = np.sum(np.array(probePositions) < position)
                 markerSize = 0.3 * numberOfProbesPassed_First
-                if second_probePositions is not None and numberOfProbesPassed_Second > 0 and SecondIntensityVector is not None:
-                    probe_color = second_color
-                else:
-                    probe_color = color
+                probe_color = (second_color if (second_probePositions is not None and numberOfProbesPassed_Second > 0 and SecondIntensityVector is not None)
+                               else color)
                 ax2.plot(position, 0.102, 'o', markersize=markerSize,
                          markeredgecolor=probe_color, markerfacecolor=probe_color)
 
-        # Time label
-        time_str = f'{time[tp]:.0f} s'
+        time_str = f'{time[tp]:.0f} s' if len(time) else '0 s'
         ax2.text(geneLength + 10, 0.1, time_str, color='white', fontsize=8)
+        # plot a vertical white line if pause_location is given
+        if pause_location is not None:
+            ax2.plot([pause_location, pause_location], [0.09, 0.15], color='white', linestyle='--', linewidth=1)
 
-        # Plot microscope images on ax3 and ax4
+        # -------- Crops (now TINTED to channel colors) --------
         amplitude = normalized_intensity_vector_first_signal[tp]
-        noise_percentage = 0.05
-        max_noise_size = int(255 * noise_percentage)
         sigma = 1 + amplitude * 2
-        z = plot_spot(amplitude, sigma=sigma)
-        added_noise = np.random.normal(0, max_noise_size, z.shape)
-        z = z + added_noise
-        z = np.clip(z, 0, 255)
-        ax3.imshow(z, cmap='gray', vmax=255)
-        ax3.set_title('Channel 0', color='white')
-        ax3.set_xticks([])
-        ax3.set_yticks([])
-        for spine in ax3.spines.values():
-            spine.set_color('white')
-        ax3.set_facecolor('black')
-        ax3.set_aspect('equal')
+        z = plot_spot(amplitude, sigma=sigma)               # expects 2D array
+        z_colored = _tint_grayscale(z, color)               # <- tint with `color`
+        ax3.imshow(z_colored)                               # no cmap/vmax; already RGB
+        _style_crop_axis(ax3, 'Crop · Ch 0')
 
-        if SecondIntensityVector is not None:
-            amplitude2 = SecondIntensityVector[tp]
+        if ax4 is not None and normalized_intensity_vector_second_signal is not None:
+            amplitude2 = normalized_intensity_vector_second_signal[tp]
             sigma2 = 1 + amplitude2 * 3
             z2 = plot_spot(amplitude2, sigma=sigma2)
-            added_noise2 = np.random.normal(0, max_noise_size, z2.shape)
-            z2 = z2 + added_noise2
-            z2 = np.clip(z2, 0, 255)
-            ax4.imshow(z2, cmap='gray', vmax=255)
-            ax4.set_title('Channel 1', color='white')
-            ax4.set_xticks([])
-            ax4.set_yticks([])
-            for spine in ax4.spines.values():
-                spine.set_color('white')
-            ax4.set_facecolor('black')
-            ax4.set_aspect('equal')
-        else:
-            ax4.axis('off')
+            z2_colored = _tint_grayscale(z2, second_color)  # <- tint with `second_color`
+            ax4.imshow(z2_colored)
+            _style_crop_axis(ax4, 'Crop · Ch 1')
+
         return []
+
     ani = FuncAnimation(fig, animate, frames=frames, init_func=init, blit=False,
                         interval=1000 / FrameVelocity)
-    # Save animation as GIF
+
+    if fileNameGif is None:
+        plt.close(fig); return
+
     ani.save(f'{fileNameGif}.gif', writer=PillowWriter(fps=FrameVelocity))
-    display(IPImage(filename= f'{fileNameGif}.gif'   ))
+    display(IPImage(filename=f'{fileNameGif}.gif'))
     plt.close(fig)
+
+
+def plot_kymograph(list_occupancy_output,
+                selected_trajectory = 0,
+              figsize=(10,6),
+              xlabel='Gene Position (codons)',
+              ylabel='Time Steps',
+              title='Kymograph',
+              aspect='auto',
+              interpolation='nearest',
+              vmin=None,
+              vmax=None,):
+    rib_matrix_codon_time = list_occupancy_output[selected_trajectory].T # Transpose to have codons on x-axis and time on y-axis
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(rib_matrix_codon_time, aspect=aspect, cmap='binary_r', interpolation=interpolation, vmin=vmin, vmax=vmax)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(False)
+    plt.show()
+
+def plot_ribosome_density(list_occupancy_output,
+                data_sequence,
+                selected_trajectory = 0,
+                figsize=(12,3),
+                smooth_window = 40,):
+    rib_matrix_codon_time = list_occupancy_output[selected_trajectory].T # Transpose to have codons on x-axis and time on y-axis
+    ribosome_occupancy = np.sum(rib_matrix_codon_time, axis=0)
+    ribosome_occupancy /= np.sum(ribosome_occupancy)
+    plt.figure(figsize=figsize)
+    if smooth_window > 1:
+        ribosome_occupancy_smooth = pd.Series(ribosome_occupancy).rolling(window=smooth_window, min_periods=1, center=True).mean().to_numpy()
+        plt.bar(x=range(len(ribosome_occupancy_smooth)), height=ribosome_occupancy_smooth, width=5, color='lightgray', linewidth=0.5)
+        plt.plot(ribosome_occupancy_smooth, color='k', linewidth=0.5)
+    else:
+        plt.bar(range(len(ribosome_occupancy)), ribosome_occupancy, color='k', alpha=0.5, width=1, label='Ribosome Occupancy', linewidth=0)
+    # print a vertical line at the position of the pause site
+        # check if pause_indexes exists in data_sequence AND is not None
+    if 'pause_indexes' in data_sequence and data_sequence['pause_indexes'] is not None:
+            plt.axvline(x=data_sequence['pause_indexes'], color='r', linestyle='-', linewidth=1)
+    plt.xlim(0, data_sequence['gene_length'])
+    plt.xlabel('Gene Position (codons)')
+    plt.ylabel(r'$P\text{(ribosome at codon i)}$', fontsize=12, labelpad=8)
+    plt.title('Ribosome Occupancy')
+    plt.show()

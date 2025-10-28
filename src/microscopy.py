@@ -563,7 +563,7 @@ class ReadLif:
                 pass
         # scene list + pixel sizes + channel names
         images   = self._aics if self.lazy else BioImage(str(self.path))
-        scenes   = list(images.scenes)
+        scenes   = list(images.scenes)        
         pixel_Z  = abs(images.physical_pixel_sizes.Z or 0)
         pixel_XY = abs(images.physical_pixel_sizes.Y or 0)
         ch_names = list(images.channel_names)
@@ -3690,12 +3690,13 @@ class DataProcessing():
 
 class ParticleMotion:
 
-    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None):
+    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None,max_fit_points=20):
         self.microns_per_pixel = microns_per_pixel
         self.step_size_in_sec = step_size_in_sec
         self.show_plot = show_plot 
         self.remove_drift = remove_drift
         self.plot_name = plot_name
+        self.max_fit_points = max_fit_points  # Maximum number of points to use for fitting the initial linear regime
         if 'spot_type' in trackpy_dataframe.columns:
             if len(trackpy_dataframe['spot_type'].unique()) > 1:
                 self.trackpy_dataframe = trackpy_dataframe[trackpy_dataframe['spot_type'] == spot_type]
@@ -3712,43 +3713,186 @@ class ParticleMotion:
             self.max_lagtime = min(max_lagtime, int(self.trackpy_dataframe['frame'].max()))
 
     def calculate_msd(self):
-        # Calculation code (as provided)
-        if self.remove_drift == True:
-            temp_trackpy_df = self.trackpy_dataframe.copy()
-            drift = tp.compute_drift(temp_trackpy_df)
-            trackpy_df = tp.subtract_drift(temp_trackpy_df.copy(), drift)
-            if self.show_plot == True: 
+        # Optional drift removal
+        if self.remove_drift:
+            temp = self.trackpy_dataframe.copy()
+            drift = tp.compute_drift(temp)
+            trackpy_df = tp.subtract_drift(temp, drift)
+            if self.show_plot:
                 drift.plot()
                 plt.show()
         else:
             trackpy_df = self.trackpy_dataframe.copy()
-        # Calculate the MSD
-        em_px = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
-        # Calculate the diffusion coefficient
-        slope = np.linalg.lstsq(np.array(em_px.index)[:, np.newaxis], em_px.values, rcond=None)[0][0]
-        D_px2_s = slope / 4
-        time_range = em_px.index  # Use the lag times from the MSD data
-        model_fit = slope * em_px.index
-        D_um2_s = D_px2_s * (self.microns_per_pixel ** 2)
-        # if the user provides microns_per_pixel ==1 , print a warning
-        if self.microns_per_pixel == 1:
-            print("Warning: microns_per_pixel is set to 1. Results are in pixel units.")
-        # Plotting
+        # --- Robust max_lagtime (frames) ---
+        fmin = int(trackpy_df['frame'].min())
+        fmax = int(trackpy_df['frame'].max())
+        n_frames = max(0, fmax - fmin + 1)
+        if n_frames < 2:
+            raise ValueError("Not enough frames to compute MSD (need ≥ 2).")
+        max_lags_allowed = n_frames - 1
+        max_lagtime = max_lags_allowed if self.max_lagtime is None else min(int(self.max_lagtime), max_lags_allowed)
+        # --- MSD ---
+        # µm² (preferred for fitting/plotting)
+        em_um2 = tp.emsd(trackpy_df, mpp=float(self.microns_per_pixel), fps=1.0/float(self.step_size_in_sec), max_lagtime=max_lagtime)
+        # px² (if you also want it)
+        em_px2 = em_um2 / (self.microns_per_pixel ** 2)
+        # Guard: need at least 2 lags to fit
+        if len(em_um2) < 2:
+            raise ValueError("MSD has fewer than 2 lag points; cannot fit.")
+        # Fit only the initial linear regime
+        if self.max_fit_points < 2:
+            max_fit_points = min(2, len(em_um2))
+        elif self.max_fit_points > len(em_um2):
+            max_fit_points = len(em_um2)
+        else:
+            max_fit_points = self.max_fit_points
+        fit_times = np.asarray(em_um2.index[:max_fit_points], dtype=float)   # seconds
+        fit_msd   = np.asarray(em_um2.values[:max_fit_points], dtype=float)  # µm²
+
+        slope, intercept, r_value, p_value, std_err = linregress(fit_times, fit_msd)
+        # 2D diffusion: MSD = 4 D t
+        D_um2_s = slope / 4.0
+        D_px2_s = D_um2_s / (self.microns_per_pixel ** 2)
+        # Fit line for viz
+        fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
+        fit_line_msd = slope * fit_line_times + intercept
+        # Plot
         if self.show_plot:
             plt.style.use(['default', 'fivethirtyeight'])
             fig, ax = plt.subplots(figsize=(6, 4))
-            em_px.plot(style='o', label= r'D = {0:.3f} px²/s'.format(D_px2_s) + '\n' + r'D = {0:.3f} um²/s'.format(D_um2_s)  , ax=ax)
-            # Use em.index directly for plotting the fit
-            ax.plot(em_px.index, slope * em_px.index, label='Linear fit')
-            ax.set(
-                ylabel=r'$\langle \Delta r^2 \rangle$ [px$^2$]',
-                xlabel='time (s)'
-            )
-            ax.legend(loc='upper left')
+            em_um2.plot(style='o', label=rf'D = {D_um2_s:.4f} µm²/s', ax=ax, alpha=0.6)
+            ax.plot(fit_times, fit_msd, 'o', markersize=8, label='Fitted region')
+            ax.plot(fit_line_times, fit_line_msd, '-', linewidth=2, label=f'Linear fit (R²={r_value**2:.3f})')
+            ax.set(ylabel=r'$\langle \Delta r^2 \rangle$ [µm$^2$]', xlabel='Time lag (s)')
+            ax.legend(loc='upper left', fontsize=10)
+            ax.grid(True, alpha=0.3)
             if self.plot_name is not None:
                 fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
             plt.show()
-        return D_um2_s, D_px2_s, em_px, time_range, model_fit, trackpy_df
+
+        return D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df
+
+    # def calculate_msd(self):
+    #     # Calculation code (as provided)
+    #     if self.remove_drift == True:
+    #         temp_trackpy_df = self.trackpy_dataframe.copy()
+    #         drift = tp.compute_drift(temp_trackpy_df)
+    #         trackpy_df = tp.subtract_drift(temp_trackpy_df.copy(), drift)
+    #         if self.show_plot == True: 
+    #             drift.plot()
+    #             plt.show()
+    #     else:
+    #         trackpy_df = self.trackpy_dataframe.copy()
+    #     # Calculate the MSD
+    #     em_px2 = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
+    #     em_um2 = tp.emsd(trackpy_df, mpp=self.microns_per_pixel, fps=1.0 / self.step_size_in_sec,  max_lagtime=self.max_lagtime)
+        
+    #     if self.max_fit_points < 2:
+    #         max_fit_points = min(2, len(em_um2))  # Need at least 2 points
+    #     elif self.max_fit_points > len(em_um2):
+    #         max_fit_points = len(em_um2)
+    #     else:
+    #         max_fit_points = self.max_fit_points
+        
+    #     # Extract the initial portion for fitting
+    #     fit_times = np.array(em_um2.index[:max_fit_points])
+    #     fit_msd = em_um2.values[:max_fit_points]
+        
+    #     # Perform linear regression on the initial regime
+    #     slope, intercept, r_value, p_value, std_err = linregress(fit_times, fit_msd)
+        
+    #     # Calculate diffusion coefficient (MSD = 4Dt for 2D, slope/4 gives D)
+    #     D_um2_s = slope / 4
+    #     D_px2_s = D_um2_s / (self.microns_per_pixel ** 2)
+        
+    #     # Generate fit line for plotting (extend slightly beyond fit region for visualization)
+    #     fit_line_times = np.linspace(0, fit_times[-1] * 1.2, 50)
+    #     fit_line_msd = slope * fit_line_times + intercept
+        
+    #     # Plotting
+    #     if self.show_plot:
+    #         plt.style.use(['default', 'fivethirtyeight'])
+    #         fig, ax = plt.subplots(figsize=(6, 4))
+            
+    #         # Plot all MSD data
+    #         em_um.plot(style='o', label=r'D = {0:.3f} µm²/s'.format(D_um2_s), ax=ax, color='gray', alpha=0.6)
+            
+    #         # Highlight the fitted region
+    #         ax.plot(fit_times, fit_msd, 'o', color='blue', markersize=8, label='Fitted region')
+            
+    #         # Plot the fit line
+    #         ax.plot(fit_line_times, fit_line_msd, 'r-', linewidth=2, 
+    #                 label=f'Linear fit (R²={r_value**2:.3f})')
+            
+    #         ax.set(
+    #             ylabel=r'$\langle \Delta r^2 \rangle$ [µm$^2$]',
+    #             xlabel='Time lag (s)'
+    #         )
+    #         ax.legend(loc='upper left', fontsize=10)
+    #         ax.grid(True, alpha=0.3)
+            
+    #         if self.plot_name is not None:
+    #             fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
+    #         plt.show()
+
+    #     return D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df
+
+    # def calculate_msd(self):
+    #     # Calculation code (as provided)
+    #     if self.remove_drift == True:
+    #         temp_trackpy_df = self.trackpy_dataframe.copy()
+    #         drift = tp.compute_drift(temp_trackpy_df)
+    #         trackpy_df = tp.subtract_drift(temp_trackpy_df.copy(), drift)
+    #         if self.show_plot == True: 
+    #             drift.plot()
+    #             plt.show()
+    #     else:
+    #         trackpy_df = self.trackpy_dataframe.copy()
+    #     # Calculate the MSD
+    #     em_px = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
+    #     # Calculate the diffusion coefficient
+    #     slope = np.linalg.lstsq(np.array(em_px.index)[:, np.newaxis], em_px.values, rcond=None)[0][0]
+    #     D_px2_s = slope / 4
+    #     time_range = em_px.index  # Use the lag times from the MSD data
+    #     model_fit = slope * em_px.index
+    #     D_um2_s = D_px2_s * (self.microns_per_pixel ** 2)
+    #     # if the user provides microns_per_pixel ==1 , print a warning
+    #     if self.microns_per_pixel == 1:
+    #         print("Warning: microns_per_pixel is set to 1. Results are in pixel units.")
+    #     # # Plotting
+    #     # if self.show_plot:
+    #     #     plt.style.use(['default', 'fivethirtyeight'])
+    #     #     fig, ax = plt.subplots(figsize=(6, 4))
+    #     #     em_px.plot(style='o', label= r'D = {0:.3f} px²/s'.format(D_px2_s) + '\n' + r'D = {0:.3f} um²/s'.format(D_um2_s)  , ax=ax)
+    #     #     # Use em.index directly for plotting the fit
+    #     #     ax.plot(em_px.index, slope * em_px.index, label='Linear fit')
+    #     #     ax.set(
+    #     #         ylabel=r'$\langle \Delta r^2 \rangle$ [px$^2$]',
+    #     #         xlabel='time (s)'
+    #     #     )
+    #     #     ax.legend(loc='upper left')
+    #     #     if self.plot_name is not None:
+    #     #         fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
+    #     #     plt.show()
+    #     if self.show_plot:
+    #         plt.style.use(['default', 'fivethirtyeight'])
+    #         fig, ax = plt.subplots(figsize=(6, 4))
+    #         # Convert em_px to µm² by multiplying by microns_per_pixel²
+    #         em_um = em_px * (self.microns_per_pixel ** 2)
+    #         # Plot in µm²
+    #         em_um.plot(style='o', label=r'D = {0:.3f} px²/s'.format(D_px2_s) + '\n' + r'D = {0:.3f} µm²/s'.format(D_um2_s), ax=ax)
+    #         # Convert the fit line to µm² as well
+    #         slope_um = slope * (self.microns_per_pixel ** 2)
+    #         ax.plot(em_um.index, slope_um * em_um.index, label='Linear fit')
+    #         ax.set(
+    #             ylabel=r'$\langle \Delta r^2 \rangle$ [µm$^2$]',
+    #             xlabel='time (s)'
+    #         )
+    #         ax.legend(loc='upper left')
+    #         if self.plot_name is not None:
+    #             fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
+    #         plt.show()
+    #     return D_um2_s, D_px2_s, em_px, time_range, model_fit, trackpy_df
 
 
 class CropArray():
@@ -5050,6 +5194,33 @@ class Utilities():
                     return folder
         return None
 
+    def forward_fill_nan(self, data):
+        not_nan = ~np.isnan(data)
+        if not np.any(not_nan):
+            return np.array([])
+        first_valid_index = np.argmax(not_nan)
+        last_valid_index = len(data) - np.argmax(not_nan[::-1]) - 1
+        trimmed = data[first_valid_index:last_valid_index + 1]
+        mask_ff = np.isnan(trimmed)
+        idx = np.where(~mask_ff, np.arange(len(trimmed)), 0)
+        np.maximum.accumulate(idx, out=idx)
+        filled = trimmed[idx]
+        result = np.full_like(data, np.nan)
+        result[first_valid_index:last_valid_index + 1] = filled
+        return result
+
+    def forward_fill_nan_2d(self, data):
+        """
+        Forward fill NaNs for 2D array (rows x columns).
+        Each row is filled independently.
+        """
+        if data.ndim == 1:
+            return self.forward_fill_nan(data)
+        
+        filled = np.zeros_like(data)
+        for i, row in enumerate(data):
+            filled[i] = self.forward_fill_nan(row)
+        return filled
 
     def downsample_array(self, arr: np.ndarray, factor: int, method: str = 'drop') -> np.ndarray:
         """
