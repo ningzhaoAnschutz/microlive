@@ -304,7 +304,7 @@ def compute_CAI(sequence):
     return math.exp(sum(math.log(w) for w in valid_weights) / len(valid_weights))
 
 
-def sliding_window_cai(sequence, cai_calc, window_size=30, step=1):
+def sliding_window_cai(sequence, window_size=30, step=1):
     """
     Calculate CAI for sliding windows along a sequence.
     
@@ -312,8 +312,6 @@ def sliding_window_cai(sequence, cai_calc, window_size=30, step=1):
     -----------
     sequence : str
         DNA sequence (must be divisible by 3)
-    cai_calc : CodonAdaptationIndex
-        Initialized CAI calculator
     window_size : int
         Window size in codons (default: 30)
     step : int
@@ -347,13 +345,12 @@ def sliding_window_cai(sequence, cai_calc, window_size=30, step=1):
 
 def plot_sliding_window_cai(
     sequences, 
-    cai_calc, 
     sequence_names=None, 
     window_size=20, 
     step=1,
     figsize=(12, 6),
     save_path=None,
-    colors = None,
+    color_map = None,
     markers = None
 
 ):
@@ -366,8 +363,6 @@ def plot_sliding_window_cai(
         List of DNA sequences
     sequence_names : list of str
         Names for each sequence
-    cai_calc : CodonAdaptationIndex
-        Initialized CAI calculator
     window_size : int
         Window size in codons (default: 30 codons = 90 bp)
     step : int
@@ -381,9 +376,10 @@ def plot_sliding_window_cai(
     fig, ax = plt.subplots(figsize=figsize, facecolor='white')
     if not isinstance(sequences, list):
         sequences = [sequences] 
-    if colors is None:
-        cmap = plt.get_cmap('tab10')
-        colors = cmap(np.linspace(0, 1, len(sequences)))
+    if color_map is None:
+        color_map = 'tab10'
+    cmap = plt.get_cmap(color_map)
+    colors = [cmap(i) for i in range(len(sequences))]
 
     if markers is None:
         markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', '*', 'h']
@@ -393,7 +389,7 @@ def plot_sliding_window_cai(
     # Plot each sequence
     for idx, (seq, name) in enumerate(zip(sequences, sequence_names)):
         positions, cai_values = sliding_window_cai(
-            seq, cai_calc, window_size=window_size, step=step
+            seq, window_size=window_size, step=step
         )
         marker = markers[idx % len(markers)]
         ax.plot(positions, cai_values, 
