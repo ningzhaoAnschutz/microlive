@@ -470,6 +470,7 @@ def calculate_codon_usage(sequence):
     return codon_counts, codon_frequencies
 
 
+
 def plot_codon_usage_grouped(
     sequences, 
     sequence_names, 
@@ -481,11 +482,12 @@ def plot_codon_usage_grouped(
 ):
     """
     Plot codon usage frequency for multiple sequences as grouped bars.
+    Accepts both DNA and RNA sequences (automatically converts RNA to DNA for analysis).
     
     Parameters:
     -----------
     sequences : list of str
-        List of DNA sequences
+        List of DNA or RNA sequences (can be mixed)
     sequence_names : list of str
         Names for each sequence
     x_label_type : str, optional
@@ -499,6 +501,8 @@ def plot_codon_usage_grouped(
         Path to save the figure
     include_stop_codons : bool, optional
         Whether to include stop codons in the plot (default: True)
+    color_map : str, optional
+        Matplotlib colormap name (default: 'tab10')
     
     Returns:
     --------
@@ -506,6 +510,9 @@ def plot_codon_usage_grouped(
     """
     if x_label_type not in ['codon', 'aa', 'aa_codon']:
         raise ValueError("x_label_type must be 'codon', 'aa', or 'aa_codon'")
+    
+    # Convert sequences to DNA format (U -> T) and uppercase
+    sequences_dna = [seq.upper().replace('U', 'T') for seq in sequences]
     
     # Get standard genetic code
     standard_table = CodonTable.unambiguous_dna_by_name["Standard"]
@@ -528,9 +535,9 @@ def plot_codon_usage_grouped(
     if include_stop_codons:
         amino_acids.append('*')  # Add stop codon at the end
     
-    # Calculate codon usage for all sequences
+    # Calculate codon usage for all sequences (using DNA versions)
     all_frequencies = []
-    for seq in sequences:
+    for seq in sequences_dna:
         _, codon_freq = calculate_codon_usage(seq)
         all_frequencies.append(codon_freq)
     
@@ -576,7 +583,6 @@ def plot_codon_usage_grouped(
     }
     ax.set_xlabel(xlabel_dict[x_label_type], fontsize=14, fontweight='bold')
     ax.set_ylabel('Frequency', fontsize=14, fontweight='bold')
-    #ax.set_title('Codon Usage Comparison', fontsize=20, fontweight='bold', loc='left')
     ax.set_xticks(x)
     
     # Adjust font size based on label type
@@ -585,7 +591,7 @@ def plot_codon_usage_grouped(
     ax.legend(fontsize=10, frameon=False)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
     ax.set_ylim(0, 1.1)
-    ax.set_xlim(-1, len(all_codons) +2)
+    ax.set_xlim(-1, len(all_codons) + 2)
     plt.tight_layout()
     
     if save_path is not None:
@@ -594,6 +600,133 @@ def plot_codon_usage_grouped(
     plt.show()
     
     return fig, ax
+
+
+
+# def plot_codon_usage_grouped(
+#     sequences, 
+#     sequence_names, 
+#     x_label_type='aa_codon',
+#     figsize=(28, 8),
+#     save_path=None,
+#     include_stop_codons=True,
+#     color_map='tab10'
+# ):
+#     """
+#     Plot codon usage frequency for multiple sequences as grouped bars.
+    
+#     Parameters:
+#     -----------
+#     sequences : list of str
+#         List of DNA sequences
+#     sequence_names : list of str
+#         Names for each sequence
+#     x_label_type : str, optional
+#         Type of x-axis labels:
+#         - 'codon': Show 3-letter codon names (e.g., 'ATG')
+#         - 'aa': Show 1-letter amino acid codes only (e.g., 'M')
+#         - 'aa_codon': Show amino acid with codon (e.g., 'M(ATG)')
+#     figsize : tuple
+#         Figure size (width, height)
+#     save_path : str or Path, optional
+#         Path to save the figure
+#     include_stop_codons : bool, optional
+#         Whether to include stop codons in the plot (default: True)
+    
+#     Returns:
+#     --------
+#     fig, ax : matplotlib figure and axes objects
+#     """
+#     if x_label_type not in ['codon', 'aa', 'aa_codon']:
+#         raise ValueError("x_label_type must be 'codon', 'aa', or 'aa_codon'")
+    
+#     # Get standard genetic code
+#     standard_table = CodonTable.unambiguous_dna_by_name["Standard"]
+    
+#     # Create amino acid to codon mapping
+#     aa_to_codons = {}
+#     for codon, aa in standard_table.forward_table.items():
+#         if aa not in aa_to_codons:
+#             aa_to_codons[aa] = []
+#         aa_to_codons[aa].append(codon)
+    
+#     # Add start codon (Methionine)
+#     aa_to_codons['M'] = ['ATG']
+    
+#     if include_stop_codons:
+#         aa_to_codons['*'] = ['TAA', 'TAG', 'TGA']
+    
+#     # Sort amino acids (M first, then alphabetically, then stop codon last)
+#     amino_acids = ['M'] + sorted([aa for aa in aa_to_codons.keys() if aa not in ['M', '*']])
+#     if include_stop_codons:
+#         amino_acids.append('*')  # Add stop codon at the end
+    
+#     # Calculate codon usage for all sequences
+#     all_frequencies = []
+#     for seq in sequences:
+#         _, codon_freq = calculate_codon_usage(seq)
+#         all_frequencies.append(codon_freq)
+    
+#     # Prepare data and labels
+#     all_codons = []
+#     x_labels = []
+    
+#     for aa in amino_acids:
+#         codons_for_aa = sorted(aa_to_codons[aa])
+#         all_codons.extend(codons_for_aa)
+        
+#         # Build labels based on user choice
+#         if x_label_type == 'codon':
+#             x_labels.extend(codons_for_aa)
+#         elif x_label_type == 'aa':
+#             x_labels.extend([aa] * len(codons_for_aa))
+#         elif x_label_type == 'aa_codon':
+#             # Use "STOP" instead of "*" for better readability
+#             aa_display = 'STOP' if aa == '*' else aa
+#             x_labels.extend([f"{aa_display}({codon})" for codon in codons_for_aa])
+    
+#     # Create grouped bar plot
+#     fig, ax = plt.subplots(figsize=figsize, facecolor='white')
+    
+#     n_sequences = len(sequences)
+#     bar_width = 0.8 / n_sequences
+#     x = np.arange(len(all_codons))
+    
+#     cmap = plt.get_cmap(color_map)
+#     colors = [cmap(i) for i in range(n_sequences)] 
+    
+#     for idx, (freq_dict, name) in enumerate(zip(all_frequencies, sequence_names)):
+#         frequencies = [freq_dict.get(codon, 0) for codon in all_codons]
+#         offset = (idx - n_sequences/2) * bar_width + bar_width/2
+#         ax.bar(x + offset, frequencies, bar_width, 
+#                label=name, color=colors[idx], alpha=0.8, edgecolor='black', linewidth=0.5)
+    
+#     # Formatting
+#     xlabel_dict = {
+#         'codon': 'Codon',
+#         'aa': 'Amino Acid',
+#         'aa_codon': 'Amino Acid (Codon)'
+#     }
+#     ax.set_xlabel(xlabel_dict[x_label_type], fontsize=14, fontweight='bold')
+#     ax.set_ylabel('Frequency', fontsize=14, fontweight='bold')
+#     #ax.set_title('Codon Usage Comparison', fontsize=20, fontweight='bold', loc='left')
+#     ax.set_xticks(x)
+    
+#     # Adjust font size based on label type
+#     label_fontsize = 14
+#     ax.set_xticklabels(x_labels, rotation=45, fontsize=label_fontsize, ha='right')
+#     ax.legend(fontsize=10, frameon=False)
+#     ax.grid(axis='y', alpha=0.3, linestyle='--')
+#     ax.set_ylim(0, 1.1)
+#     ax.set_xlim(-1, len(all_codons) +2)
+#     plt.tight_layout()
+    
+#     if save_path is not None:
+#         plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    
+#     plt.show()
+    
+#     return fig, ax
 
 
 
