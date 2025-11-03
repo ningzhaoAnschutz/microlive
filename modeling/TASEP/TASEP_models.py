@@ -1750,6 +1750,8 @@ def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_inten
                                   time_array, trajectory_index=0,
                                   colors=['forestgreen', 'indigo'],
                                   labels=['Signal 1', 'Signal 2'], smooth_window=1,
+                                   figsize=(12, 3),
+                                   verbose=False,
                                   normalize=True):
     """
     Plot a single trajectory for two different signals with proper NaN handling.
@@ -1791,9 +1793,10 @@ def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_inten
     n_valid_first = np.sum(np.isfinite(first_signal))
     n_valid_second = np.sum(np.isfinite(second_signal))
     
-    print(f"Trajectory #{trajectory_index} diagnostics:")
-    print(f"  First signal: {n_valid_first}/{len(first_signal)} valid points")
-    print(f"  Second signal: {n_valid_second}/{len(second_signal)} valid points")
+    if verbose:
+        print(f"Trajectory #{trajectory_index} diagnostics:")
+        print(f"  First signal: {n_valid_first}/{len(first_signal)} valid points")
+        print(f"  Second signal: {n_valid_second}/{len(second_signal)} valid points")
     
     if n_valid_first < 2:
         raise ValueError(f"First signal has insufficient valid data points ({n_valid_first})")
@@ -1808,9 +1811,11 @@ def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_inten
         
         if np.isfinite(first_min) and np.isfinite(first_max) and first_max > first_min:
             first_signal = (first_signal - first_min) / (first_max - first_min)
-            print(f"  First signal normalized: [{first_min:.3f}, {first_max:.3f}] → [0, 1]")
+            if verbose:
+                print(f"  First signal normalized: [{first_min:.3f}, {first_max:.3f}] → [0, 1]")
         else:
-            print(f"  WARNING: First signal not normalized (min={first_min}, max={first_max})")
+            if verbose:
+                print(f"  WARNING: First signal not normalized (min={first_min}, max={first_max})")
             first_signal = first_signal - np.nanmean(first_signal)
         
         # Second signal normalization
@@ -1819,13 +1824,15 @@ def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_inten
         
         if np.isfinite(second_min) and np.isfinite(second_max) and second_max > second_min:
             second_signal = (second_signal - second_min) / (second_max - second_min)
-            print(f"  Second signal normalized: [{second_min:.3f}, {second_max:.3f}] → [0, 1]")
+            if verbose:
+                print(f"  Second signal normalized: [{second_min:.3f}, {second_max:.3f}] → [0, 1]")
         else:
-            print(f"  WARNING: Second signal not normalized (min={second_min}, max={second_max})")
+            if verbose:
+                print(f"  WARNING: Second signal not normalized (min={second_min}, max={second_max})")
             second_signal = second_signal - np.nanmean(second_signal)
 
     # --- Create single plot ---
-    fig, ax = plt.subplots(1, 1, figsize=(12, 3))
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
 
     # --- Plot both signals (handling NaNs) ---
     # Create masks for valid data
@@ -1866,7 +1873,6 @@ def plot_dual_signal_trajectories(matrix_intensity_first_signal_RT, matrix_inten
                 f'({n_valid_first}/{len(first_signal)} pts first, '
                 f'{n_valid_second}/{len(second_signal)} pts second)', 
                 fontsize=16)
-
     plt.tight_layout()
     plt.show()
 

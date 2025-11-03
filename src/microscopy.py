@@ -5462,11 +5462,7 @@ class Utilities():
         -------
         array_a, array_b, particles : (np.ndarray, np.ndarray, List[str])
         """
-        import numpy as np
-        import pandas as pd
-
         df = dataframe.copy()
-
         # Stable unique_particle key
         has_image_id = ('image_id' in df.columns)
         has_cell_id  = ('cell_id'  in df.columns)
@@ -8124,9 +8120,9 @@ class Plots():
                     pass
                 ax.axvline(x=start_lag, color='r', linestyle='--', linewidth=1)
                 ax.axhline(y=de_correlation_threshold_value, color='r', linestyle='--', linewidth=1, label='Decor. Threshold')
-            if plot_title is None:
-                plot_title = f'Linear Fit (Signal {channel_label})'
-            ax.set_title(plot_title, fontsize=10)
+            #if plot_title is None:
+            #    plot_title = f'Linear Fit (Signal {channel_label})'
+            #ax.set_title(plot_title, fontsize=10)
         elif fit_type == 'exponential':
             if index_max_lag_for_fit is not None:
                 G_tau = normalized_correlation[start_lag:index_max_lag_for_fit]
@@ -8178,9 +8174,9 @@ class Plots():
                         ax.plot(dwell_time, G_fitted[dw_index], 'ro', markersize=10)
                         #ax.axvline(x=0, color='r', linestyle='--', linewidth=1)
                         ax.axhline(y=G_fitted[dw_index], color='r', linestyle='--', linewidth=1)
-                        if plot_title is None:
-                            plot_title = f'Exponential Fit (Signal {channel_label})'
-                        ax.set_title(plot_title, fontsize=10)
+                        #if plot_title is None:
+                        #    plot_title = f'Exponential Fit (Signal {channel_label})'
+                        #ax.set_title(plot_title, fontsize=10)
                     else:
                         print("Could not find a time where G(τ) falls below threshold.")
                 except RuntimeError as e:
@@ -8204,6 +8200,17 @@ class Plots():
         # y axis limits
         if y_axes_min_max_list_values is not None:
             ax.set_ylim(y_axes_min_max_list_values[0], y_axes_min_max_list_values[1])
+        else:
+            # calculate the min and max of the y axis based on the data assuming the range given by the mask of start_lag to max_lag_index
+            if max_lag_index is not None:
+                y_min = np.nanmin(normalized_correlation[start_lag:max_lag_index])
+                y_max = np.nanmax(normalized_correlation[start_lag:max_lag_index])
+            else:
+                y_min = np.nanmin(normalized_correlation[start_lag:])
+                y_max = np.nanmax(normalized_correlation[start_lag:])
+            y_range = y_max - y_min
+            ax.set_ylim(y_min - 0.1 * y_range, y_max + 0.1 * y_range)
+
         # x axis limits
         if x_axes_min_max_list_values is not None:
             ax.set_xlim(x_axes_min_max_list_values[0], x_axes_min_max_list_values[1])
