@@ -351,7 +351,8 @@ def plot_sliding_window_cai(
     figsize=(12, 6),
     save_path=None,
     color_map = None,
-    markers = None
+    markers = None,
+    file_type = 'png'
 
 ):
     """

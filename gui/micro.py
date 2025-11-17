@@ -279,7 +279,6 @@ class Plots:
                         normalized_correlation[start_lag:] + error_correlation[start_lag:],
                         color=line_color, alpha=0.1)
         # plotting individual trajectories.
-        print(correlations_array)
         if plot_individual_trajectories and correlations_array is not None:    
             for i in range(correlations_array.shape[0]):
                 ax.plot(lags[start_lag:], correlations_array[i][start_lag:], '-', color='cyan', linewidth=1, alpha=0.5)

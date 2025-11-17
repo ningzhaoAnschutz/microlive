@@ -400,10 +400,12 @@ class Photobleaching:
                 ax.set_title(f"Exponential Fit ch={ch}\nI0={I0_fit:.2f}, k={k_fit:.4f}")
                 ax.legend()
             plt.tight_layout()
-            if self.plot_name is not None:
-                plt.savefig(self.plot_name)
+            #if self.plot_name is not None:
+            #    plt.savefig(self.plot_name)
             if self.show_plot:
                 plt.show()
+            else:
+                plt.close()
         return params
 
     def apply_photobleaching_correction(self):
@@ -487,7 +489,7 @@ class Photobleaching:
                 if masked_pixels_corr.size > 0:
                     mean_intensities_corr[i, ch] = masked_pixels_corr.mean()
                     err_intensities_corr[i, ch] = masked_pixels_corr.std() / np.sqrt(masked_pixels_corr.size)
-        if self.show_plot:
+        if self.show_plot or (self.plot_name is not None):
             orig = [self.image_TZYXC[i].mean() for i in range(T)]
             corr = [corrected_image[i].mean() for i in range(T)]
             plt.figure(figsize=(5,4))
@@ -497,7 +499,12 @@ class Photobleaching:
             plt.ylabel('Mean Intensity')
             plt.legend()
             plt.tight_layout()
-            plt.show()
+            if self.plot_name is not None:
+                plt.savefig(self.plot_name, dpi=300, bbox_inches='tight')
+            if self.show_plot:
+                plt.show()
+            else:  
+                plt.close()
         photobleaching_data = {
             'decay_rates': params,
             'time_array': time_array,
@@ -2815,7 +2822,6 @@ class ParticleTracking:
         Time step size in seconds for random trajectories. Default is 1.0.
     '''
     def __init__(self, image, channels_spots, list_voxels, channels_cytosol, channels_nucleus,
-                 
                  remove_clusters=False, maximum_spots_cluster=None, min_length_trajectory=10,
                  threshold_for_spot_detection=100, masks=None, memory=0, yx_spot_size_in_px=5, z_spot_size_in_px=2,
                  cluster_radius_nm=None, link_particles=True, use_trackpy=False,
@@ -3772,129 +3778,6 @@ class ParticleMotion:
 
         return D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df
 
-    # def calculate_msd(self):
-    #     # Calculation code (as provided)
-    #     if self.remove_drift == True:
-    #         temp_trackpy_df = self.trackpy_dataframe.copy()
-    #         drift = tp.compute_drift(temp_trackpy_df)
-    #         trackpy_df = tp.subtract_drift(temp_trackpy_df.copy(), drift)
-    #         if self.show_plot == True: 
-    #             drift.plot()
-    #             plt.show()
-    #     else:
-    #         trackpy_df = self.trackpy_dataframe.copy()
-    #     # Calculate the MSD
-    #     em_px2 = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
-    #     em_um2 = tp.emsd(trackpy_df, mpp=self.microns_per_pixel, fps=1.0 / self.step_size_in_sec,  max_lagtime=self.max_lagtime)
-        
-    #     if self.max_fit_points < 2:
-    #         max_fit_points = min(2, len(em_um2))  # Need at least 2 points
-    #     elif self.max_fit_points > len(em_um2):
-    #         max_fit_points = len(em_um2)
-    #     else:
-    #         max_fit_points = self.max_fit_points
-        
-    #     # Extract the initial portion for fitting
-    #     fit_times = np.array(em_um2.index[:max_fit_points])
-    #     fit_msd = em_um2.values[:max_fit_points]
-        
-    #     # Perform linear regression on the initial regime
-    #     slope, intercept, r_value, p_value, std_err = linregress(fit_times, fit_msd)
-        
-    #     # Calculate diffusion coefficient (MSD = 4Dt for 2D, slope/4 gives D)
-    #     D_um2_s = slope / 4
-    #     D_px2_s = D_um2_s / (self.microns_per_pixel ** 2)
-        
-    #     # Generate fit line for plotting (extend slightly beyond fit region for visualization)
-    #     fit_line_times = np.linspace(0, fit_times[-1] * 1.2, 50)
-    #     fit_line_msd = slope * fit_line_times + intercept
-        
-    #     # Plotting
-    #     if self.show_plot:
-    #         plt.style.use(['default', 'fivethirtyeight'])
-    #         fig, ax = plt.subplots(figsize=(6, 4))
-            
-    #         # Plot all MSD data
-    #         em_um.plot(style='o', label=r'D = {0:.3f} µm²/s'.format(D_um2_s), ax=ax, color='gray', alpha=0.6)
-            
-    #         # Highlight the fitted region
-    #         ax.plot(fit_times, fit_msd, 'o', color='blue', markersize=8, label='Fitted region')
-            
-    #         # Plot the fit line
-    #         ax.plot(fit_line_times, fit_line_msd, 'r-', linewidth=2, 
-    #                 label=f'Linear fit (R²={r_value**2:.3f})')
-            
-    #         ax.set(
-    #             ylabel=r'$\langle \Delta r^2 \rangle$ [µm$^2$]',
-    #             xlabel='Time lag (s)'
-    #         )
-    #         ax.legend(loc='upper left', fontsize=10)
-    #         ax.grid(True, alpha=0.3)
-            
-    #         if self.plot_name is not None:
-    #             fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
-    #         plt.show()
-
-    #     return D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df
-
-    # def calculate_msd(self):
-    #     # Calculation code (as provided)
-    #     if self.remove_drift == True:
-    #         temp_trackpy_df = self.trackpy_dataframe.copy()
-    #         drift = tp.compute_drift(temp_trackpy_df)
-    #         trackpy_df = tp.subtract_drift(temp_trackpy_df.copy(), drift)
-    #         if self.show_plot == True: 
-    #             drift.plot()
-    #             plt.show()
-    #     else:
-    #         trackpy_df = self.trackpy_dataframe.copy()
-    #     # Calculate the MSD
-    #     em_px = tp.emsd(trackpy_df, mpp=1 , fps=1 / self.step_size_in_sec, max_lagtime=self.max_lagtime)
-    #     # Calculate the diffusion coefficient
-    #     slope = np.linalg.lstsq(np.array(em_px.index)[:, np.newaxis], em_px.values, rcond=None)[0][0]
-    #     D_px2_s = slope / 4
-    #     time_range = em_px.index  # Use the lag times from the MSD data
-    #     model_fit = slope * em_px.index
-    #     D_um2_s = D_px2_s * (self.microns_per_pixel ** 2)
-    #     # if the user provides microns_per_pixel ==1 , print a warning
-    #     if self.microns_per_pixel == 1:
-    #         print("Warning: microns_per_pixel is set to 1. Results are in pixel units.")
-    #     # # Plotting
-    #     # if self.show_plot:
-    #     #     plt.style.use(['default', 'fivethirtyeight'])
-    #     #     fig, ax = plt.subplots(figsize=(6, 4))
-    #     #     em_px.plot(style='o', label= r'D = {0:.3f} px²/s'.format(D_px2_s) + '\n' + r'D = {0:.3f} um²/s'.format(D_um2_s)  , ax=ax)
-    #     #     # Use em.index directly for plotting the fit
-    #     #     ax.plot(em_px.index, slope * em_px.index, label='Linear fit')
-    #     #     ax.set(
-    #     #         ylabel=r'$\langle \Delta r^2 \rangle$ [px$^2$]',
-    #     #         xlabel='time (s)'
-    #     #     )
-    #     #     ax.legend(loc='upper left')
-    #     #     if self.plot_name is not None:
-    #     #         fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
-    #     #     plt.show()
-    #     if self.show_plot:
-    #         plt.style.use(['default', 'fivethirtyeight'])
-    #         fig, ax = plt.subplots(figsize=(6, 4))
-    #         # Convert em_px to µm² by multiplying by microns_per_pixel²
-    #         em_um = em_px * (self.microns_per_pixel ** 2)
-    #         # Plot in µm²
-    #         em_um.plot(style='o', label=r'D = {0:.3f} px²/s'.format(D_px2_s) + '\n' + r'D = {0:.3f} µm²/s'.format(D_um2_s), ax=ax)
-    #         # Convert the fit line to µm² as well
-    #         slope_um = slope * (self.microns_per_pixel ** 2)
-    #         ax.plot(em_um.index, slope_um * em_um.index, label='Linear fit')
-    #         ax.set(
-    #             ylabel=r'$\langle \Delta r^2 \rangle$ [µm$^2$]',
-    #             xlabel='time (s)'
-    #         )
-    #         ax.legend(loc='upper left')
-    #         if self.plot_name is not None:
-    #             fig.savefig(self.plot_name, transparent=False, dpi=360, bbox_inches='tight', format='png')
-    #         plt.show()
-    #     return D_um2_s, D_px2_s, em_px, time_range, model_fit, trackpy_df
-
-
 class CropArray():
     def __init__(self, image, df_crops, crop_size, remove_outliers=True, max_percentile=99.5, selected_time_point=None,normalize_each_particle=False):
         """
@@ -4648,26 +4531,60 @@ class Correlation:
             y[i] = np.nanmedian(x[lo:hi])
         return y
 
-    def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False):
+    # def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False):
+    #     """
+    #     Robust baseline estimator.
+
+    #     Strategy:
+    #       1) Work on positive lags (exclude τ=0) to find plateau.
+    #       2) Smooth with running median (baseline_smooth_window).
+    #       3) Find earliest index after self.start_lag where |d/dτ| <= 2*MAD and the condition holds
+    #          for at least baseline_min_points.
+    #       4) If detection fails, use the last `baseline_plateau_fraction` of positive lags.
+    #       5) Take a weighted trimmed mean (10–90% by default) over that window.
+
+    #     Returns: scalar baseline B (float).
+    #     """
+    #     if np.all(~np.isfinite(mean_corr)):
+    #         return 0.0
+
+    #     # Select positive-lag branch
+    #     if symmetric:
+    #         # symmetric: center at 0
+    #         center = len(lags) // 2
+    #         pos_corr = mean_corr[center + 1:]
+    #         pos_lags = lags[center + 1:]
+    #         pos_w = (weights[center + 1:] if weights is not None else None)
+    #     else:
+    #         pos_corr = mean_corr[1:] if len(mean_corr) > 1 else mean_corr.copy()
+    #         pos_lags = lags[1:] if len(lags) > 1 else lags.copy()
+    #         pos_w = (weights[1:] if (weights is not None and len(weights) > 1) else None)
+
+    def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False, lag_range=None):
         """
-        Robust baseline estimator.
+        Robust baseline estimator with optional lag range restriction.
+            Strategy:
+                1) Work on positive lags (exclude τ=0) to find plateau.
+                2) Smooth with running median (baseline_smooth_window).
+                3) Find earliest index after self.start_lag where |d/dτ| <= 2*MAD and the condition holds
+                for at least baseline_min_points.
+                4) If detection fails, use the last `baseline_plateau_fraction` of positive lags.
+                5) Take a weighted trimmed mean (10–90% by default) over that window.
 
-        Strategy:
-          1) Work on positive lags (exclude τ=0) to find plateau.
-          2) Smooth with running median (baseline_smooth_window).
-          3) Find earliest index after self.start_lag where |d/dτ| <= 2*MAD and the condition holds
-             for at least baseline_min_points.
-          4) If detection fails, use the last `baseline_plateau_fraction` of positive lags.
-          5) Take a weighted trimmed mean (10–90% by default) over that window.
-
-        Returns: scalar baseline B (float).
+            Returns: scalar baseline B (float).
+            if np.all(~np.isfinite(mean_corr)):
+            return 0.0
+        Parameters
+        ----------
+        lag_range : tuple or None
+            If provided, (min_lag, max_lag) to restrict baseline estimation region.
+            For example, (0, self.max_lag) to only use lags from 0 to max_lag.
         """
         if np.all(~np.isfinite(mean_corr)):
             return 0.0
 
         # Select positive-lag branch
         if symmetric:
-            # symmetric: center at 0
             center = len(lags) // 2
             pos_corr = mean_corr[center + 1:]
             pos_lags = lags[center + 1:]
@@ -4677,8 +4594,15 @@ class Correlation:
             pos_lags = lags[1:] if len(lags) > 1 else lags.copy()
             pos_w = (weights[1:] if (weights is not None and len(weights) > 1) else None)
 
+        if lag_range is not None:
+            min_lag, max_lag = lag_range
+            mask = (pos_lags >= min_lag) & (pos_lags <= max_lag)
+            pos_corr = pos_corr[mask]
+            pos_lags = pos_lags[mask]
+            if pos_w is not None:
+                pos_w = pos_w[mask]
+
         if len(pos_corr) < max(self.baseline_min_points, 3):
-            # Too short; fall back to percentile of whatever we have
             return np.nanpercentile(pos_corr[np.isfinite(pos_corr)], self.baseline_percentile) if np.any(np.isfinite(pos_corr)) else 0.0
 
         # Smooth and derivative
@@ -4780,11 +4704,7 @@ class Correlation:
                     elif self.nan_handling == "forward_fill":
                         data1 = local_forward_fill(data1)
                         data2 = local_forward_fill(data2)
-                    # elif self.nan_handling == "ignore":
-                    #     valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-                    #     data1 = data1[valid_mask]
-                    #     data2 = data2[valid_mask]
-                        # Ensure same length before masking to avoid broadcast errors
+                    # Ensure same length before masking to avoid broadcast errors
                     elif self.nan_handling == "ignore":
                         if len(data1) != len(data2):
                             Nmin = min(len(data1), len(data2))
@@ -4796,16 +4716,13 @@ class Correlation:
                     elif self.nan_handling == "zeros":
                         data1 = np.nan_to_num(data1)
                         data2 = np.nan_to_num(data2)
-
                     # align lengths
                     N0 = min(len(data1), len(data2))
                     if N0 < 5:
                         L = 2 * self.max_lag + 1
                         return np.full(L, np.nan), np.zeros(L)
-
                     data1 = data1[:N0]
                     data2 = data2[:N0]
-
                     # constant denominator
                     if self.use_global_mean:
                         denom = global_mean_data1 * global_mean_data2
@@ -4814,20 +4731,15 @@ class Correlation:
                     if not np.isfinite(denom) or denom == 0:
                         L = 2 * self.max_lag + 1
                         return np.full(L, np.nan), np.zeros(L)
-
                     # center
                     c1 = data1 - (global_mean_data1 if self.use_global_mean else np.nanmean(data1))
                     c2 = data2 - (global_mean_data2 if self.use_global_mean else np.nanmean(data2))
-
                     # correlation on centered signals
-                    #raw = np.correlate(c1, c2, mode="full")
                     raw = np.correlate(c2, c1, mode="full")  # swapped order so +j means data2 after data1
                     mid = N0 - 1
-
                     desired_len = 2 * self.max_lag + 1
                     out = np.full(desired_len, np.nan)
                     weights = np.zeros(desired_len, dtype=np.float64)
-
                     # per-lag average (divide by overlap), then normalize by constant denom
                     for j in range(-self.max_lag, self.max_lag + 1):
                         idx_raw = mid + j
@@ -4877,7 +4789,6 @@ class Correlation:
                 current_length = new_length
                 dt_factor *= 2
                 stage += 1
-
             global_lags_idx = np.array(sorted(set(global_lags_idx)), dtype=int)
             idx_map = {lag: idx for idx, lag in enumerate(global_lags_idx)}
 
@@ -4887,7 +4798,6 @@ class Correlation:
                     data2 = self._trim_nans_from_edges(self.secondary_data[i, :]) if self.secondary_data is not None else None
                     if data2 is None:
                         data2 = data1
-
                     # nan handling
                     if self.nan_handling == "mean":
                         m1 = np.nanmean(data1) if len(data1) > 0 else 0.0
@@ -4897,10 +4807,6 @@ class Correlation:
                     elif self.nan_handling == "forward_fill":
                         data1 = local_forward_fill(data1)
                         data2 = local_forward_fill(data2)
-                    # elif self.nan_handling == "ignore":
-                    #     valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-                    #     data1 = data1[valid_mask]
-                    #     data2 = data2[valid_mask]
                     elif self.nan_handling == "ignore":
                         # Ensure same length before masking to avoid broadcast errors
                         if len(data1) != len(data2):
@@ -4913,13 +4819,11 @@ class Correlation:
                     elif self.nan_handling == "zeros":
                         data1 = np.nan_to_num(data1)
                         data2 = np.nan_to_num(data2)
-
                     N = min(len(data1), len(data2))
                     if N < 5:
                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
                     data1 = data1[:N]
                     data2 = data2[:N]
-
                     # constant denominator
                     if self.use_global_mean:
                         denom = global_mean_data1 * global_mean_data2
@@ -4927,16 +4831,13 @@ class Correlation:
                         denom = np.nanmean(data1) * np.nanmean(data2)
                     if not np.isfinite(denom) or denom == 0:
                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-
                     # centered for covariance
                     mean1 = (global_mean_data1 if self.use_global_mean else np.nanmean(data1))
                     mean2 = (global_mean_data2 if self.use_global_mean else np.nanmean(data2))
                     c1_full = data1 - mean1
                     c2_full = data2 - mean2
-
                     out = np.full(len(global_lags_idx), np.nan, dtype=np.float64)
                     wv  = np.zeros(len(global_lags_idx), dtype=np.float64)
-
                     MIN_OVERLAP = 5
                     stage = 0
                     current_c1 = c1_full.copy()
@@ -4988,19 +4889,16 @@ class Correlation:
                         current_raw2 = new_raw2
                         dt *= 2
                         stage += 1
-
                     return out, wv
                 except Exception as e:
                     print(f"Error in process_sample_multi_tau for sample {i}: {e}")
                     return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-
             results = Parallel(n_jobs=-1)(
                 delayed(process_sample_multi_tau)(i) for i in range(self.primary_data.shape[0])
             )
             correlations_array = np.stack([r[0] for r in results], axis=0)
             pair_weights_array = np.stack([r[1] for r in results], axis=0)
             lag_weights_total = np.nansum(pair_weights_array, axis=0)
-
         # ----- Outlier trajectories removal (unchanged policy) -----
         if self.remove_outliers and correlations_array.size > 0:
             traj_means = np.nanmean(correlations_array, axis=1)
@@ -5014,7 +4912,6 @@ class Correlation:
                 print(f"Warning: Removed {num_removed} outlier trajectories "
                       f"(threshold {self.MAD_THRESHOLD_FACTOR}×MAD).")
             correlations_array = correlations_array[keep_mask, :]
-
         # ----- If nothing valid remains -----
         if correlations_array.shape[0] == 0:
             length = correlations_array.shape[1] if correlations_array.ndim > 1 else (
@@ -5027,7 +4924,6 @@ class Correlation:
             else:
                 lags = global_lags_idx * self.time_interval_between_frames_in_seconds
             return mean_correlation, error_correlation, lags, correlations_array, None
-
         # ----- Mean & baseline correction -----
         mean_correlation = np.nanmean(correlations_array, axis=0)
         if not self.multi_tau:
@@ -5068,13 +4964,11 @@ class Correlation:
                 return c - B, B
             elif self.baseline_method in ('auto_plateau', 'percentile'):
                 w = (lag_weights if self.baseline_weight_by_pairs else None)
-                B = self._estimate_baseline(c, lags, weights=w, symmetric=symmetric)
+                B = self._estimate_baseline(c, lags, weights=w, symmetric=symmetric, lag_range=(0, self.max_lag * self.time_interval_between_frames_in_seconds))
                 return c - B, B
             else:
                 return c, 0.0
-
         mean_correlation, B_used = apply_baseline(mean_correlation, lag_weights_total)
-
         # ----- Bootstrap error -----
         num_kept = correlations_array.shape[0]
         if self.use_bootstrap and num_kept > 1:
@@ -5085,7 +4979,6 @@ class Correlation:
                 m = np.nanmean(sample, axis=0)
                 m, _ = apply_baseline(m, lag_weights_total)
                 return m
-
             all_means = np.array(
                 Parallel(n_jobs=-1)(
                     delayed(single_bootstrap_iteration)(_) for _ in range(self.BOOTSTRAP_ITERATIONS)
@@ -5095,7 +4988,6 @@ class Correlation:
             error_correlation = np.nanstd(all_means, axis=0)
         else:
             error_correlation = np.nanstd(correlations_array, axis=0) / np.sqrt(num_kept)
-
         # ----- Linear projection for lag=0 (unchanged policy) -----
         if self.use_linear_projection_for_lag_0 and not self.multi_tau:
             center_idx = self.max_lag
@@ -5132,7 +5024,6 @@ class Correlation:
             error_correlation = error_correlation[center_idx:]
             correlations_array = correlations_array[:, center_idx:]
             lags = lags[center_idx:]
-
         # ----- Plot (unchanged) -----
         dwell_time = None
         if self.show_plot:
@@ -8079,15 +7970,28 @@ class Plots():
                         normalized_correlation[start_lag:] + error_correlation[start_lag:], 
                         color=line_color, alpha=0.1)
         dwell_time = 0
+        
+        # Ensure that the index_max_lag_for_fit is always equal or less than max_lag_index 
+        if max_lag_index is not None:
+            if index_max_lag_for_fit is not None:
+                index_max_lag_for_fit = int(min(index_max_lag_for_fit, max_lag_index))
+            else:
+                index_max_lag_for_fit = int(min(max_lag_index, normalized_correlation.shape[0] - 1))            
+
+        
         if fit_type == 'linear':
             decorrelation_successful = False
             if index_max_lag_for_fit is None:
                 index_max_lag_for_fit = normalized_correlation.shape[0]
             else: 
                 index_max_lag_for_fit = int(index_max_lag_for_fit)
+            
+            
+            
             try:
                 decorrelation_successful = True
-                de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit + start_lag]
+                #de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit + start_lag]
+                de_correlation_threshold_value = normalized_correlation[start_lag] * de_correlation_threshold
                 print(f"Decorrelation threshold value: {de_correlation_threshold_value}")
             except:
                 print('Could not find the decorrelation point automatically. Please provide the index_max_lag_for_fit')
@@ -8209,7 +8113,7 @@ class Plots():
                 y_min = np.nanmin(normalized_correlation[start_lag:])
                 y_max = np.nanmax(normalized_correlation[start_lag:])
             y_range = y_max - y_min
-            ax.set_ylim(y_min - 0.1 * y_range, y_max + 0.1 * y_range)
+            ax.set_ylim(y_min - 0.05 * y_range, y_max + 0.05 * y_range)
 
         # x axis limits
         if x_axes_min_max_list_values is not None:

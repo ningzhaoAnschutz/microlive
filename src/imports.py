@@ -195,7 +195,6 @@ cdict_yellow = {
               (1.0, 0.0, 0.0))
 }
 
-
 yellow_colormap = LinearSegmentedColormap('BlackYellow', cdict_yellow)
 red_colormap = LinearSegmentedColormap('BlackRed', cdict_red)
 green_colormap = LinearSegmentedColormap('BlackGreen', cdict_green)
@@ -210,3 +209,4 @@ color_red = (1.0, 0.0, 0.0)  # Full Red, No Green, No Blue
 color_yellow = (1.0, 1.0, 0.0)  # Full Red, Full Green, No Blue
 
 list_colors_default = [ color_green, color_magenta, color_yellow, color_red]
+
