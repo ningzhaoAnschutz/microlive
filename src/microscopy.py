@@ -107,18 +107,26 @@ except:
 import warnings
 from PyQt5.QtWidgets import QMessageBox
 
+
+import multiprocessing.resource_tracker
+def fix_multiprocessing_cleanup():
+    original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
+    def new_stop(self, use_blocking_lock=False):
+        try:
+            original_stop(self, use_blocking_lock=use_blocking_lock)
+        except (ChildProcessError, OSError):
+            pass
+    multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
+if 'multiprocessing' in sys.modules:
+    fix_multiprocessing_cleanup()
+
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore')
 mpl.rc('image', cmap='viridis')
 plt.style.use('ggplot')
 font_props = {'size': 16}
-
-
-#number_gpus = multiprocessing.cpu_count()
-# if number_gpus >1 : # number_gpus
-#     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-#     os.environ["CUDA_VISIBLE_DEVICES"] =  str(np.random.randint(0,number_gpus,1)[0])        
+    
 
 # Define a custom green colormap from black to green
 cdict_green = {
@@ -516,6 +524,7 @@ class Photobleaching:
         corrected_uint16 = np.clip(corrected_image, 0, 65535).astype(np.uint16)
         return corrected_uint16, photobleaching_data
 
+
 class ReadLif:
     """
     Read .lif files and extract images, metadata, and per-scene laser/spectro info.
@@ -788,6 +797,7 @@ class ConvertFormat:
         img = np.transpose(img, axes=axis_order)
         return img
     
+
 class GaussianFilter():
     '''
     This class is intended to apply high and low bandpass filters to the video. The format of the video must be [Z, Y, X, C]. This class uses **difference_of_gaussians** from skimage.filters.
@@ -949,6 +959,8 @@ class Intensity():
 
     def calculate_intensity(self):
         def return_crop(image: np.ndarray, x: int, y: int, spot_range):
+            # Ensure indices are integers
+            x, y = int(x), int(y)
             return image[y+spot_range[0]:y+(spot_range[-1]+1), x+spot_range[0]:x+(spot_range[-1]+1)].copy()
 
         def return_donut(image, spot_size):
@@ -995,46 +1007,111 @@ class Intensity():
             for i in range(self.number_channels):
                 # Save the original coordinates for this spot for each channel
                 orig_x, orig_y = x_pos, y_pos
+                
+                # --- OPTIMIZATION START ---
+                # Only perform heavy Gaussian fitting if optimization is requested
                 if self.optimize_spot_size:
                     best_fit, best_size = self.optimize_spot_size_method(frame_data[:,:,i], orig_x, orig_y)
                     if best_fit is None:
                         best_size = self.spot_size[sp]
                 else:
+                    # Fast Path: Use 2D Moments for fast Sigma/Amplitude estimation
                     best_size = self.spot_size[sp]
                     half = best_size // 2
                     y_min = max(orig_y - half, 0)
                     y_max = min(orig_y + half + 1, frame_data.shape[0])
                     x_min = max(orig_x - half, 0)
                     x_max = min(orig_x + half + 1, frame_data.shape[1])
-                    spot_data = frame_data[y_min:y_max, x_min:x_max, i]
-                    best_fit, ss_res = self.fit_2D_gaussian(spot_data)
+                    spot_data = frame_data[y_min:y_max, x_min:x_max, i].astype(float)
+                    
+                    try:
+                        # 1. Background subtraction for moment calculation
+                        bg_val = np.min(spot_data)
+                        img_sub = spot_data - bg_val
+                        img_sub[img_sub < 0] = 0
+                        total_mass = np.sum(img_sub) + 1e-9
+
+                        # 2. Grid coordinates
+                        h_crop, w_crop = img_sub.shape
+                        Y, X = np.indices((h_crop, w_crop))
+
+                        # 3. First Moments (Centroid)
+                        com_x = np.sum(X * img_sub) / total_mass
+                        com_y = np.sum(Y * img_sub) / total_mass
+
+                        # 4. Second Moments (Variance -> Sigma)
+                        var_x = np.sum((X - com_x)**2 * img_sub) / total_mass
+                        var_y = np.sum((Y - com_y)**2 * img_sub) / total_mass
+                        
+                        sigma_x_est = np.sqrt(var_x)
+                        sigma_y_est = np.sqrt(var_y)
+
+                        best_fit = {
+                            'amplitude': np.max(img_sub),
+                            'x_position': com_x, 
+                            'y_position': com_y,
+                            'sigma_x': sigma_x_est, 
+                            'sigma_y': sigma_y_est,
+                            'offset': bg_val
+                        }
+                    except:
+                        best_fit = None
+                # --- OPTIMIZATION END ---
+
                 # Use temporary variables for subpixel repositioning so as not to override the original spot center
                 current_x, current_y = orig_x, orig_y
-                if self.allow_subpixel_repositioning:
+                
+                # Only perform iterative search if explicitly requested (and optimization is likely on)
+                if self.allow_subpixel_repositioning and self.optimize_spot_size:
                     improved_fit, improved_x, improved_y = self.search_best_center(frame_data[:,:,i], current_x, current_y, best_size)
                     if improved_fit is not None:
                         best_fit = improved_fit
                         current_x = improved_x
                         current_y = improved_y
+                
+                # If using fast CoM/Moments, update current_x/y to the nearest integer pixel of the CoM
+                elif not self.optimize_spot_size and best_fit is not None:
+                    # Convert local CoM to global coordinates
+                    # Note: recalculate bounds based on original coordinates used for the crop
+                    half = best_size // 2
+                    y_min_static = max(orig_y - half, 0)
+                    x_min_static = max(orig_x - half, 0)
+                    
+                    global_com_x = x_min_static + best_fit['x_position']
+                    global_com_y = y_min_static + best_fit['y_position']
+                    
+                    if not np.isnan(global_com_x) and not np.isnan(global_com_y):
+                        current_x = int(round(global_com_x))
+                        current_y = int(round(global_com_y))
+
                 if best_fit is not None:
                     amplitude = best_fit['amplitude']
                     sigma_x = best_fit['sigma_x']
                     sigma_y = best_fit['sigma_y']    
+                    # Fill the arrays with the calculated (or fitted) values
                     psfs_amplitude[sp,i] = amplitude
-                    psfs_sigma[sp,i] = (sigma_x + sigma_y)/2
+                    psfs_sigma[sp,i] = (sigma_x + sigma_y)/2 if (not np.isnan(sigma_x) and not np.isnan(sigma_y)) else np.nan
                 else:
                     psfs_amplitude[sp,i] = np.nan
                     psfs_sigma[sp,i] = np.nan
+                
                 # use current_x and current_y instead of x_pos and y_pos in the cropping operations
                 half = best_size // 2
-                y_min = max(current_y - half, 0)
-                y_max = min(current_y + half + 1, frame_data.shape[0])
-                x_min = max(current_x - half, 0)
-                x_max = min(current_x + half + 1, frame_data.shape[1])
+                # Ensure integer coordinates for slicing
+                current_y_int = int(current_y)
+                current_x_int = int(current_x)
+                
+                y_min = max(current_y_int - half, 0)
+                y_max = min(current_y_int + half + 1, frame_data.shape[0])
+                x_min = max(current_x_int - half, 0)
+                x_max = min(current_x_int + half + 1, frame_data.shape[1])
+                
                 values_disk = frame_data[y_min:y_max, x_min:x_max, i]
                 crop_size = best_size + self.PIXELS_AROUND_SPOT
                 crop_range = np.arange(-(crop_size - 1)/2,(crop_size-1)/2+1,1,dtype=int)
-                crop_disk_and_donut = return_crop(frame_data[:,:,i], x_pos, y_pos, spot_range=crop_range)
+                
+                # Use the updated integer positions for the final intensity crop
+                crop_disk_and_donut = return_crop(frame_data[:,:,i], current_x_int, current_y_int, spot_range=crop_range)
                 values_donut = return_donut(crop_disk_and_donut, spot_size=best_size)
                 intensities_snr[sp,i], intensities_background_mean[sp,i], intensities_background_std[sp,i] = signal_to_noise_ratio(values_disk, values_donut)
                 # disk_donut calculation
@@ -1050,7 +1127,6 @@ class Intensity():
             np.round(psfs_sigma,4),
             np.round(intensities_total,4)
         )
-
 
 class RemoveExtrema:
     '''
@@ -2302,6 +2378,7 @@ class LineProfile:
         return self.x, self.y, self.intensities
 
 
+
 class TrackPyDetection:
     '''
     This class detects spots in microscope images using TrackPy.
@@ -2360,7 +2437,6 @@ class TrackPyDetection:
         -------
         clusters_and_spots : np.ndarray
             Array with shape (nb_clusters, 4). Each row contains (z, y, x, num_spots_in_cluster).
-            Since clustering is not performed, num_spots_in_cluster is always 1.
         rna_filtered : np.ndarray
             Filtered image array, same shape as input.
         threshold : float
@@ -2388,17 +2464,39 @@ class TrackPyDetection:
             # Automatic threshold using Otsu's method
             image_flat = rna_filtered.flatten()
             threshold = threshold_otsu(image_flat)
+        
         # Detect spots using TrackPy
-        f = tp.locate(rna_filtered, diameter=self.spot_diameter, minmass=threshold,characterize=False)
+        f = tp.locate(rna_filtered, diameter=self.spot_diameter, minmass=threshold, characterize=True)
         # Extract coordinates and intensity
         x = f['x'].values  # x-coordinate
         y = f['y'].values  # y-coordinate
         # Since the image is 2D after projection, z can be set to 0
         z = np.zeros_like(x)
-        size = np.ones_like(x, dtype=int)
+        # We assume the median mass represents a single RNA molecule.
+        if 'mass' in f.columns and len(f) > 0:
+            masses = f['mass'].values
+            # Calculate reference mass (single spot)
+            # We use the median of the lower 50% to avoid skewing by very large clusters
+            sorted_mass = np.sort(masses)
+            num_lower = max(1, len(sorted_mass) // 2)
+            reference_mass = np.median(sorted_mass[:num_lower])
+            
+            if reference_mass <= 0:
+                reference_mass = np.median(masses) # Fallback to standard median
+            
+            if reference_mass > 0:
+                calculated_size = np.round(masses / reference_mass)
+                size = np.maximum(1, calculated_size).astype(int)
+            else:
+                size = np.ones_like(x, dtype=int)
+        else:
+            # Fallback if no mass or no spots
+            size = np.ones_like(x, dtype=int)
+
         clusters_and_spots = np.column_stack((z, y, x, size))
        
         return clusters_and_spots, rna_filtered, threshold
+
 
 
 class BigFISH():
@@ -2434,7 +2532,7 @@ class BigFISH():
     threshold_for_spot_detection: scalar or None.
         Indicates the intensity threshold used for spot detection, the default is None, and indicates that the threshold is calculated automatically.
     '''
-    def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=True):
+    def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False):
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
         self.image = image
@@ -2451,9 +2549,15 @@ class BigFISH():
         self.display_spots_on_multiple_z_planes = display_spots_on_multiple_z_planes  # Displays the ith-z_plane and the detected spots in the planes ith-z_plane+1 and ith-z_plane
         self.use_log_filter_for_spot_detection =use_log_filter_for_spot_detection
         self.threshold_for_spot_detection=threshold_for_spot_detection
-        self.decompose_dense_regions=True
-        self.save_files=save_files
+        # OPTIMIZATION: Default to False for speed
+        self.decompose_dense_regions = decompose_dense_regions 
+        self.save_files = save_files
         self.neighborhood_min_spots_for_cluster = 2
+        # Configurable decompose_dense parameters
+        self.decompose_alpha = decompose_alpha  # impacts number of spots per candidate region (lower = more spots)
+        self.decompose_beta = decompose_beta    # impacts number of candidate regions (higher = more regions)
+        self.decompose_gamma = decompose_gamma  # filtering step to denoise
+        
     def detect(self):
         '''
         This method is intended to detect RNA spots in the cell and Transcription Sites (Clusters) using `Big-FISH <https://github.com/fish-quant/big-fish>`_ Copyright © 2020, Arthur Imbert.
@@ -2492,42 +2596,98 @@ class BigFISH():
         else:
             threshold = detection.automated_threshold_setting(rna_filtered, mask) # thresholding
         spots, _ = detection.spots_thresholding(rna_filtered, mask, threshold, remove_duplicate=True)
-        # Decomposing dense regions        
-        if self.decompose_dense_regions == True:
+        
+        # Decomposing dense regions
+        decompose_successful = False
+        if self.decompose_dense_regions == True and len(spots) > 0:
             try:
-                spots_post_decomposition, _, _ = detection.decompose_dense(image=rna, 
-                                                                        spots=spots, 
-                                                                        voxel_size = (self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx), 
-                                                                        spot_radius = spot_radius_nm,
-                                                                        alpha=0.5,   # alpha impacts the number of spots per candidate region
-                                                                        beta=1,      # beta impacts the number of candidate regions to decompose
-                                                                        gamma=5)     # gamma the filtering step to denoise the image
-            except:
+                spots_post_decomposition, dense_regions, reference_spot = detection.decompose_dense(
+                    image=rna, 
+                    spots=spots, 
+                    voxel_size=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx), 
+                    spot_radius=spot_radius_nm,
+                    alpha=self.decompose_alpha,
+                    beta=self.decompose_beta,
+                    gamma=self.decompose_gamma)
+                decompose_successful = True
+            except Exception as e:
+                # decompose_dense failed - keep original spots
                 spots_post_decomposition = spots
+                decompose_successful = False
         else:
             spots_post_decomposition = spots
+            
+        # Handle empty spots array
+        if len(spots_post_decomposition) == 0:
+            clusters_and_spots = np.zeros((0, 4), dtype=np.float64)
+            return clusters_and_spots, rna_filtered, threshold
+            
         ### CLUSTER DETECTION
-        # clusters_and_spots, Array with shape (nb_clusters, 5) or (nb_clusters, 4). One coordinate per dimension for the clusters centroid (zyx or yx coordinates),
-        #  the number of spots detected in the clusters, and the cluster index
-        # clusters, Array with shape (nb_clusters, 5) or (nb_clusters, 4). One coordinate per dimension for the clusters centroid (zyx or yx coordinates), the number of spots detected in the clusters and its index.
+        # clusters_and_spots_big_fish: Array with shape (nb_spots, 4). [z, y, x, cluster_id] where cluster_id=-1 for isolated spots
+        # clusters: Array with shape (nb_clusters, 5). [z_centroid, y_centroid, x_centroid, nb_spots, cluster_id]
         spots_post_decomposition = spots_post_decomposition.astype(np.float64)
 
-        clusters_and_spots_big_fish, clusters = detection.detect_clusters(spots_post_decomposition, 
-                                            voxel_size=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx),
-                                            radius= self.cluster_radius_nm,
-                                            nb_min_spots = self.neighborhood_min_spots_for_cluster ) #[1] #z,yx,idx, 
-        # select only those clusters_and_spots where last column is -1
-        spots_no_clusters = clusters_and_spots_big_fish[clusters_and_spots_big_fish[:,-1]<0] # ensure to get -1 values.
-        # replace the last column with 1 indicating the cluster size of 1. and this means is a spot, and not a cluster.
-        spots_no_clusters[:,-1] = 1        
-        # remove from clusters_and_spots the spots_no_clusters where the last column is less than 2.
-        clusters_no_spots = clusters[clusters[:,-2]>1]
-        clusters_no_spots = clusters_no_spots[:,0:-1]
-        # concatenate the spots_no_clusters with the clusters
-        clusters_and_spots = np.concatenate((spots_no_clusters, clusters_no_spots), axis=0)
+        clusters_and_spots_big_fish, clusters = detection.detect_clusters(
+            spots_post_decomposition, 
+            voxel_size=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx),
+            radius=self.cluster_radius_nm,
+            nb_min_spots=self.neighborhood_min_spots_for_cluster)
+        
+        # Select isolated spots (cluster_id < 0) and set cluster_size to 1
+        spots_no_clusters = clusters_and_spots_big_fish[clusters_and_spots_big_fish[:,-1] < 0].copy()
+        spots_no_clusters[:,-1] = 1  # Replace cluster_id with cluster_size=1
+        
+        # Select cluster centroids with cluster_size > 1
+        clusters_no_spots = clusters[clusters[:,-2] > 1]
+        clusters_no_spots = clusters_no_spots[:,0:-1]  # Remove cluster_id, keep [z, y, x, nb_spots]
+        
+        # Concatenate isolated spots and cluster centroids
+        if len(spots_no_clusters) > 0 and len(clusters_no_spots) > 0:
+            clusters_and_spots = np.concatenate((spots_no_clusters, clusters_no_spots), axis=0)
+        elif len(spots_no_clusters) > 0:
+            clusters_and_spots = spots_no_clusters
+        elif len(clusters_no_spots) > 0:
+            clusters_and_spots = clusters_no_spots
+        else:
+            clusters_and_spots = np.zeros((0, 4), dtype=np.float64)
+        # We run this regardless of decompose_successful, because decompose_dense 
+        # might run without error but fail to actually split a large blob.
+        if len(clusters_and_spots) > 0:
+            # Calculate intensity for each spot/cluster
+            spot_intensities = []
+            for spot in clusters_and_spots:
+                z, y, x = int(spot[0]), int(spot[1]), int(spot[2])
+                # Get max intensity in a small region around the spot
+                z_min, z_max = max(0, z-1), min(rna.shape[0], z+2)
+                y_min, y_max = max(0, y-self.yx_spot_size_in_px), min(rna.shape[1], y+self.yx_spot_size_in_px+1)
+                x_min, x_max = max(0, x-self.yx_spot_size_in_px), min(rna.shape[2], x+self.yx_spot_size_in_px+1)
+                intensity = np.max(rna[z_min:z_max, y_min:y_max, x_min:x_max])
+                spot_intensities.append(intensity)
+            
+            if len(spot_intensities) > 0:
+                # Use a robust estimate: median of lower 50% intensities as reference for single spot
+                sorted_intensities = np.sort(spot_intensities)
+                n_lower = max(1, len(sorted_intensities) // 2)
+                reference_intensity = np.median(sorted_intensities[:n_lower])
+                
+                if reference_intensity > 0:
+                    # Estimate cluster_size for spots with high intensity
+                    for i, intensity in enumerate(spot_intensities):
+                        current_size = clusters_and_spots[i, 3]
+                        estimated_size = max(1, int(np.round(intensity / reference_intensity)))
+                        
+                        # --- MODIFICATION START ---
+                        # Only update isolated spots (cluster_size=1) that appear to be clusters.
+                        # We STRICTLY check if current_size == 1 to prioritize Big-FISH's geometric detection.
+                        # If Big-FISH says size > 1, we trust it and do NOT use intensity.
+                        if current_size == 1 and estimated_size > 1:
+                            clusters_and_spots[i, 3] = estimated_size
+                        # --- MODIFICATION END ---
+        
         ## PLOTTING
-        try:
-            if self.save_files == True:
+        # OPTIMIZATION: Only plot if explicitly requested
+        if self.save_files == True:
+            try:
                 if not(self.image_name is None):
                     path_output_elbow= str(self.image_name) +'__elbow_'+ '_ch_' + str(self.channels_spots) + '.png'
                     plot.plot_elbow(rna, 
@@ -2538,35 +2698,36 @@ class BigFISH():
                         plt.show()
                     else:
                         plt.close()
-        except:
-            print('not showing elbow plot')
-        central_slice = rna.shape[0]//2
-        if self.save_all_images:
-            range_plot_images = range(0, rna.shape[0])
-        else:
-            range_plot_images = range(central_slice,central_slice+1)      
-        for i in range_plot_images:
-            if (i==central_slice) and (self.show_plot ==True):
-                print('Z-Slice: ', str(i))
-            image_2D = rna_filtered[i,:,:]
-            if i > 1 and i<rna.shape[0]-1:
-                if self.display_spots_on_multiple_z_planes == True:
-                    # Displays the ith-z_plane and the detected spots in the planes ith-z_plane+1 and ith-z_plane-1
-                    clusters_and_spots_z = clusters_and_spots[(clusters_and_spots[:,0]>=i-1) & (clusters_and_spots[:,0]<=i+2) ] 
+            except:
+                print('not showing elbow plot')
+            
+            central_slice = rna.shape[0]//2
+            if self.save_all_images:
+                range_plot_images = range(0, rna.shape[0])
+            else:
+                range_plot_images = range(central_slice,central_slice+1)      
+            
+            for i in range_plot_images:
+                if (i==central_slice) and (self.show_plot ==True):
+                    print('Z-Slice: ', str(i))
+                image_2D = rna_filtered[i,:,:]
+                if i > 1 and i<rna.shape[0]-1:
+                    if self.display_spots_on_multiple_z_planes == True:
+                        # Displays the ith-z_plane and the detected spots in the planes ith-z_plane+1 and ith-z_plane-1
+                        clusters_and_spots_z = clusters_and_spots[(clusters_and_spots[:,0]>=i-1) & (clusters_and_spots[:,0]<=i+2) ] 
+                    else:
+                        clusters_and_spots_z = clusters_and_spots[clusters_and_spots[:,0]==i]
                 else:
                     clusters_and_spots_z = clusters_and_spots[clusters_and_spots[:,0]==i]
-            else:
-                clusters_and_spots_z = clusters_and_spots[clusters_and_spots[:,0]==i]
-            if self.save_all_images:
-                path_output= str(self.image_name) + '_ch_' + str(self.channels_spots) +'_slice_'+ str(i) +'.png'
-            else:
-                path_output= str(self.image_name) + '_ch_' + str(self.channels_spots) +'.png'
-            if not(self.image_name is None) and (i==central_slice) and (self.show_plot ==True): # saving only the central slice
-                show_figure_in_cli = True
-            else:
-                show_figure_in_cli = False                
-            if not(self.image_name is None):
-                if self.save_files == True:
+                if self.save_all_images:
+                    path_output= str(self.image_name) + '_ch_' + str(self.channels_spots) +'_slice_'+ str(i) +'.png'
+                else:
+                    path_output= str(self.image_name) + '_ch_' + str(self.channels_spots) +'.png'
+                if not(self.image_name is None) and (i==central_slice) and (self.show_plot ==True): # saving only the central slice
+                    show_figure_in_cli = True
+                else:
+                    show_figure_in_cli = False                
+                if not(self.image_name is None):
                     try:
                         # spots_to_plot are clusters where clusters_to_plot[3]< 2
                         spots_to_plot = clusters_and_spots_z[clusters_and_spots_z[:,3]<=1]
@@ -2589,8 +2750,9 @@ class BigFISH():
                         plt.show()
                     else:
                         plt.close()
-            del clusters_and_spots_z
+                del clusters_and_spots_z
         return clusters_and_spots, rna_filtered, threshold
+
 
 
 class SpotDetection():
@@ -3054,10 +3216,13 @@ class ParticleTracking:
                 for ch in range(self.number_color_channels):
                     filtered_image_stack[i, :, :, :, ch] = list_filtered_images[i][ch]
             
+
+            
             def particle_linking(df, search_range=np.linspace(0.5, 5, 5),
                     min_length_trajectory=10, memory=0, pos_columns=['x', 'y', 'z']):
                 list_df = []
                 quality_metrics = []
+                metric_threshold = 3  # minimal threshold just to remove noise
                 for search_distance in search_range:
                     try:
                         linked = tp.link(df, search_distance, pos_columns=pos_columns,
@@ -3072,17 +3237,20 @@ class ParticleTracking:
                             list_df.append(pd.DataFrame())
                             quality_metrics.append(0)
                             continue
-                    filtered = tp.filter_stubs(linked, threshold=min_length_trajectory)
-                    if 'particle' in filtered.columns:
-                        num_trajectories = len(filtered['particle'].unique())
-                        avg_length = (filtered.groupby('particle').size().mean()
+                    list_df.append(linked.copy())
+                    temp_filtered = tp.filter_stubs(linked, threshold=metric_threshold)
+                    if 'particle' in temp_filtered.columns:
+                        num_trajectories = len(temp_filtered['particle'].unique())
+                        avg_length = (temp_filtered.groupby('particle').size().mean()
                                     if num_trajectories > 0 else 0)
                         metric = num_trajectories * avg_length
                     else:
                         metric = 0
-                    list_df.append(filtered)
                     quality_metrics.append(metric)
-                return list_df[np.argmax(quality_metrics)]
+                best_linked = list_df[np.argmax(quality_metrics)]
+                if best_linked.empty:
+                    return best_linked
+                return tp.filter_stubs(best_linked, threshold=min_length_trajectory)
 
             def linking_2D(df, search_distance=10, min_length_trajectory=10,
                         memory=0, pos_columns=['x', 'y']):
@@ -4385,6 +4553,7 @@ class Correlation:
         color_channel=0,
         start_lag=0,
         line_color='blue',
+        line_color_fit ='red',
         correct_baseline=False,
         baseline_offset=None,
         use_global_mean=False,
@@ -4401,7 +4570,6 @@ class Correlation:
         multi_tau=False,
         multi_tau_raw_points: int = 20,
         multi_tau_bins_per_stage: int = 8,
-
         # --- New baseline parameters ---
         baseline_method: str = 'auto_plateau',     # 'auto_plateau' | 'exp_tail' | 'percentile' | 'none'
         baseline_plateau_fraction: float = 0.25,   # fallback: last fraction of positive lags
@@ -4409,6 +4577,7 @@ class Correlation:
         baseline_smooth_window: int = 7,           # odd number
         baseline_min_points: int = 5,
         baseline_weight_by_pairs: bool = True,
+        figsize=(8, 6),
     ):
         # Optional shift to remove leading NaNs
         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
@@ -4461,6 +4630,7 @@ class Correlation:
         self.color_channel = color_channel
         self.start_lag = start_lag
         self.line_color = line_color
+        self.line_color_fit = line_color_fit
         self.plot_title = plot_title
         self.fit_type = fit_type
         self.de_correlation_threshold =  max(de_correlation_threshold, 0.0)
@@ -4491,6 +4661,7 @@ class Correlation:
         self.multi_tau = multi_tau
         self.multi_tau_raw_points = multi_tau_raw_points
         self.multi_tau_bins_per_stage = multi_tau_bins_per_stage
+        self.figsize = figsize
 
     # ------------------------- helpers -------------------------
 
@@ -4530,35 +4701,6 @@ class Correlation:
             hi = min(len(x), i + half + 1)
             y[i] = np.nanmedian(x[lo:hi])
         return y
-
-    # def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False):
-    #     """
-    #     Robust baseline estimator.
-
-    #     Strategy:
-    #       1) Work on positive lags (exclude τ=0) to find plateau.
-    #       2) Smooth with running median (baseline_smooth_window).
-    #       3) Find earliest index after self.start_lag where |d/dτ| <= 2*MAD and the condition holds
-    #          for at least baseline_min_points.
-    #       4) If detection fails, use the last `baseline_plateau_fraction` of positive lags.
-    #       5) Take a weighted trimmed mean (10–90% by default) over that window.
-
-    #     Returns: scalar baseline B (float).
-    #     """
-    #     if np.all(~np.isfinite(mean_corr)):
-    #         return 0.0
-
-    #     # Select positive-lag branch
-    #     if symmetric:
-    #         # symmetric: center at 0
-    #         center = len(lags) // 2
-    #         pos_corr = mean_corr[center + 1:]
-    #         pos_lags = lags[center + 1:]
-    #         pos_w = (weights[center + 1:] if weights is not None else None)
-    #     else:
-    #         pos_corr = mean_corr[1:] if len(mean_corr) > 1 else mean_corr.copy()
-    #         pos_lags = lags[1:] if len(lags) > 1 else lags.copy()
-    #         pos_w = (weights[1:] if (weights is not None and len(weights) > 1) else None)
 
     def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False, lag_range=None):
         """
@@ -5039,6 +5181,7 @@ class Correlation:
                     plot_name=self.plot_name,
                     save_plots=self.save_plots,
                     line_color=self.line_color,
+                    line_color_fit=self.line_color_fit,
                     plot_title=self.plot_title,
                     fit_type=self.fit_type,
                     de_correlation_threshold=self.de_correlation_threshold,
@@ -5046,6 +5189,7 @@ class Correlation:
                     plot_individual_trajectories=self.plot_individual_trajectories,
                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
+                    figsize=self.figsize,
                 )
             else:
                 dwell_time = Plots().plot_crosscorrelation(
@@ -5062,6 +5206,7 @@ class Correlation:
                     normalize_plot_with_g0=self.normalize_plot_with_g0,
                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
+
                 )
 
         return mean_correlation, error_correlation, lags, correlations_array, dwell_time
@@ -5409,71 +5554,7 @@ class Utilities():
 
         return arr_a, arr_b, particles
 
-    # def shift_trajectories(
-    #     self,
-    #     array_ch0: np.ndarray,
-    #     array_ch1: np.ndarray = None,
-    #     cut_off_index: int = None,
-    #     min_percentage_data_in_trajectory: float = 0.1,
-    #     max_missing_frames: int = None  # maximum allowed missing (NaN) values *internally*
-    # ) -> np.ndarray:
-    #     """
-    #     Shift trajectories (rows) to remove leading NaNs and trim them to a common length.
-    #     Additionally, remove any trajectory that contains more than a specified number
-    #     of internal NaNs (i.e. missing values between the first and last valid data points).
-
-    #     Parameters:
-    #         array_ch0 (np.ndarray): 2D array (trajectories x time) for channel 0.
-    #         array_ch1 (np.ndarray, optional): 2D array for channel 1 (same shape as array_ch0).
-    #         cut_off_index (int, optional): Maximum number of columns (time points) to keep.
-    #         min_percentage_data_in_trajectory (float, optional): Minimum fraction of valid (non-NaN) data required.
-    #         max_missing_frames (int, optional): Maximum number of missing values allowed within the internal 
-    #             part of the trajectory (i.e. ignoring leading and trailing NaNs).
-
-    #     Returns:
-    #         np.ndarray: Tuple (array_ch0, array_ch1) if array_ch1 is provided; otherwise just array_ch0,
-    #                     after shifting, trimming, and filtering.
-    #     """
-    #     if cut_off_index is not None and cut_off_index > array_ch0.shape[1]:
-    #         raise ValueError("The cut_off_index is larger than the number of frames in the trajectories.")
-    #     n_time = array_ch0.shape[1]
-    #     relative_threshold = n_time * (1 - min_percentage_data_in_trajectory)
-    #     mask_relative = np.count_nonzero(np.isnan(array_ch0), axis=1) <= relative_threshold
-    #     def count_internal_nans(row):
-    #         valid_idx = np.where(~np.isnan(row))[0]
-    #         if valid_idx.size == 0:
-    #             return 0  # row is entirely NaN (should be filtered later by mask_relative)
-    #         first_valid = valid_idx[0]
-    #         last_valid = valid_idx[-1]
-    #         return np.count_nonzero(np.isnan(row[first_valid:last_valid + 1]))
-    #     if max_missing_frames is not None:
-    #         mask_absolute = np.array([count_internal_nans(row) <= max_missing_frames for row in array_ch0])
-    #         mask = mask_relative & mask_absolute
-    #     else:
-    #         mask = mask_relative
-    #     array_ch0 = array_ch0[mask]
-    #     if array_ch1 is not None:
-    #         array_ch1 = array_ch1[mask]
-    #     if array_ch0.shape[0] == 0:
-    #         raise ValueError("All trajectories have more than the allowed missing data (relative and/or internal).")
-    #     array_ch0 = Utilities().shift_initial_nans(array_ch0)
-    #     if array_ch1 is not None:
-    #         array_ch1 = Utilities().shift_initial_nans(array_ch1)
-    #     last_valid_columns = Utilities().find_last_valid_column(array_ch0)
-    #     array_ch0 = array_ch0[:, :last_valid_columns]
-    #     if array_ch1 is not None:
-    #         array_ch1 = array_ch1[:, :last_valid_columns]
-    #     max_index = int(np.nanmax(np.argwhere(~np.isnan(array_ch0))[:, 1])) + 1
-    #     if cut_off_index is None:
-    #         cut_off_index = max_index
-    #     else:
-    #         cut_off_index = min(max_index, cut_off_index)
-    #     array_ch0 = array_ch0[:, :cut_off_index]
-    #     if array_ch1 is not None:
-    #         array_ch1 = array_ch1[:, :cut_off_index]
-    #     return (array_ch0, array_ch1) if array_ch1 is not None else array_ch0
-        
-
+    
     def parse_bool_or_int(self, value):
         try:
             int_value = int(value)
@@ -7926,7 +8007,7 @@ class Plots():
             ax.set_yscale('log')
         plt.tight_layout()        
         if save_plots:
-            plt.savefig(plot_name, dpi=96)
+            plt.savefig(plot_name, dpi=300)
         plt.show()
         return None
 
@@ -7939,7 +8020,8 @@ class Plots():
                             channel_label=0, 
                             index_max_lag_for_fit=None, 
                             start_lag=0,
-                            line_color='blue', 
+                            line_color='blue',
+                            line_color_fit='red',
                             plot_title=None, 
                             fit_type='linear', 
                             de_correlation_threshold=0.05, 
@@ -7950,12 +8032,14 @@ class Plots():
                             plot_individual_trajectories=False,
                             y_axes_min_max_list_values = None,
                             x_axes_min_max_list_values = None,
+                            figsize=(8,4),
                             ):
-
+        # restore default matplotlib parameters
+        plt.rcdefaults()
         def single_exponential_decay(tau, A, tau_c, C):
             return A * np.exp(-tau / tau_c) + C
         start_lag = int(start_lag)
-        fig, ax = plt.subplots(1, 1, figsize=(6,4))
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
         fig.patch.set_facecolor('white')
         ax.set_facecolor('white')
         # Normalize correlation if requested
@@ -7964,7 +8048,8 @@ class Plots():
         else:
             normalized_correlation = mean_correlation
         # Plot correlation with error bands
-        ax.plot(lags[start_lag:], normalized_correlation[start_lag:], 'o-', color=line_color, linewidth=2, label='Mean', alpha=0.5)
+        ax.plot(lags[start_lag:], normalized_correlation[start_lag:], 'o-', 
+                color=line_color, linewidth=2, label='Mean', alpha=0.5, markersize=10)
         ax.fill_between(lags[start_lag:], 
                         normalized_correlation[start_lag:] - error_correlation[start_lag:], 
                         normalized_correlation[start_lag:] + error_correlation[start_lag:], 
@@ -7985,9 +8070,6 @@ class Plots():
                 index_max_lag_for_fit = normalized_correlation.shape[0]
             else: 
                 index_max_lag_for_fit = int(index_max_lag_for_fit)
-            
-            
-            
             try:
                 decorrelation_successful = True
                 #de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit + start_lag]
@@ -8014,7 +8096,7 @@ class Plots():
                     mask = proj_vals >= 0
                     proj_lags = proj_lags[mask]
                     proj_vals = proj_vals[mask]
-                    ax.plot(proj_lags, proj_vals, 'r-', label='Linear Fit')
+                    ax.plot(proj_lags, proj_vals, '-', color=self.line_color_fit, label='Linear Fit')
                     #ax.plot(total_lags, line, 'r-', label='Linear Fit')
                     max_value = autocorrelations[0]*0.8
                     text_str = f"Dwell Time: {dwell_time:.1f}"
@@ -8024,9 +8106,6 @@ class Plots():
                     pass
                 ax.axvline(x=start_lag, color='r', linestyle='--', linewidth=1)
                 ax.axhline(y=de_correlation_threshold_value, color='r', linestyle='--', linewidth=1, label='Decor. Threshold')
-            #if plot_title is None:
-            #    plot_title = f'Linear Fit (Signal {channel_label})'
-            #ax.set_title(plot_title, fontsize=10)
         elif fit_type == 'exponential':
             if index_max_lag_for_fit is not None:
                 G_tau = normalized_correlation[start_lag:index_max_lag_for_fit]
@@ -8073,14 +8152,11 @@ class Plots():
                     if len(below_threshold) > 0:
                         dw_index = below_threshold[0]
                         dwell_time = taus[dw_index]
-                        ax.plot(taus, G_fitted, color='r', linestyle='-', 
-                                label=f'Fit: tau_c={tau_c_fitted:.1f}, Decorr={dwell_time:.1f}')
-                        ax.plot(dwell_time, G_fitted[dw_index], 'ro', markersize=10)
-                        #ax.axvline(x=0, color='r', linestyle='--', linewidth=1)
-                        ax.axhline(y=G_fitted[dw_index], color='r', linestyle='--', linewidth=1)
-                        #if plot_title is None:
-                        #    plot_title = f'Exponential Fit (Signal {channel_label})'
-                        #ax.set_title(plot_title, fontsize=10)
+                        ax.plot(taus, G_fitted, color=line_color_fit, linestyle='-', 
+                                label=f'Fit: tau_c={tau_c_fitted:.1f}, Decorr={dwell_time:.1f}', linewidth=3)
+                        #ax.plot(dwell_time, G_fitted[dw_index], 'o', color=self.line_color_fit, markersize=10, marker=self.line_color_fit)
+                        ax.plot(dwell_time, G_fitted[dw_index], 'o', color=line_color_fit, markersize=10, linewidth=3)
+                        ax.axhline(y=G_fitted[dw_index], color='dimgray', linestyle='--', linewidth=1)
                     else:
                         print("Could not find a time where G(τ) falls below threshold.")
                 except RuntimeError as e:
@@ -8094,13 +8170,18 @@ class Plots():
             ax.set_ylabel(r"$G(\tau)/G(0)$")
         else:
             ax.set_ylabel(r"$G(\tau)$")
-        ax.grid(True)
+        ax.grid(False)
         if max_lag_index is not None:
             max_lag_index = int(max_lag_index)
             if max_lag_index >= len(lags):
                 max_lag_index = len(lags) - 1
                 print('Warning: max_lag_index is out of range. Setting it to the last index')
             ax.set_xlim(lags[start_lag]-1, lags[max_lag_index])
+        # axis text size
+        ax.tick_params(axis='both', which='major', labelsize=16)
+        # axis labels size
+        ax.xaxis.label.set_size(18)
+        ax.yaxis.label.set_size(18)
         # y axis limits
         if y_axes_min_max_list_values is not None:
             ax.set_ylim(y_axes_min_max_list_values[0], y_axes_min_max_list_values[1])
@@ -8120,7 +8201,7 @@ class Plots():
             ax.set_xlim(x_axes_min_max_list_values[0], x_axes_min_max_list_values[1])
         fig.tight_layout()
         if save_plots and plot_name is not None:
-            plt.savefig(plot_name, dpi=96)
+            plt.savefig(plot_name, dpi=300)
         plt.show()
         return dwell_time
     

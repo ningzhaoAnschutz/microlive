@@ -30,6 +30,11 @@ sys.path.insert(0, os.path.join(repo_root, "src"))
 src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
 sys.path.append(str(src_dir))
 
+# Suppress macOS native warnings
+if sys.platform == 'darwin':
+    os.environ['QT_MAC_WANTS_LAYER'] = '1'
+    os.environ['QT_LOGGING_RULES'] = '*.debug=false;qt.qpa.*=false'
+
 from imports import *
 # PyQt5 imports
 from PyQt5.QtCore import (
@@ -100,6 +105,18 @@ from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass
 from trackpy.linking.utils import SubnetOversizeException
 
+
+import multiprocessing.resource_tracker
+def fix_multiprocessing_cleanup():
+    original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
+    def new_stop(self, use_blocking_lock=False):
+        try:
+            original_stop(self, use_blocking_lock=use_blocking_lock)
+        except (ChildProcessError, OSError):
+            pass
+    multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
+if 'multiprocessing' in sys.modules:
+    fix_multiprocessing_cleanup()
 
 # =============================================================================
 # UI DIALOGS, WIDGET, PLOTTING CLASSES
@@ -477,209 +494,335 @@ class Plots:
             fig.tight_layout()
         return max_lag
 
+# class Metadata:
+#     def __init__(
+#         self,
+#         correct_baseline,
+#         data_folder_path,
+#         list_images,
+#         list_names,
+#         voxel_yx_nm,
+#         voxel_z_nm,
+#         channel_names,
+#         number_color_channels,
+#         list_time_intervals,
+#         time_interval_value,
+#         bit_depth,
+#         image_stack,
+#         segmentation_mode,
+#         selected_image_index,
+#         channels_spots,
+#         channels_cytosol,
+#         channels_nucleus,
+#         min_length_trajectory,
+#         yx_spot_size_in_px,
+#         z_spot_size_in_px,
+#         cluster_radius_nm,
+#         maximum_spots_cluster,
+#         separate_clusters_and_spots,
+#         maximum_range_search_pixels,
+#         memory,
+#         de_correlation_threshold,
+#         max_spots_for_threshold,
+#         threshold_spot_detection,
+#         user_selected_threshold,
+#         image_source_combo,
+#         use_fixed_size_for_intensity_calculation,
+#         correlation_fit_type,
+#         index_max_lag_for_fit,
+#         photobleaching_calculated,
+#         min_percentage_data_in_trajectory,
+#         use_maximum_projection,
+#         photobleaching_mode,
+#         photobleaching_radius,
+#         file_path,
+#         use_ml_checkbox,
+#         ml_threshold_input,
+#         link_using_3d_coordinates,
+#         colocalization_method,
+#         colocalization_threshold_value,
+#         multi_tau
+#     ):
+#         # --- Correlation Tab ---
+#         self.correct_baseline = correct_baseline
+#         self.de_correlation_threshold = de_correlation_threshold
+#         self.correlation_fit_type = correlation_fit_type
+#         self.min_percentage_data_in_trajectory = min_percentage_data_in_trajectory
+#         self.index_max_lag_for_fit = index_max_lag_for_fit
+
+#         # --- General / Image Loading ---
+#         self.data_folder_path = data_folder_path
+#         self.list_images = list_images
+#         self.list_names = list_names
+#         self.voxel_yx_nm = voxel_yx_nm
+#         self.voxel_z_nm = voxel_z_nm
+#         self.channel_names = channel_names
+#         self.number_color_channels = number_color_channels
+#         self.list_time_intervals = list_time_intervals
+#         self.time_interval_value = time_interval_value
+#         self.bit_depth = bit_depth
+#         self.image_stack = image_stack
+#         self.selected_image_index = selected_image_index
+#         self.use_maximum_projection = use_maximum_projection
+#         self.segmentation_mode = segmentation_mode
+
+#         # --- Tracking Tab ---
+#         self.channels_spots = channels_spots
+#         self.channels_cytosol = channels_cytosol
+#         self.channels_nucleus = channels_nucleus
+#         self.min_length_trajectory = min_length_trajectory
+#         self.yx_spot_size_in_px = yx_spot_size_in_px
+#         self.z_spot_size_in_px = z_spot_size_in_px
+#         self.cluster_radius_nm = cluster_radius_nm
+#         self.maximum_spots_cluster = maximum_spots_cluster
+#         self.separate_clusters_and_spots = separate_clusters_and_spots
+#         self.maximum_range_search_pixels = maximum_range_search_pixels
+#         self.memory = memory
+#         self.max_spots_for_threshold = max_spots_for_threshold
+#         self.threshold_spot_detection = threshold_spot_detection
+#         self.user_selected_threshold = user_selected_threshold
+#         self.image_source_combo = image_source_combo
+#         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
+#         self.link_using_3d_coordinates = link_using_3d_coordinates
+#         self.multi_tau = multi_tau
+
+#         # --- Photobleaching Tab ---
+#         self.photobleaching_calculated = photobleaching_calculated
+#         self.photobleaching_mode = photobleaching_mode
+#         self.photobleaching_radius = photobleaching_radius
+
+#         # --- File Path for metadata ---
+#         self.file_path = file_path
+
+#         # --- Machine Learning ---
+#         self.use_ml_checkbox = use_ml_checkbox
+#         self.ml_threshold_input = ml_threshold_input
+
+#         # --- Colocalization Parameters ---
+#         self.colocalization_method = colocalization_method
+#         self.colocalization_threshold_value = colocalization_threshold_value
+
+#     def write_metadata(self):
+#         """
+#         Write out the metadata parameters, grouped by GUI tab or functionality,
+#         to a text file specified by `self.file_path`.
+#         """
+#         number_spaces_pound_sign = 60  
+#         try:
+#             with open(self.file_path, 'w') as fd:
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nAUTHOR INFORMATION')
+#                 try:
+#                     fd.write('\n    Author: ' + getpass.getuser())
+#                     fd.write('\n    Hostname: ' + socket.gethostname() + '\n')
+#                 except:
+#                     pass
+#                 fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
+#                 fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
+#                 fd.write('\n    Operating System: ' + sys.platform + '\n')
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 # General Parameters
+#                 fd.write('\nGENERAL INFORMATION')
+#                 fd.write('\n    data_folder_path: ' + str(self.data_folder_path))
+#                 fd.write('\n    list_images length: ' + str(len(self.list_images) if self.list_images else 0))
+#                 fd.write('\n    list_names: ' + str(self.list_names))
+#                 fd.write('\n    list_time_intervals: ' + str(self.list_time_intervals) + '\n')
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nSELECTED IMAGE')
+#                 fd.write('\n    selected_image_name: ' + str(self.list_names[self.selected_image_index]))
+#                 fd.write('\n    time_interval_value: ' + str(self.time_interval_value))
+#                 fd.write('\n    voxel_yx_nm: ' + str(self.voxel_yx_nm))
+#                 fd.write('\n    voxel_z_nm: ' + str(self.voxel_z_nm))
+#                 fd.write('\n    channel_names: ' + str(self.channel_names))
+#                 fd.write('\n    number_color_channels: ' + str(self.number_color_channels))
+#                 fd.write('\n    bit_depth: ' + str(self.bit_depth))
+#                 fd.write('\n    selected_image_index: ' + str(self.selected_image_index))
+#                 if self.image_stack is not None:
+#                     fd.write('\n    image_stack shape: ' + str(self.image_stack.shape))
+#                 else:
+#                     fd.write('\n    image_stack shape: None')
+#                 fd.write('\n')
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nSEGMENTATION MODE')
+#                 fd.write('\n    segmentation_mode: ' + str(self.segmentation_mode))
+#                 fd.write('\n')
+#                 # Photobleaching Parameters
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nPHOTOBLEACHING')
+#                 fd.write('\n    photobleaching_calculated: ' + str(self.photobleaching_calculated))
+#                 fd.write('\n    photobleaching_mode: ' + str(self.photobleaching_mode))
+#                 fd.write('\n    photobleaching_radius: ' + str(self.photobleaching_radius))
+#                 fd.write('\n')
+#                 # Tracking Parameters
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nTRACKING PARAMETERS')
+#                 fd.write('\n    channels_spots: ' + str(self.channels_spots))
+#                 fd.write('\n    channels_cytosol: ' + str(self.channels_cytosol))
+#                 fd.write('\n    channels_nucleus: ' + str(self.channels_nucleus))
+#                 fd.write('\n    min_length_trajectory: ' + str(self.min_length_trajectory))
+#                 fd.write('\n    yx_spot_size_in_px: ' + str(self.yx_spot_size_in_px))
+#                 fd.write('\n    z_spot_size_in_px: ' + str(self.z_spot_size_in_px))
+#                 fd.write('\n    cluster_radius_nm: ' + str(self.cluster_radius_nm))
+#                 fd.write('\n    maximum_spots_cluster: ' + str(self.maximum_spots_cluster))
+#                 fd.write('\n    separate_clusters_and_spots: ' + str(self.separate_clusters_and_spots))
+#                 fd.write('\n    maximum_range_search_pixels: ' + str(self.maximum_range_search_pixels))
+#                 fd.write('\n    memory: ' + str(self.memory))
+#                 fd.write('\n    max_spots_for_threshold: ' + str(self.max_spots_for_threshold))
+#                 fd.write('\n    threshold_spot_detection: ' + str(self.threshold_spot_detection))
+#                 fd.write('\n    user_selected_threshold: ' + str(self.user_selected_threshold))
+#                 fd.write('\n    use_fixed_size_for_intensity_calculation: ' + str(self.use_fixed_size_for_intensity_calculation))
+#                 fd.write('\n    link_using_3d_coordinates: ' + str(self.link_using_3d_coordinates))
+#                 fd.write('\n    multi_tau: ' + str(self.multi_tau))
+#                 fd.write('\n    -------------------')
+#                 if self.use_maximum_projection:
+#                     fd.write('\n    Using maximum projection (2D image) for tracking. Trackpy is used.')
+#                 else:
+#                     fd.write('\n    Using 3D image for tracking. Big-FISH and Trackpy are used. ')
+#                 using_corrected_image = False if self.image_source_combo == "Original Image" else True
+#                 fd.write('\n    Using photobleaching corrected image for tracking: ' + str(using_corrected_image))
+#                 fd.write('\n')
+#                 # Correlation Parameters
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nCORRELATION PARAMETERS')
+#                 fd.write('\n    correlation_fit_type: ' + str(self.correlation_fit_type))
+#                 fd.write('\n    correct_baseline: ' + str(self.correct_baseline))
+#                 fd.write('\n    de_correlation_threshold: ' + str(self.de_correlation_threshold))
+#                 fd.write('\n    min_percentage_data_in_trajectory: ' + str(self.min_percentage_data_in_trajectory))
+#                 fd.write('\n    index_max_lag_for_fit: ' + str(self.index_max_lag_for_fit))
+#                 fd.write('\n')
+#                 # Colocalization / ML PARAMETERS
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nCOLOCALIZATION / ML PARAMETERS')
+#                 # Write new colocalization info:
+#                 fd.write('\n    colocalization method: ' + str(self.colocalization_method))
+#                 fd.write('\n    colocalization threshold value: ' + str(self.colocalization_threshold_value))
+#                 fd.write('\n')
+#                 # Reproducibility / Environment
+#                 fd.write('#' * number_spaces_pound_sign)
+#                 fd.write('\nREPRODUCIBILITY / ENVIRONMENT')
+#                 fd.write('\n    Python version: ' + str(sys.version))
+#                 fd.write('\n' + ('#' * number_spaces_pound_sign) + '\n')
+
+#         except Exception as e:
+#             print(f"Error writing metadata: {e}")
+
 class Metadata:
-    def __init__(
-        self,
-        correct_baseline,
-        data_folder_path,
-        list_images,
-        list_names,
-        voxel_yx_nm,
-        voxel_z_nm,
-        channel_names,
-        number_color_channels,
-        list_time_intervals,
-        time_interval_value,
-        bit_depth,
-        image_stack,
-        segmentation_mode,
-        selected_image_index,
-        channels_spots,
-        channels_cytosol,
-        channels_nucleus,
-        min_length_trajectory,
-        yx_spot_size_in_px,
-        z_spot_size_in_px,
-        cluster_radius_nm,
-        maximum_spots_cluster,
-        separate_clusters_and_spots,
-        maximum_range_search_pixels,
-        memory,
-        de_correlation_threshold,
-        max_spots_for_threshold,
-        threshold_spot_detection,
-        user_selected_threshold,
-        image_source_combo,
-        use_fixed_size_for_intensity_calculation,
-        correlation_fit_type,
-        index_max_lag_for_fit,
-        photobleaching_calculated,
-        min_percentage_data_in_trajectory,
-        use_maximum_projection,
-        photobleaching_mode,
-        photobleaching_radius,
-        file_path,
-        use_ml_checkbox,
-        ml_threshold_input,
-        link_using_3d_coordinates,
-        colocalization_method,
-        colocalization_threshold_value,
-        multi_tau
-    ):
-        # --- Correlation Tab ---
-        self.correct_baseline = correct_baseline
-        self.de_correlation_threshold = de_correlation_threshold
-        self.correlation_fit_type = correlation_fit_type
-        self.min_percentage_data_in_trajectory = min_percentage_data_in_trajectory
-        self.index_max_lag_for_fit = index_max_lag_for_fit
-
-        # --- General / Image Loading ---
-        self.data_folder_path = data_folder_path
-        self.list_images = list_images
-        self.list_names = list_names
-        self.voxel_yx_nm = voxel_yx_nm
-        self.voxel_z_nm = voxel_z_nm
-        self.channel_names = channel_names
-        self.number_color_channels = number_color_channels
-        self.list_time_intervals = list_time_intervals
-        self.time_interval_value = time_interval_value
-        self.bit_depth = bit_depth
-        self.image_stack = image_stack
-        self.selected_image_index = selected_image_index
-        self.use_maximum_projection = use_maximum_projection
-        self.segmentation_mode = segmentation_mode
-
-        # --- Tracking Tab ---
-        self.channels_spots = channels_spots
-        self.channels_cytosol = channels_cytosol
-        self.channels_nucleus = channels_nucleus
-        self.min_length_trajectory = min_length_trajectory
-        self.yx_spot_size_in_px = yx_spot_size_in_px
-        self.z_spot_size_in_px = z_spot_size_in_px
-        self.cluster_radius_nm = cluster_radius_nm
-        self.maximum_spots_cluster = maximum_spots_cluster
-        self.separate_clusters_and_spots = separate_clusters_and_spots
-        self.maximum_range_search_pixels = maximum_range_search_pixels
-        self.memory = memory
-        self.max_spots_for_threshold = max_spots_for_threshold
-        self.threshold_spot_detection = threshold_spot_detection
-        self.user_selected_threshold = user_selected_threshold
-        self.image_source_combo = image_source_combo
-        self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
-        self.link_using_3d_coordinates = link_using_3d_coordinates
-        self.multi_tau = multi_tau
-
-        # --- Photobleaching Tab ---
-        self.photobleaching_calculated = photobleaching_calculated
-        self.photobleaching_mode = photobleaching_mode
-        self.photobleaching_radius = photobleaching_radius
-
-        # --- File Path for metadata ---
-        self.file_path = file_path
-
-        # --- Machine Learning ---
-        self.use_ml_checkbox = use_ml_checkbox
-        self.ml_threshold_input = ml_threshold_input
-
-        # --- Colocalization Parameters ---
-        self.colocalization_method = colocalization_method
-        self.colocalization_threshold_value = colocalization_threshold_value
+    def __init__(self, **kwargs):
+        # Store all arguments as attributes
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def write_metadata(self):
-        """
-        Write out the metadata parameters, grouped by GUI tab or functionality,
-        to a text file specified by `self.file_path`.
-        """
         number_spaces_pound_sign = 60  
         try:
             with open(self.file_path, 'w') as fd:
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nAUTHOR INFORMATION')
                 try:
-                    fd.write('\n    Author: ' + getpass.getuser())
-                    fd.write('\n    Hostname: ' + socket.gethostname() + '\n')
+                    fd.write('\n    Author: ' + str(getpass.getuser()))
+                    fd.write('\n    Hostname: ' + str(socket.gethostname()) + '\n')
                 except:
                     pass
                 fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
                 fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
                 fd.write('\n    Operating System: ' + sys.platform + '\n')
                 fd.write('#' * number_spaces_pound_sign)
+                
+                # Helper to safely write attributes
+                def write_attr(label, attr_name):
+                    val = getattr(self, attr_name, 'N/A')
+                    fd.write(f'\n    {label}: {val}')
+
                 # General Parameters
                 fd.write('\nGENERAL INFORMATION')
-                fd.write('\n    data_folder_path: ' + str(self.data_folder_path))
+                write_attr('data_folder_path', 'data_folder_path')
                 fd.write('\n    list_images length: ' + str(len(self.list_images) if self.list_images else 0))
-                fd.write('\n    list_names: ' + str(self.list_names))
-                fd.write('\n    list_time_intervals: ' + str(self.list_time_intervals) + '\n')
+                write_attr('list_names', 'list_names')
+                write_attr('list_time_intervals', 'list_time_intervals')
+                fd.write('\n')
                 fd.write('#' * number_spaces_pound_sign)
+                
                 fd.write('\nSELECTED IMAGE')
-                fd.write('\n    selected_image_name: ' + str(self.list_names[self.selected_image_index]))
-                fd.write('\n    time_interval_value: ' + str(self.time_interval_value))
-                fd.write('\n    voxel_yx_nm: ' + str(self.voxel_yx_nm))
-                fd.write('\n    voxel_z_nm: ' + str(self.voxel_z_nm))
-                fd.write('\n    channel_names: ' + str(self.channel_names))
-                fd.write('\n    number_color_channels: ' + str(self.number_color_channels))
-                fd.write('\n    bit_depth: ' + str(self.bit_depth))
-                fd.write('\n    selected_image_index: ' + str(self.selected_image_index))
+                if self.list_names and self.selected_image_index < len(self.list_names):
+                     fd.write('\n    selected_image_name: ' + str(self.list_names[self.selected_image_index]))
+                write_attr('time_interval_value', 'time_interval_value')
+                write_attr('voxel_yx_nm', 'voxel_yx_nm')
+                write_attr('voxel_z_nm', 'voxel_z_nm')
+                write_attr('channel_names', 'channel_names')
+                write_attr('number_color_channels', 'number_color_channels')
+                write_attr('bit_depth', 'bit_depth')
+                write_attr('selected_image_index', 'selected_image_index')
+                
                 if self.image_stack is not None:
                     fd.write('\n    image_stack shape: ' + str(self.image_stack.shape))
                 else:
                     fd.write('\n    image_stack shape: None')
                 fd.write('\n')
+                
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nSEGMENTATION MODE')
-                fd.write('\n    segmentation_mode: ' + str(self.segmentation_mode))
+                write_attr('segmentation_mode', 'segmentation_mode')
                 fd.write('\n')
+                
                 # Photobleaching Parameters
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nPHOTOBLEACHING')
-                fd.write('\n    photobleaching_calculated: ' + str(self.photobleaching_calculated))
-                fd.write('\n    photobleaching_mode: ' + str(self.photobleaching_mode))
-                fd.write('\n    photobleaching_radius: ' + str(self.photobleaching_radius))
+                write_attr('photobleaching_calculated', 'photobleaching_calculated')
+                write_attr('photobleaching_mode', 'photobleaching_mode')
+                write_attr('photobleaching_radius', 'photobleaching_radius')
                 fd.write('\n')
+                
                 # Tracking Parameters
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nTRACKING PARAMETERS')
-                fd.write('\n    channels_spots: ' + str(self.channels_spots))
-                fd.write('\n    channels_cytosol: ' + str(self.channels_cytosol))
-                fd.write('\n    channels_nucleus: ' + str(self.channels_nucleus))
-                fd.write('\n    min_length_trajectory: ' + str(self.min_length_trajectory))
-                fd.write('\n    yx_spot_size_in_px: ' + str(self.yx_spot_size_in_px))
-                fd.write('\n    z_spot_size_in_px: ' + str(self.z_spot_size_in_px))
-                fd.write('\n    cluster_radius_nm: ' + str(self.cluster_radius_nm))
-                fd.write('\n    maximum_spots_cluster: ' + str(self.maximum_spots_cluster))
-                fd.write('\n    separate_clusters_and_spots: ' + str(self.separate_clusters_and_spots))
-                fd.write('\n    maximum_range_search_pixels: ' + str(self.maximum_range_search_pixels))
-                fd.write('\n    memory: ' + str(self.memory))
-                fd.write('\n    max_spots_for_threshold: ' + str(self.max_spots_for_threshold))
-                fd.write('\n    threshold_spot_detection: ' + str(self.threshold_spot_detection))
-                fd.write('\n    user_selected_threshold: ' + str(self.user_selected_threshold))
-                fd.write('\n    use_fixed_size_for_intensity_calculation: ' + str(self.use_fixed_size_for_intensity_calculation))
-                fd.write('\n    link_using_3d_coordinates: ' + str(self.link_using_3d_coordinates))
-                fd.write('\n    multi_tau: ' + str(self.multi_tau))
+                write_attr('channels_spots', 'channels_spots')
+                write_attr('channels_cytosol', 'channels_cytosol')
+                write_attr('channels_nucleus', 'channels_nucleus')
+                write_attr('min_length_trajectory', 'min_length_trajectory')
+                write_attr('yx_spot_size_in_px', 'yx_spot_size_in_px')
+                write_attr('z_spot_size_in_px', 'z_spot_size_in_px')
+                write_attr('cluster_radius_nm', 'cluster_radius_nm')
+                write_attr('maximum_spots_cluster', 'maximum_spots_cluster')
+                write_attr('separate_clusters_and_spots', 'separate_clusters_and_spots')
+                write_attr('maximum_range_search_pixels', 'maximum_range_search_pixels')
+                write_attr('memory', 'memory')
+                write_attr('max_spots_for_threshold', 'max_spots_for_threshold')
+                write_attr('threshold_spot_detection', 'threshold_spot_detection')
+                write_attr('user_selected_threshold', 'user_selected_threshold')
+                write_attr('use_fixed_size_for_intensity_calculation', 'use_fixed_size_for_intensity_calculation')
+                write_attr('link_using_3d_coordinates', 'link_using_3d_coordinates')
+                write_attr('multi_tau', 'multi_tau')
                 fd.write('\n    -------------------')
+                
                 if self.use_maximum_projection:
                     fd.write('\n    Using maximum projection (2D image) for tracking. Trackpy is used.')
                 else:
                     fd.write('\n    Using 3D image for tracking. Big-FISH and Trackpy are used. ')
-                using_corrected_image = False if self.image_source_combo == "Original Image" else True
-                fd.write('\n    Using photobleaching corrected image for tracking: ' + str(using_corrected_image))
+                
+                # Logic check for image source
+                combo_val = getattr(self, 'image_source_combo', '')
+                using_corrected = "True" if "Corrected" in str(combo_val) else "False"
+                fd.write('\n    Using photobleaching corrected image for tracking: ' + using_corrected)
                 fd.write('\n')
+                
                 # Correlation Parameters
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nCORRELATION PARAMETERS')
-                fd.write('\n    correlation_fit_type: ' + str(self.correlation_fit_type))
-                fd.write('\n    correct_baseline: ' + str(self.correct_baseline))
-                fd.write('\n    de_correlation_threshold: ' + str(self.de_correlation_threshold))
-                fd.write('\n    min_percentage_data_in_trajectory: ' + str(self.min_percentage_data_in_trajectory))
-                fd.write('\n    index_max_lag_for_fit: ' + str(self.index_max_lag_for_fit))
+                write_attr('correlation_fit_type', 'correlation_fit_type')
+                write_attr('correct_baseline', 'correct_baseline')
+                write_attr('de_correlation_threshold', 'de_correlation_threshold')
+                write_attr('min_percentage_data_in_trajectory', 'min_percentage_data_in_trajectory')
+                write_attr('index_max_lag_for_fit', 'index_max_lag_for_fit')
                 fd.write('\n')
+                
                 # Colocalization / ML PARAMETERS
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nCOLOCALIZATION / ML PARAMETERS')
-                # Write new colocalization info:
-                fd.write('\n    colocalization method: ' + str(self.colocalization_method))
-                fd.write('\n    colocalization threshold value: ' + str(self.colocalization_threshold_value))
+                write_attr('colocalization method', 'colocalization_method')
+                write_attr('colocalization threshold value', 'colocalization_threshold_value')
+                write_attr('ml_threshold_input', 'ml_threshold_input')
                 fd.write('\n')
+                
                 # Reproducibility / Environment
                 fd.write('#' * number_spaces_pound_sign)
                 fd.write('\nREPRODUCIBILITY / ENVIRONMENT')
@@ -688,8 +831,6 @@ class Metadata:
 
         except Exception as e:
             print(f"Error writing metadata: {e}")
-
-
 # =============================================================================
 # =============================================================================
 # MAIN APPLICATION WINDOW CLASS
@@ -2377,28 +2518,19 @@ class GUI(QMainWindow):
         self.themeToggle.setObjectName("themeToggle")
         self.themeToggle.setChecked(True)
         self.themeToggle.setStyleSheet("""
+            QCheckBox#themeToggle {
+                spacing: 5px;
+            }
             QCheckBox#themeToggle::indicator {
                 width: 40px; height: 20px;
                 border-radius: 10px;
                 background-color: #bbb;
-                position: relative;
             }
             QCheckBox#themeToggle::indicator:checked {
                 background-color: #007acc;
             }
             QCheckBox#themeToggle::indicator:unchecked {
                 background-color: #bbb;
-            }
-            QCheckBox#themeToggle::indicator::before {
-                content: "";
-                position: absolute;
-                top: 1px; left: 2px;
-                width: 18px; height: 18px;
-                border-radius: 9px;
-                background-color: #ffffff;
-            }
-            QCheckBox#themeToggle::indicator:checked::before {
-                left: 20px;
             }
         """)
         display_left_layout.addWidget(self.themeToggle)
@@ -4062,7 +4194,7 @@ class GUI(QMainWindow):
         # Min length
         self.min_length_input = QSpinBox()
         self.min_length_input.setMinimum(1)
-        self.min_length_input.setMaximum(200)
+        self.min_length_input.setMaximum(1000)
         self.min_length_input.setValue(self.min_length_trajectory)
         self.min_length_input.valueChanged.connect(self.update_min_length_trajectory)
         spot_layout.addRow("Min Length Trajectory:", self.min_length_input)
@@ -4508,41 +4640,6 @@ class GUI(QMainWindow):
                 QMessageBox.warning(self, "Correlation Error", str(e))
                 return
             intensity_arrays[ch] = arr
-        # threshold = getattr(self, 'snr_threshold_for_acf_value', 0)
-        # if threshold > 0:
-        #     for ch, arr_int in list(intensity_arrays.items()):
-        #         col = f'snr_ch_{ch}'
-        #         if col not in self.df_tracking.columns:
-        #             continue
-        #         arr_snr = mi.Utilities().df_trajectories_to_array(
-        #             dataframe=self.df_tracking,
-        #             selected_field=col,
-        #             fill_value=np.nan,
-        #             total_frames=self.total_frames
-        #         )
-        #         try:
-        #             arr_snr = mi.Utilities().shift_trajectories(
-        #                 arr_snr,
-        #                 min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
-        #             )
-        #         except ValueError as e:
-        #             QMessageBox.warning(self, "Correlation Error", str(e))
-        #             return
-        #         # compute mean SNR per trajectory, then filter
-        #         mean_snr = np.nanmean(arr_snr, axis=1)
-        #         valid_idx = np.where(mean_snr >= threshold)[0]
-        #         valid_idx = np.array(valid_idx, dtype=int)
-        #         if valid_idx.size > 0:
-        #             arr_len = arr_int.shape[0]
-        #             invalid = valid_idx[(valid_idx < 0) | (valid_idx >= arr_len)]
-        #             if invalid.size > 0:
-        #                 bad = int(invalid[0])
-        #                 raise IndexError(
-        #                     f"Index {bad} out of bounds for intensity array "
-        #                     f"of length {arr_len} (channel {ch}). "
-        #                     "Please adjust your SNR threshold or data filtering."
-        #                 )
-        #         intensity_arrays[ch] = arr_int[valid_idx]
         threshold = getattr(self, 'snr_threshold_for_acf_value', 0)
         if threshold > 0:
             new_intensity_arrays = {}
@@ -4573,36 +4670,6 @@ class GUI(QMainWindow):
                     print(f"After alignment, no valid indices remain for channel {ch}.")
                     continue
                 new_intensity_arrays[ch] = arr_int_aligned[valid_idx]
-                # Build SNR trajectories
-                # arr_snr = mi.Utilities().df_trajectories_to_array(
-                #     dataframe=self.df_tracking,
-                #     selected_field=col,
-                #     fill_value=np.nan,
-                #     total_frames=self.total_frames
-                # )
-                # try:
-                #     # VERY IMPORTANT: align intensity & SNR with the SAME mask/trim
-                #     arr_int_aligned, arr_snr_aligned = mi.Utilities().shift_trajectories(
-                #         arr_int, arr_snr,
-                #         min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
-                #     )
-                # except ValueError as e:
-                #     QMessageBox.warning(self, "Correlation Error", str(e))
-                #     return
-                # # Mean SNR per trajectory → keep the good ones
-                # mean_snr = np.nanmean(arr_snr_aligned, axis=1)
-                # valid_idx = np.flatnonzero(mean_snr >= float(threshold)).astype(int)
-                # if valid_idx.size == 0:
-                #     print(f"No trajectories passed SNR ≥ {threshold} in channel {ch}.")
-                #     # Option: skip this channel entirely
-                #     continue
-                # # Defensive clipping in case anything drifted
-                # n_traj = arr_int_aligned.shape[0]
-                # valid_idx = valid_idx[(valid_idx >= 0) & (valid_idx < n_traj)]
-                # if valid_idx.size == 0:
-                #     print(f"After alignment, no valid indices remain for channel {ch}.")
-                #     continue
-                # new_intensity_arrays[ch] = arr_int_aligned[valid_idx]
             intensity_arrays = new_intensity_arrays
 
         step_size_in_sec = (float(self.list_time_intervals[self.selected_image_index])
@@ -4928,20 +4995,6 @@ class GUI(QMainWindow):
             self.channel_combo_box_2.setCurrentIndex(0)
         self.compute_colocalization_button.setEnabled(len(self.channel_names) >= 2)
 
-    # def compute_colocalization(self):
-    #     """Perform colocalization analysis and display results."""
-    #     if not getattr(self, 'has_tracked', False) and self.df_tracking.empty:
-    #         QMessageBox.warning(self, "Colocalization Error", "Please run 'All frames' detection and complete tracking before colocalization.")
-    #         return
-    #     ch1 = self.channel_combo_box_1.currentIndex()
-    #     ch2 = self.channel_combo_box_2.currentIndex()
-    #     if ch1 == ch2:
-    #         QMessageBox.warning(self, "Invalid Selection", "Select two different channels.")
-    #         return
-    #     image = self.corrected_image if self.corrected_image is not None else self.image_stack
-    #     if image is None:
-    #         QMessageBox.warning(self, "No Image Data", "Please load and process an image first.")
-    #         return
         
     def compute_colocalization(self):
         """Perform colocalization analysis and display results."""
@@ -5000,12 +5053,6 @@ class GUI(QMainWindow):
             threshold = self.snr_threshold_input.value()
             method_used = "Intensity"
             num_crops = mean_crop.shape[0] // crop_size
-            # flag_vector, snr_values = np.array([mi.Utilities().is_spot_in_crop(
-            #     i, crop_size=crop_size, selected_color_channel=ch2,
-            #     array_crops_YXC=mean_crop,
-            #     show_plot=False,
-            #     snr_threshold=threshold)
-            #     for i in range(num_crops)])
             results_snr = [mi.Utilities().is_spot_in_crop(
                         i, crop_size=crop_size, selected_color_channel=ch2,
                         array_crops_YXC=mean_crop,
@@ -6204,7 +6251,47 @@ class GUI(QMainWindow):
         except Exception as e:
             print(f"Failed to export crops image: {e}")
 
-    def _export_metadata(self, file_path):
+    
+
+
+    def _export_metadata(self, file_path):        
+        # Photobleaching: Read from widgets if available, else fallback to attribute
+        pb_mode = self.mode_combo.currentText() if hasattr(self, 'mode_combo') else self.photobleaching_mode
+        pb_radius = self.radius_spinbox.value() if hasattr(self, 'radius_spinbox') else self.photobleaching_radius
+
+        # Tracking Parameters: Read directly from spinboxes
+        min_len = self.min_length_input.value() if hasattr(self, 'min_length_input') else self.min_length_trajectory
+        yx_spot = self.spot_size_input.value() if hasattr(self, 'spot_size_input') else self.yx_spot_size_in_px
+        z_spot = self.spot_size_z_input.value() if hasattr(self, 'spot_size_z_input') else self.z_spot_size_in_px
+        clust_rad = self.cluster_radius_input.value() if hasattr(self, 'cluster_radius_input') else self.cluster_radius_nm
+        max_spots_clust = self.max_spots_cluster_input.value() if hasattr(self, 'max_spots_cluster_input') else self.maximum_spots_cluster
+        max_range = self.max_range_search_input.value() if hasattr(self, 'max_range_search_input') else self.maximum_range_search_pixels
+        mem = self.memory_input.value() if hasattr(self, 'memory_input') else self.memory
+        
+        # Thresholds
+        thresh_spot = self.threshold_slider.value() if hasattr(self, 'threshold_slider') else self.threshold_spot_detection
+        
+        # Correlation Settings
+        # Read radio buttons directly to ensure accuracy
+        if hasattr(self, 'linear_radio') and self.linear_radio.isChecked():
+            corr_fit = 'linear'
+        else:
+            corr_fit = 'exponential'
+            
+        idx_max_lag = self.index_max_lag_for_fit_input.value() if hasattr(self, 'index_max_lag_for_fit_input') else self.index_max_lag_for_fit
+        decorr_thresh = self.de_correlation_threshold_input.value() if hasattr(self, 'de_correlation_threshold_input') else self.de_correlation_threshold
+        min_perc_data = self.max_percentage_spin.value() if hasattr(self, 'max_percentage_spin') else self.min_percentage_data_in_trajectory
+
+        # Colocalization / ML
+        ml_thresh = self.ml_threshold_input.value() if hasattr(self, 'ml_threshold_input') else 0.5
+        snr_thresh = self.snr_threshold_input.value() if hasattr(self, 'snr_threshold_input') else 3.0
+        
+        is_ml = self.method_ml_radio.isChecked() if hasattr(self, 'method_ml_radio') else False
+        coloc_thresh = ml_thresh if is_ml else snr_thresh
+        coloc_method = "ML" if is_ml else "Intensity"
+        
+        img_source = self.image_source_combo.currentText() if hasattr(self, 'image_source_combo') else self.image_source_combo_value
+
         meta = Metadata(
             correct_baseline=self.correct_baseline,
             data_folder_path=self.data_folder_path,
@@ -6223,33 +6310,47 @@ class GUI(QMainWindow):
             channels_spots=self.channels_spots,
             channels_cytosol=self.channels_cytosol,
             channels_nucleus=self.channels_nucleus,
-            min_length_trajectory=self.min_length_trajectory,
-            yx_spot_size_in_px=self.yx_spot_size_in_px,
-            z_spot_size_in_px=self.z_spot_size_in_px,
-            cluster_radius_nm=self.cluster_radius_nm,
-            maximum_spots_cluster=self.maximum_spots_cluster,
+            
+            # Updated Tracking Params (Values)
+            min_length_trajectory=min_len,
+            yx_spot_size_in_px=yx_spot,
+            z_spot_size_in_px=z_spot,
+            cluster_radius_nm=clust_rad,
+            maximum_spots_cluster=max_spots_clust,
             separate_clusters_and_spots=self.separate_clusters_and_spots,
-            maximum_range_search_pixels=self.maximum_range_search_pixels,
-            memory=self.memory,
-            de_correlation_threshold=self.de_correlation_threshold,
+            maximum_range_search_pixels=max_range,
+            memory=mem,
+            
+            # Updated Thresholds (Values)
+            de_correlation_threshold=decorr_thresh,
             max_spots_for_threshold=self.max_spots_for_threshold,
-            threshold_spot_detection=self.threshold_spot_detection,
-            user_selected_threshold=self.user_selected_threshold,
-            image_source_combo=self.image_source_combo_value,
+            threshold_spot_detection=thresh_spot,
+            user_selected_threshold=thresh_spot,
+            
+            image_source_combo=img_source,
             use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
-            correlation_fit_type=self.correlation_fit_type,
-            index_max_lag_for_fit=self.index_max_lag_for_fit,
+            
+            # Updated Correlation Params (Values)
+            correlation_fit_type=corr_fit,
+            index_max_lag_for_fit=idx_max_lag,
+            min_percentage_data_in_trajectory=min_perc_data,
+            
             photobleaching_calculated=self.photobleaching_calculated,
-            min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
             use_maximum_projection=self.use_maximum_projection,
-            photobleaching_mode=self.photobleaching_mode,
-            photobleaching_radius=self.photobleaching_radius,
+            
+            # Updated Photobleaching Params (Values)
+            photobleaching_mode=pb_mode,
+            photobleaching_radius=pb_radius,
+            
             file_path=file_path,
-            use_ml_checkbox=self.method_ml_radio.isChecked(),
-            ml_threshold_input=self.ml_threshold_input,
+            
+            # Updated ML Params (Values)
+            use_ml_checkbox=is_ml,
+            ml_threshold_input=ml_thresh,
+            
             link_using_3d_coordinates=self.link_using_3d_coordinates,
-            colocalization_method="ML" if self.method_ml_radio.isChecked() else "Intensity",
-            colocalization_threshold_value=self.ml_threshold_input.value() if self.method_ml_radio.isChecked() else self.snr_threshold_input.value(),
+            colocalization_method=coloc_method,
+            colocalization_threshold_value=coloc_thresh,
             multi_tau=self.use_multi
         )
         try:
@@ -6272,53 +6373,12 @@ class GUI(QMainWindow):
         )
         if not file_path:
             return
-        meta = Metadata(
-            correct_baseline=self.correct_baseline,
-            data_folder_path=self.data_folder_path,
-            list_images=self.list_images,
-            list_names=self.list_names,
-            voxel_yx_nm=self.voxel_yx_nm,
-            voxel_z_nm=self.voxel_z_nm,
-            channel_names=self.channel_names,
-            number_color_channels=self.number_color_channels,
-            list_time_intervals=self.list_time_intervals,
-            time_interval_value=self.time_interval_value,
-            bit_depth=self.bit_depth,
-            image_stack=self.image_stack,
-            segmentation_mode=self.segmentation_mode,
-            selected_image_index=self.selected_image_index,
-            channels_spots=self.channels_spots,
-            channels_cytosol=self.channels_cytosol,
-            channels_nucleus=self.channels_nucleus,
-            min_length_trajectory=self.min_length_trajectory,
-            yx_spot_size_in_px=self.yx_spot_size_in_px,
-            z_spot_size_in_px=self.z_spot_size_in_px,
-            cluster_radius_nm=self.cluster_radius_nm,
-            maximum_spots_cluster=self.maximum_spots_cluster,
-            separate_clusters_and_spots=self.separate_clusters_and_spots,
-            maximum_range_search_pixels=self.maximum_range_search_pixels,
-            memory=self.memory,
-            de_correlation_threshold=self.de_correlation_threshold,
-            max_spots_for_threshold=self.max_spots_for_threshold,
-            threshold_spot_detection=self.threshold_spot_detection,
-            user_selected_threshold=self.user_selected_threshold,
-            image_source_combo=self.image_source_combo_value,
-            use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
-            correlation_fit_type=self.correlation_fit_type,
-            index_max_lag_for_fit=self.index_max_lag_for_fit,
-            photobleaching_calculated=self.photobleaching_calculated,
-            min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
-            use_maximum_projection=self.use_maximum_projection,
-            photobleaching_mode=self.photobleaching_mode,
-            photobleaching_radius=self.photobleaching_radius,
-            file_path=file_path,
-            use_ml_checkbox=self.use_ml_checkbox,
-            ml_threshold_input=self.ml_threshold_input,
-            link_using_3d_coordinates=self.link_using_3d_coordinates,
-            multi_tau=self.use_multi
-        )
-        meta.write_metadata()
+            
+        # Re-use the logic from _export_metadata to avoid code duplication
+        self._export_metadata(file_path)
         QMessageBox.information(self, "Export Success", f"Metadata saved to:\n{file_path}")
+
+
 
 
     def export_displayed_image_as_png(self):
