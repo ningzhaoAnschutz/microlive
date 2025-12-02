@@ -1102,7 +1102,7 @@ class GUI(QMainWindow):
         params = initial_params.copy()  # copy initial params so we can modify locally
         # Min Percentile slider + label
         minSlider = QSlider(Qt.Horizontal)
-        minSlider.setMinimum(0); minSlider.setMaximum(80)
+        minSlider.setMinimum(0); minSlider.setMaximum(95)
         minSlider.setValue(int(params['min_percentile']))
         minLabel = QLabel(f"{params['min_percentile']:.2f}%")
         minRow = QHBoxLayout(); minRow.addWidget(minSlider); minRow.addWidget(minLabel)
@@ -4036,7 +4036,7 @@ class GUI(QMainWindow):
         spin_layout = QHBoxLayout()
         # Min percentile spinbox (0–50%)
         self.min_percentile_spinbox_tracking = QDoubleSpinBox(self)
-        self.min_percentile_spinbox_tracking.setRange(0.0, 50.0)
+        self.min_percentile_spinbox_tracking.setRange(0.0, 90.0)
         self.min_percentile_spinbox_tracking.setSingleStep(0.1)
         self.min_percentile_spinbox_tracking.setSuffix("%")
         self.min_percentile_spinbox_tracking.setValue(self.tracking_min_percentile)
