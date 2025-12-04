@@ -44,3 +44,7 @@ gene_sequences/
 dev/
 human_genome/
 *.cds.all.fa
+*.dna
+circular_RNA/
+*.pptx
+*.ppt

@@ -106,17 +106,17 @@ from scipy.ndimage import gaussian_filter, label, center_of_mass
 from trackpy.linking.utils import SubnetOversizeException
 
 
-import multiprocessing.resource_tracker
-def fix_multiprocessing_cleanup():
-    original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
-    def new_stop(self, use_blocking_lock=False):
-        try:
-            original_stop(self, use_blocking_lock=use_blocking_lock)
-        except (ChildProcessError, OSError):
-            pass
-    multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
-if 'multiprocessing' in sys.modules:
-    fix_multiprocessing_cleanup()
+# import multiprocessing.resource_tracker
+# def fix_multiprocessing_cleanup():
+#     original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
+#     def new_stop(self, use_blocking_lock=False):
+#         try:
+#             original_stop(self, use_blocking_lock=use_blocking_lock)
+#         except (ChildProcessError, OSError):
+#             pass
+#     multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
+# if 'multiprocessing' in sys.modules:
+#     fix_multiprocessing_cleanup()
 
 # =============================================================================
 # UI DIALOGS, WIDGET, PLOTTING CLASSES
@@ -128,6 +128,17 @@ def configure_logging_and_styles():
     Set up warnings filters, VisPy logging level, Qt message handler,
     and a logging filter to suppress specific stylesheet parse warnings.
     """
+    # Setup standard logging
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'micro_gui.log')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+
     warnings.filterwarnings("ignore", category=UserWarning, module="joblib")
     try:
         from vispy import logging as vispy_logging
@@ -139,6 +150,12 @@ def configure_logging_and_styles():
         msg = str(message)
         if "parse stylesheet" not in msg.lower():
             sys.__stderr__.write(msg + "\n")
+            if msg_type == QtMsgType.QtWarningMsg:
+                logging.warning(f"Qt Warning: {msg}")
+            elif msg_type == QtMsgType.QtCriticalMsg:
+                logging.error(f"Qt Critical: {msg}")
+            elif msg_type == QtMsgType.QtFatalMsg:
+                logging.critical(f"Qt Fatal: {msg}")
     qInstallMessageHandler(qt_message_handler)
     class StyleParseFilter(logging.Filter):
         def filter(self, record):
@@ -321,13 +338,13 @@ class Plots:
             try:
                 decorrelation_successful = True
                 de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit + start_lag]
-                print(f"Decorrelation threshold value: {de_correlation_threshold_value}")
-            except Exception:
-                print('Could not find the decorrelation point automatically. Please provide the index_max_lag_for_fit')
+                logging.info(f"Decorrelation threshold value: {de_correlation_threshold_value}")
+            except Exception as e:
+                logging.warning(f"Could not find the decorrelation point automatically: {e}")
                 # Fall back to the last correlation point
                 index_max_lag_for_fit = normalized_correlation.shape[0]
                 de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit - 1]
-                print(f"Falling back to last point: {de_correlation_threshold_value}")
+                logging.info(f"Falling back to last point: {de_correlation_threshold_value}")
                 decorrelation_successful = False
 
             if decorrelation_successful:
@@ -350,7 +367,8 @@ class Plots:
                     text_str = f"Dwell Time: {dwell_time:.1f}"
                     props = dict(boxstyle='round', facecolor='white', alpha=0.9)
                     ax.text(total_lags[-1] / 2, max_value, s=text_str, color='black', bbox=props, fontsize=10)
-                except:
+                except Exception as e:
+                    logging.error(f"Error in linear fit: {e}")
                     pass
             ax.axhline(y=de_correlation_threshold_value, color='r', linestyle='--', linewidth=1, label='Decor. Threshold')
             if plot_title is None:
@@ -379,7 +397,7 @@ class Plots:
             A_fitted, tau_c_fitted, C_fitted = params
             G_fitted = single_exponential_decay(taus, *params)
             G0_fitted = single_exponential_decay(0, A_fitted, tau_c_fitted, C_fitted)
-            print("Fitted G(0):", G0_fitted)
+            logging.info(f"Fitted G(0): {G0_fitted}")
             threshold_value = de_correlation_threshold
             try:
                 dw_index = np.where(G_fitted < threshold_value)[0][0]
@@ -392,7 +410,7 @@ class Plots:
                     plot_title = f'Exponential Fit (Signal {channel_label})'
                 ax.set_title(plot_title, fontsize=10)
             except IndexError:
-                print("Could not find a time where G(τ) falls below threshold.")
+                logging.warning("Could not find a time where G(τ) falls below threshold.")
                 ax.axhline(y=threshold_value, color='r', linestyle='--', linewidth=1)
         ax.set_xlabel(r"$\tau$(au)")
         if normalize_plot_with_g0:
@@ -404,7 +422,7 @@ class Plots:
             max_lag_index = int(max_lag_index)
             if max_lag_index >= len(lags):
                 max_lag_index = len(lags) - 1
-                print('Warning: max_lag_index is out of range. Setting it to the last index')
+                logging.warning('max_lag_index is out of range. Setting it to the last index')
             if max_lag_index < 20:
                 space_before_start = 5
             else:
@@ -535,218 +553,6 @@ class Plots:
             fig.tight_layout()
         return max_lag
 
-# class Metadata:
-#     def __init__(
-#         self,
-#         correct_baseline,
-#         data_folder_path,
-#         list_images,
-#         list_names,
-#         voxel_yx_nm,
-#         voxel_z_nm,
-#         channel_names,
-#         number_color_channels,
-#         list_time_intervals,
-#         time_interval_value,
-#         bit_depth,
-#         image_stack,
-#         segmentation_mode,
-#         selected_image_index,
-#         channels_spots,
-#         channels_cytosol,
-#         channels_nucleus,
-#         min_length_trajectory,
-#         yx_spot_size_in_px,
-#         z_spot_size_in_px,
-#         cluster_radius_nm,
-#         maximum_spots_cluster,
-#         separate_clusters_and_spots,
-#         maximum_range_search_pixels,
-#         memory,
-#         de_correlation_threshold,
-#         max_spots_for_threshold,
-#         threshold_spot_detection,
-#         user_selected_threshold,
-#         image_source_combo,
-#         use_fixed_size_for_intensity_calculation,
-#         correlation_fit_type,
-#         index_max_lag_for_fit,
-#         photobleaching_calculated,
-#         min_percentage_data_in_trajectory,
-#         use_maximum_projection,
-#         photobleaching_mode,
-#         photobleaching_radius,
-#         file_path,
-#         use_ml_checkbox,
-#         ml_threshold_input,
-#         link_using_3d_coordinates,
-#         colocalization_method,
-#         colocalization_threshold_value,
-#         multi_tau
-#     ):
-#         # --- Correlation Tab ---
-#         self.correct_baseline = correct_baseline
-#         self.de_correlation_threshold = de_correlation_threshold
-#         self.correlation_fit_type = correlation_fit_type
-#         self.min_percentage_data_in_trajectory = min_percentage_data_in_trajectory
-#         self.index_max_lag_for_fit = index_max_lag_for_fit
-
-#         # --- General / Image Loading ---
-#         self.data_folder_path = data_folder_path
-#         self.list_images = list_images
-#         self.list_names = list_names
-#         self.voxel_yx_nm = voxel_yx_nm
-#         self.voxel_z_nm = voxel_z_nm
-#         self.channel_names = channel_names
-#         self.number_color_channels = number_color_channels
-#         self.list_time_intervals = list_time_intervals
-#         self.time_interval_value = time_interval_value
-#         self.bit_depth = bit_depth
-#         self.image_stack = image_stack
-#         self.selected_image_index = selected_image_index
-#         self.use_maximum_projection = use_maximum_projection
-#         self.segmentation_mode = segmentation_mode
-
-#         # --- Tracking Tab ---
-#         self.channels_spots = channels_spots
-#         self.channels_cytosol = channels_cytosol
-#         self.channels_nucleus = channels_nucleus
-#         self.min_length_trajectory = min_length_trajectory
-#         self.yx_spot_size_in_px = yx_spot_size_in_px
-#         self.z_spot_size_in_px = z_spot_size_in_px
-#         self.cluster_radius_nm = cluster_radius_nm
-#         self.maximum_spots_cluster = maximum_spots_cluster
-#         self.separate_clusters_and_spots = separate_clusters_and_spots
-#         self.maximum_range_search_pixels = maximum_range_search_pixels
-#         self.memory = memory
-#         self.max_spots_for_threshold = max_spots_for_threshold
-#         self.threshold_spot_detection = threshold_spot_detection
-#         self.user_selected_threshold = user_selected_threshold
-#         self.image_source_combo = image_source_combo
-#         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
-#         self.link_using_3d_coordinates = link_using_3d_coordinates
-#         self.multi_tau = multi_tau
-
-#         # --- Photobleaching Tab ---
-#         self.photobleaching_calculated = photobleaching_calculated
-#         self.photobleaching_mode = photobleaching_mode
-#         self.photobleaching_radius = photobleaching_radius
-
-#         # --- File Path for metadata ---
-#         self.file_path = file_path
-
-#         # --- Machine Learning ---
-#         self.use_ml_checkbox = use_ml_checkbox
-#         self.ml_threshold_input = ml_threshold_input
-
-#         # --- Colocalization Parameters ---
-#         self.colocalization_method = colocalization_method
-#         self.colocalization_threshold_value = colocalization_threshold_value
-
-#     def write_metadata(self):
-#         """
-#         Write out the metadata parameters, grouped by GUI tab or functionality,
-#         to a text file specified by `self.file_path`.
-#         """
-#         number_spaces_pound_sign = 60  
-#         try:
-#             with open(self.file_path, 'w') as fd:
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nAUTHOR INFORMATION')
-#                 try:
-#                     fd.write('\n    Author: ' + getpass.getuser())
-#                     fd.write('\n    Hostname: ' + socket.gethostname() + '\n')
-#                 except:
-#                     pass
-#                 fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
-#                 fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
-#                 fd.write('\n    Operating System: ' + sys.platform + '\n')
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 # General Parameters
-#                 fd.write('\nGENERAL INFORMATION')
-#                 fd.write('\n    data_folder_path: ' + str(self.data_folder_path))
-#                 fd.write('\n    list_images length: ' + str(len(self.list_images) if self.list_images else 0))
-#                 fd.write('\n    list_names: ' + str(self.list_names))
-#                 fd.write('\n    list_time_intervals: ' + str(self.list_time_intervals) + '\n')
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nSELECTED IMAGE')
-#                 fd.write('\n    selected_image_name: ' + str(self.list_names[self.selected_image_index]))
-#                 fd.write('\n    time_interval_value: ' + str(self.time_interval_value))
-#                 fd.write('\n    voxel_yx_nm: ' + str(self.voxel_yx_nm))
-#                 fd.write('\n    voxel_z_nm: ' + str(self.voxel_z_nm))
-#                 fd.write('\n    channel_names: ' + str(self.channel_names))
-#                 fd.write('\n    number_color_channels: ' + str(self.number_color_channels))
-#                 fd.write('\n    bit_depth: ' + str(self.bit_depth))
-#                 fd.write('\n    selected_image_index: ' + str(self.selected_image_index))
-#                 if self.image_stack is not None:
-#                     fd.write('\n    image_stack shape: ' + str(self.image_stack.shape))
-#                 else:
-#                     fd.write('\n    image_stack shape: None')
-#                 fd.write('\n')
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nSEGMENTATION MODE')
-#                 fd.write('\n    segmentation_mode: ' + str(self.segmentation_mode))
-#                 fd.write('\n')
-#                 # Photobleaching Parameters
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nPHOTOBLEACHING')
-#                 fd.write('\n    photobleaching_calculated: ' + str(self.photobleaching_calculated))
-#                 fd.write('\n    photobleaching_mode: ' + str(self.photobleaching_mode))
-#                 fd.write('\n    photobleaching_radius: ' + str(self.photobleaching_radius))
-#                 fd.write('\n')
-#                 # Tracking Parameters
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nTRACKING PARAMETERS')
-#                 fd.write('\n    channels_spots: ' + str(self.channels_spots))
-#                 fd.write('\n    channels_cytosol: ' + str(self.channels_cytosol))
-#                 fd.write('\n    channels_nucleus: ' + str(self.channels_nucleus))
-#                 fd.write('\n    min_length_trajectory: ' + str(self.min_length_trajectory))
-#                 fd.write('\n    yx_spot_size_in_px: ' + str(self.yx_spot_size_in_px))
-#                 fd.write('\n    z_spot_size_in_px: ' + str(self.z_spot_size_in_px))
-#                 fd.write('\n    cluster_radius_nm: ' + str(self.cluster_radius_nm))
-#                 fd.write('\n    maximum_spots_cluster: ' + str(self.maximum_spots_cluster))
-#                 fd.write('\n    separate_clusters_and_spots: ' + str(self.separate_clusters_and_spots))
-#                 fd.write('\n    maximum_range_search_pixels: ' + str(self.maximum_range_search_pixels))
-#                 fd.write('\n    memory: ' + str(self.memory))
-#                 fd.write('\n    max_spots_for_threshold: ' + str(self.max_spots_for_threshold))
-#                 fd.write('\n    threshold_spot_detection: ' + str(self.threshold_spot_detection))
-#                 fd.write('\n    user_selected_threshold: ' + str(self.user_selected_threshold))
-#                 fd.write('\n    use_fixed_size_for_intensity_calculation: ' + str(self.use_fixed_size_for_intensity_calculation))
-#                 fd.write('\n    link_using_3d_coordinates: ' + str(self.link_using_3d_coordinates))
-#                 fd.write('\n    multi_tau: ' + str(self.multi_tau))
-#                 fd.write('\n    -------------------')
-#                 if self.use_maximum_projection:
-#                     fd.write('\n    Using maximum projection (2D image) for tracking. Trackpy is used.')
-#                 else:
-#                     fd.write('\n    Using 3D image for tracking. Big-FISH and Trackpy are used. ')
-#                 using_corrected_image = False if self.image_source_combo == "Original Image" else True
-#                 fd.write('\n    Using photobleaching corrected image for tracking: ' + str(using_corrected_image))
-#                 fd.write('\n')
-#                 # Correlation Parameters
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nCORRELATION PARAMETERS')
-#                 fd.write('\n    correlation_fit_type: ' + str(self.correlation_fit_type))
-#                 fd.write('\n    correct_baseline: ' + str(self.correct_baseline))
-#                 fd.write('\n    de_correlation_threshold: ' + str(self.de_correlation_threshold))
-#                 fd.write('\n    min_percentage_data_in_trajectory: ' + str(self.min_percentage_data_in_trajectory))
-#                 fd.write('\n    index_max_lag_for_fit: ' + str(self.index_max_lag_for_fit))
-#                 fd.write('\n')
-#                 # Colocalization / ML PARAMETERS
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nCOLOCALIZATION / ML PARAMETERS')
-#                 # Write new colocalization info:
-#                 fd.write('\n    colocalization method: ' + str(self.colocalization_method))
-#                 fd.write('\n    colocalization threshold value: ' + str(self.colocalization_threshold_value))
-#                 fd.write('\n')
-#                 # Reproducibility / Environment
-#                 fd.write('#' * number_spaces_pound_sign)
-#                 fd.write('\nREPRODUCIBILITY / ENVIRONMENT')
-#                 fd.write('\n    Python version: ' + str(sys.version))
-#                 fd.write('\n' + ('#' * number_spaces_pound_sign) + '\n')
-
-#         except Exception as e:
-#             print(f"Error writing metadata: {e}")
-
 class Metadata:
     def __init__(self, **kwargs):
         # Store all arguments as attributes
@@ -762,7 +568,8 @@ class Metadata:
                 try:
                     fd.write('\n    Author: ' + str(getpass.getuser()))
                     fd.write('\n    Hostname: ' + str(socket.gethostname()) + '\n')
-                except:
+                except Exception as e:
+                    logging.warning(f"Could not get user/hostname: {e}")
                     pass
                 fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
                 fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
@@ -2831,7 +2638,7 @@ class GUI(QMainWindow):
         try:
             cytosol_channel = int(self.cellpose_cytosol_channel_input.text()) if self.cellpose_cytosol_channel_input.text() else None
             nucleus_channel = int(self.cellpose_nucleus_channel_input.text()) if self.cellpose_nucleus_channel_input.text() else None
-        except:
+        except ValueError:
             QMessageBox.warning(self, "Invalid Channel Input", "Please enter valid integer channels.")
             return
         if cytosol_channel is None and nucleus_channel is None:

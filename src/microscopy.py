@@ -100,7 +100,7 @@ try:
     #import napari
     #from napari_animation import Animation
     import torch
-except:
+except ImportError:
     pass
 
 # Configure settings and warnings
@@ -108,17 +108,17 @@ import warnings
 from PyQt5.QtWidgets import QMessageBox
 
 
-import multiprocessing.resource_tracker
-def fix_multiprocessing_cleanup():
-    original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
-    def new_stop(self, use_blocking_lock=False):
-        try:
-            original_stop(self, use_blocking_lock=use_blocking_lock)
-        except (ChildProcessError, OSError):
-            pass
-    multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
-if 'multiprocessing' in sys.modules:
-    fix_multiprocessing_cleanup()
+# import multiprocessing.resource_tracker
+# def fix_multiprocessing_cleanup():
+#     original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
+#     def new_stop(self, use_blocking_lock=False):
+#         try:
+#             original_stop(self, use_blocking_lock=use_blocking_lock)
+#         except (ChildProcessError, OSError):
+#             pass
+#     multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
+# if 'multiprocessing' in sys.modules:
+#     fix_multiprocessing_cleanup()
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
@@ -304,6 +304,7 @@ class Photobleaching:
         plot_name=None,
         radius=50,
         time_interval_seconds = None,
+        min_intensity_threshold = 10,
     ):
         if mode not in ['inside_cell', 'outside_cell', 'use_circular_region', 'entire_image']:
             raise ValueError(
@@ -329,6 +330,7 @@ class Photobleaching:
         else:
             self.mask_YX = np.ones((image_TZYXC.shape[2], image_TZYXC.shape[3]), dtype=bool)
             self.user_provided_mask = False
+        self.min_intensity_threshold = min_intensity_threshold
     
     def calculate_photobleaching(self):
         """
@@ -451,11 +453,11 @@ class Photobleaching:
                 max_proj = np.max(final_frame, axis=0)
                 masked_pixels = max_proj[self.mask]
                 final_intensity = np.mean(masked_pixels) if masked_pixels.size > 0 else 0.0
-            if final_intensity < 10:
+            if final_intensity < self.min_intensity_threshold:
                 try:
                     QMessageBox.warning(None, "Photobleaching Correction",
                         f"Photobleaching correction skipped for channel {ch} "
-                        f"(final intensity {final_intensity:.2f} < 100).")
+                        f"(final intensity {final_intensity:.2f} < {self.min_intensity_threshold}).")
                 except Exception:
                     print(f"Warning: Photobleaching correction skipped for channel {ch} "
                         f"(final intensity {final_intensity:.2f} < 100).")
@@ -568,14 +570,14 @@ class ReadLif:
         try:
             lif_image = LifFile(self.path)
             read_meta = True
-        except:
+        except Exception as e:
             read_meta = False
-            print("⚠️ Could not read LIF metadata; proceeding without it.")
+            logging.warning(f"Could not read LIF metadata; proceeding without it: {e}")
         bit_depth = 0
         if read_meta:
             try:
                 bit_depth = lif_image.get_image(0).bit_depth[0]
-            except:
+            except Exception:
                 pass
         # scene list + pixel sizes + channel names
         images   = self._aics if self.lazy else BioImage(str(self.path))
@@ -595,7 +597,7 @@ class ReadLif:
             if read_meta:
                 try:
                     ti = lif_image.get_image(idx).settings.get('CycleTime', 0)
-                except:
+                except Exception:
                     pass
             list_time_intervals.append(ti)
             images.set_scene(idx)
@@ -688,7 +690,7 @@ class ReadLif:
         try:
             lif  = LifFile(self.path)
             root = ET.fromstring(lif.xml_header)
-        except:
+        except Exception:
             return [], [], []
         proj  = root.find('Element')
         parts = self._aics.scenes[image_index].split('/')
@@ -705,7 +707,7 @@ class ReadLif:
             if cp.findtext('Key') == 'SequentialSettingIndex':
                 try:
                     seq_idx = int(cp.findtext('Value'))
-                except:
+                except (ValueError, TypeError):
                     pass
                 break
         wave_ranges = []
@@ -720,7 +722,7 @@ class ReadLif:
                             b = float(mb.get('TargetWaveLengthBegin',0))
                             e = float(mb.get('TargetWaveLengthEnd',0))
                             wave_ranges.append((int(round(b)), int(round(e))))
-                        except:
+                        except (ValueError, TypeError):
                             pass
         laser_lines, intensities = [], []
         hw = elem.find('.//Attachment[@Name="HardwareSetting"]')
@@ -737,7 +739,7 @@ class ReadLif:
                                 idv = round(float(lls.get('IntensityDev',0)),3)
                                 laser_lines.append(wl)
                                 intensities.append(idv)
-                            except:
+                            except (ValueError, TypeError):
                                 pass
         return laser_lines, intensities, wave_ranges
 
@@ -910,7 +912,7 @@ class Intensity():
                 'sigma_y': abs(sigma_y),
                 'offset': offset,
             }, ss_res
-        except:
+        except (RuntimeError, ValueError):
             return None, np.inf
 
     def optimize_spot_size_method(self, frame_data, x_pos, y_pos):
