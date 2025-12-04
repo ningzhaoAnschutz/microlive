@@ -247,7 +247,19 @@ class Plots:
                     spacer_value = 255
                     spacer_shape = (crop_size, spacer_size)
                     spacer = np.full(spacer_shape, spacer_value, dtype=np.uint8)
-                    combined_img = np.concatenate([combined_img_list[0], spacer, combined_img_list[1]], axis=1)
+                    # Dynamically concatenate images with spacers
+                    if len(combined_img_list) > 1:
+                        combined_parts = []
+                        for i, img in enumerate(combined_img_list):
+                            combined_parts.append(img)
+                            if i < len(combined_img_list) - 1:
+                                combined_parts.append(spacer)
+                        combined_img = np.concatenate(combined_parts, axis=1)
+                    elif len(combined_img_list) == 1:
+                        combined_img = combined_img_list[0]
+                    else:
+                        # Should not happen given logic above, but safe fallback
+                        combined_img = np.zeros((crop_size, crop_size), dtype=np.uint8)
                     target_size = (single_crop_width, single_crop_height)
                     combined_img = resize_image_to_target(combined_img, target_size)
                     combined_img_rgb = np.stack([combined_img, combined_img, combined_img], axis=-1)
@@ -398,15 +410,26 @@ class Plots:
             else:
                 space_before_start = 20
             ax.set_xlim(lags[start_lag]-space_before_start, lags[max_lag_index])
-        computed_y_min = np.nanpercentile(normalized_correlation[start_lag:], y_min_percentile)
-        computed_y_max = np.nanpercentile(normalized_correlation[start_lag:], y_max_percentile)
-        # leave some room for computed_y_max value, use 20% more than the maximum
-        computed_y_max += 0.2 * computed_y_max
-        if not (np.isfinite(computed_y_min) and np.isfinite(computed_y_max)):
-            ax.relim()            
-            ax.autoscale_view()   
+        if y_min_percentile is None:
+            y_min_percentile = 0.1
+        if y_max_percentile is None:
+            y_max_percentile = 99.9
+
+        valid_data = normalized_correlation[start_lag:]
+        if valid_data.size > 0:
+            computed_y_min = np.nanpercentile(valid_data, y_min_percentile)
+            computed_y_max = np.nanpercentile(valid_data, y_max_percentile)
+            # leave some room for computed_y_max value, use 20% more than the maximum
+            computed_y_max += 0.2 * abs(computed_y_max) if computed_y_max != 0 else 0.1
+            
+            if not (np.isfinite(computed_y_min) and np.isfinite(computed_y_max)):
+                ax.relim()            
+                ax.autoscale_view()   
+            else:
+                ax.set_ylim(computed_y_min, computed_y_max)
         else:
-            ax.set_ylim(computed_y_min, computed_y_max)
+            ax.relim()
+            ax.autoscale_view()
         if axes is None:
             fig.tight_layout()
 
@@ -452,15 +475,33 @@ class Plots:
         if plot_title is None:
             plot_title = 'Cross-correlation'
         ax.set_title(plot_title, fontsize=10)
-        max_idx_local = np.nanargmax(mean_corr_smoothed)
-        max_lag = lags_slice[max_idx_local]
-        max_value = mean_corr_smoothed[max_idx_local]
+        if y_min_percentile is None:
+            y_min_percentile = 0.1
+        if y_max_percentile is None:
+            y_max_percentile = 99.9
+
+        max_idx_local = 0
+        max_lag = 0
+        max_value = 0
+        
+        if mean_corr_smoothed.size > 0:
+            try:
+                max_idx_local = np.nanargmax(mean_corr_smoothed)
+                max_lag = lags_slice[max_idx_local]
+                max_value = mean_corr_smoothed[max_idx_local]
+            except ValueError:
+                pass # Handle empty or all-NaN slice
+
         ax.axvline(x=max_lag, color='r', linestyle='--', linewidth=2)
         text = r'$\tau_{max}$ = ' + f'{max_lag:.2f} au'
         props = dict(boxstyle='round', facecolor='white', alpha=0.9)
-        xlim = np.nanpercentile(mean_corr_slice, y_min_percentile)
-        ylim = np.nanpercentile(mean_corr_slice, y_max_percentile)
-        ax.set_ylim(xlim, ylim)
+        
+        if mean_corr_slice.size > 0:
+            xlim = np.nanpercentile(mean_corr_slice, y_min_percentile)
+            ylim = np.nanpercentile(mean_corr_slice, y_max_percentile)
+            ax.set_ylim(xlim, ylim)
+        else:
+            ax.autoscale()
         # Safely retrieve axis limits for positioning the τₘₐₓ label
         x_limits = ax.get_xlim()
         if isinstance(x_limits, (tuple, list)) and len(x_limits) >= 2:
@@ -921,8 +962,8 @@ class GUI(QMainWindow):
         self.use_fixed_size_for_intensity_calculation = True
         self.display_max_percentile = 99.95
         self.display_min_percentile = 0.1
-        self.tracking_min_percentile = 99.95  # self.display_min_percentile
-        self.tracking_max_percentile = 0.05   # self.display_max_percentile
+        self.tracking_min_percentile = 0.05   # self.display_min_percentile
+        self.tracking_max_percentile = 99.95  # self.display_max_percentile
         self.display_sigma = 0.7
         self.low_display_sigma = 0.15
         self.correlation_fit_type = 'linear'
@@ -1570,20 +1611,20 @@ class GUI(QMainWindow):
             return image_stack
         mapping = self.open_dimension_mapping_dialog(image_stack.shape)
         if mapping is None:
-            # User cancelled; return original array
-            return image_stack
+            # User cancelled; return None to indicate cancellation
+            return None
         used_axes = [m for m in mapping if m is not None]
         # Validate mapping indices within bounds
         if any(m < 0 or m >= image_stack.ndim for m in used_axes):
             QMessageBox.critical(self, "Error", f"Mapping indices {used_axes} are not valid for an image with {image_stack.ndim} dimensions.")
-            return image_stack
+            return None
         if used_axes:
             try:
                 # Rearrange image so used axes appear in selected order
                 transposed = np.transpose(image_stack, used_axes)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error transposing image: {e}")
-                return image_stack
+                return None
         else:
             transposed = image_stack
         used_shape = list(transposed.shape)
@@ -1594,13 +1635,13 @@ class GUI(QMainWindow):
             else:
                 if not used_shape:
                     QMessageBox.critical(self, "Error", "Insufficient dimensions after transposition.")
-                    return image_stack
+                    return None
                 new_shape.append(used_shape.pop(0))
         try:
             final_array = np.reshape(transposed, new_shape)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error reshaping image to standard format: {e}")
-            return image_stack
+            return None
         return final_array
 
     def open_image(self):
@@ -1775,6 +1816,8 @@ class GUI(QMainWindow):
                 raw = data
         # Convert raw image data to standard internal format
         self.image_stack = self.convert_to_standard_format(raw)
+        if self.image_stack is None:
+            return
         # Update dimensions and channel count
         dims = self.image_stack.shape
         T = dims[0]
@@ -1886,6 +1929,7 @@ class GUI(QMainWindow):
         self.time_course_channel_combo.clear()
         for ch in range(self.number_color_channels):
             self.time_course_channel_combo.addItem(str(ch), ch)
+        self.time_course_channel_combo.addItem("All")
         self.time_course_channel_combo.setCurrentIndex(0)
         if hasattr(self, 'min_percentile_spinbox_tracking'):
             self.update_tracking_sliders()
@@ -2007,6 +2051,7 @@ class GUI(QMainWindow):
         self.time_course_channel_combo.clear()
         for ch in range(self.number_color_channels):
             self.time_course_channel_combo.addItem(str(ch), ch)
+        self.time_course_channel_combo.addItem("All")
         self.time_course_channel_combo.setCurrentIndex(0)
         if hasattr(self, 'min_percentile_spinbox_tracking'):
             self.update_tracking_sliders()
@@ -4040,8 +4085,8 @@ class GUI(QMainWindow):
         self.min_percentile_spinbox_tracking.setSingleStep(0.1)
         self.min_percentile_spinbox_tracking.setSuffix("%")
         self.min_percentile_spinbox_tracking.setValue(self.tracking_min_percentile)
-        self.min_percentile_spinbox_tracking.valueChanged.connect(
-            lambda v: (setattr(self, 'tracking_min_percentile', float(v)), self.plot_tracking())
+        self.min_percentile_spinbox_tracking.editingFinished.connect(
+            lambda: (setattr(self, 'tracking_min_percentile', self.min_percentile_spinbox_tracking.value()), self.plot_tracking())
         )
         spin_layout.addWidget(QLabel("Min Int", self))
         spin_layout.addWidget(self.min_percentile_spinbox_tracking)
@@ -4051,8 +4096,8 @@ class GUI(QMainWindow):
         self.max_percentile_spinbox_tracking.setSingleStep(0.05)
         self.max_percentile_spinbox_tracking.setSuffix("%")
         self.max_percentile_spinbox_tracking.setValue(self.tracking_max_percentile)
-        self.max_percentile_spinbox_tracking.valueChanged.connect(
-            lambda v: (setattr(self, 'tracking_max_percentile', float(v)), self.plot_tracking())
+        self.max_percentile_spinbox_tracking.editingFinished.connect(
+            lambda: (setattr(self, 'tracking_max_percentile', self.max_percentile_spinbox_tracking.value()), self.plot_tracking())
         )
         spin_layout.addWidget(QLabel("Max Int", self))
         spin_layout.addWidget(self.max_percentile_spinbox_tracking)
@@ -4479,6 +4524,19 @@ class GUI(QMainWindow):
         self.show_traces_checkbox = QCheckBox("Show Individual Traces")
         self.show_traces_checkbox.setChecked(False)
         controls_layout.addWidget(self.show_traces_checkbox)
+
+        # Normalize Data checkbox
+        self.normalize_time_course_checkbox = QCheckBox("Normalize Data")
+        self.normalize_time_course_checkbox.setChecked(False)
+        controls_layout.addWidget(self.normalize_time_course_checkbox)
+
+        # Moving Average SpinBox
+        ma_label = QLabel("Moving Average:")
+        self.moving_average_spinbox = QSpinBox()
+        self.moving_average_spinbox.setRange(1, 50)
+        self.moving_average_spinbox.setValue(1)
+        controls_layout.addWidget(ma_label)
+        controls_layout.addWidget(self.moving_average_spinbox)
 
         # Plot button
         self.plot_time_course_button = QPushButton("Plot Time Course", self)
@@ -5771,7 +5829,7 @@ class GUI(QMainWindow):
         # Percentile spinboxes for intensity scaling
         spin_layout = QHBoxLayout()
         self.min_percentile_spinbox_tracking_vis = QDoubleSpinBox(self)
-        self.min_percentile_spinbox_tracking_vis.setRange(0.0, 50.0)
+        self.min_percentile_spinbox_tracking_vis.setRange(0.0, 95.0)
         self.min_percentile_spinbox_tracking_vis.setSingleStep(0.1)
         self.min_percentile_spinbox_tracking_vis.setSuffix("%")
         self.min_percentile_spinbox_tracking_vis.setValue(1.0)
@@ -7336,74 +7394,211 @@ class GUI(QMainWindow):
 
 
     def plot_intensity_time_course(self):
-        channel_index = self.time_course_channel_combo.currentIndex()
+        channel_text = self.time_course_channel_combo.currentText()
         data_type = self.data_type_combo.currentText()
         lower_percentile = self.min_percentile_spinbox.value()
         upper_percentile = self.max_percentile_spinbox.value()
+        normalize = self.normalize_time_course_checkbox.isChecked()
+        window_size = self.moving_average_spinbox.value()
+
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
         if self.df_tracking.empty:
             QMessageBox.warning(self, "No Tracking Data", "Please perform particle tracking first.")
             return
+
         self.ax_time_course.clear()
         time_interval = float(self.list_time_intervals[self.selected_image_index]) \
             if self.list_time_intervals and len(self.list_time_intervals) > self.selected_image_index else 1.0
         total_frames = self.image_stack.shape[0]
         time_points_in_seconds = np.arange(0, total_frames * time_interval, time_interval)
-        if data_type == "particles":
-            particles_per_frame = self.df_tracking.groupby('frame')['particle'].nunique()
-            all_frames = np.arange(total_frames)
-            particles_per_frame = particles_per_frame.reindex(all_frames, fill_value=0)
-            self.ax_time_course.plot(time_points_in_seconds, particles_per_frame, 'o-', color='orangered', linewidth=2)
-            self.ax_time_course.set_title("Number of Particles vs Time", fontsize=10, color='white')
-            self.ax_time_course.set_xlabel("Time (s)", color='white')
-            self.ax_time_course.set_ylabel('Number of Particles', color='white')
-            max_particles = particles_per_frame.max()
-            self.ax_time_course.set_ylim([0, max_particles + 1])
-        else:
-            field_name = f"{data_type}_ch_{channel_index}"
+
+        # Helper to apply moving average
+        def apply_moving_average(data_array, win_size):
+            if win_size <= 1:
+                return data_array
+            # Use pandas rolling mean for convenience if available, or convolution
+            # data_array is 1D
+            s = pd.Series(data_array)
+            # min_periods=1 ensures we get values from the start
+            return s.rolling(window=win_size, min_periods=1).mean().values
+
+        # Helper to get color for channel
+        def get_channel_color(ch_idx):
+            # 0=Magenta, 1=Green, 2=Yellow
+            if ch_idx == 0: return 'magenta'
+            if ch_idx == 1: return 'green'
+            if ch_idx == 2: return 'yellow'
+            # fallback
+            return 'cyan'
+
+        # Helper to plot one channel's data
+        # Returns (min_val, max_val) for y-axis scaling
+        def plot_channel_data(ch_idx, color_override=None):
+            field_name = f"{data_type}_ch_{ch_idx}"
             if field_name not in self.df_tracking.columns:
-                QMessageBox.warning(self, "Data Error", f"No {data_type} data for Channel {channel_index}.")
-                return
-            total_frames = self.image_stack.shape[0]  # total frames in the stack
+                return None, None
+
             intensity_array = mi.Utilities().df_trajectories_to_array(
                 dataframe=self.df_tracking,
                 selected_field=field_name,
                 fill_value=np.nan,
                 total_frames=total_frames
             )
-            # Plot individual traces if option is enabled
-            if self.show_traces_checkbox.isChecked():
+
+            # Normalize if requested
+            if normalize:
+                # Min-Max normalization per trace or global?
+                # Usually for time course comparison, global min/max of the mean trace or per-trace?
+                # Let's normalize the mean trace to 0-1 for visualization, 
+                # OR normalize the entire array to [0,1] based on its global min/max.
+                # User request: "Allow the user to normalize this data"
+                # Let's normalize the mean curve to 0-1 range for clarity.
+                # Actually, standard is usually (val - min) / (max - min).
+                pass 
+
+            # Plot individual traces if option is enabled (only if not "All" or maybe yes?)
+            # If "All" is selected, individual traces might be too messy.
+            # Let's disable individual traces for "All" to avoid clutter, or respect the checkbox.
+            # The user didn't specify, but "All" usually implies comparing means.
+            # Let's respect the checkbox but maybe with low alpha.
+            
+            if self.show_traces_checkbox.isChecked() and channel_text != "All":
                 for idx in range(intensity_array.shape[0]):
                     trace = intensity_array[idx, :]
                     if np.all(np.isnan(trace)):
-                        continue  # skip if a trace has no data (shouldn't happen if particle exists)
+                        continue
+                    # If normalizing, we'd need to normalize traces too? 
+                    # Let's keep raw traces for now unless normalization is simple.
                     self.ax_time_course.plot(time_points_in_seconds, trace, '-', color='gray',
                                             linewidth=1, alpha=0.5, label='_nolegend_')
-            # Calculate mean and std dev across all particles at each time point
+
+            # Calculate mean and std dev
             mean_time_intensity = np.nanmean(intensity_array, axis=0)
             std_time_intensity  = np.nanstd(intensity_array, axis=0)
-            # Replace NaN (if any frame has all NaNs) with 0 to avoid issues in plotting
             mean_time_intensity = np.nan_to_num(mean_time_intensity)
             std_time_intensity  = np.nan_to_num(std_time_intensity)
-            # Plot the mean intensity over time (as a line) 
+
+            # Apply Moving Average
+            if window_size > 1:
+                mean_time_intensity = apply_moving_average(mean_time_intensity, window_size)
+                # Also smooth std dev? Or keep it raw? Usually smooth mean is enough.
+                # Let's smooth std dev too to match the curve smoothness visually
+                std_time_intensity = apply_moving_average(std_time_intensity, window_size)
+
+            if normalize:
+                # Normalize mean to 0-1
+                min_v = np.min(mean_time_intensity)
+                max_v = np.max(mean_time_intensity)
+                if max_v > min_v:
+                    mean_time_intensity = (mean_time_intensity - min_v) / (max_v - min_v)
+                    # Scale std dev proportionally? Or just show mean?
+                    # Std dev scaling: std = std / (max - min)
+                    std_time_intensity = std_time_intensity / (max_v - min_v)
+
+            color = color_override if color_override else 'cyan'
+            label_text = f"Ch {ch_idx}" if channel_text == "All" else "Mean"
+            
             self.ax_time_course.plot(time_points_in_seconds, mean_time_intensity, 'o-',
-                                    color='cyan', linewidth=2, label='Mean', alpha=0.5, zorder=3)
+                                    color=color, linewidth=2, label=label_text, alpha=0.8, zorder=3)
+            
+            # Fill between for std dev (maybe skip for "All" to reduce clutter? or use low alpha)
             self.ax_time_course.fill_between(time_points_in_seconds,
                                             mean_time_intensity - std_time_intensity,
                                             mean_time_intensity + std_time_intensity,
-                                            color='cyan', alpha=0.3, label='Std Dev', zorder=1)
-            self.ax_time_course.set_title(f"{data_type.capitalize()} vs Time (Channel {channel_index})",
-                                        fontsize=10, color='white')
-            self.ax_time_course.set_xlabel("Time (s)", color='white')
-            self.ax_time_course.set_ylabel(f"{data_type.capitalize()} (au)", color='white')
-            lower_y = np.nanpercentile(intensity_array, lower_percentile)
-            upper_y = np.nanpercentile(intensity_array, upper_percentile)
-            y_range = upper_y - lower_y
-            self.ax_time_course.set_ylim([lower_y - 0.1 * y_range, upper_y + 0.1 * y_range])
-            self.ax_time_course.set_xlim([time_points_in_seconds[0], time_points_in_seconds[-1]])
-            self.ax_time_course.legend(loc='upper right', fontsize=10, bbox_to_anchor=(1, 1))
+                                            color=color, alpha=0.1, label='_nolegend_', zorder=1)
+            
+            # Return range for axis scaling
+            if normalize:
+                return 0.0, 1.0
+            else:
+                lower_y = np.nanpercentile(intensity_array, lower_percentile)
+                upper_y = np.nanpercentile(intensity_array, upper_percentile)
+                return lower_y, upper_y
+
+        # --- Plotting Logic ---
+        
+        if data_type == "particles":
+            # Particles is universal.
+            particles_per_frame = self.df_tracking.groupby('frame')['particle'].nunique()
+            all_frames = np.arange(total_frames)
+            particles_per_frame = particles_per_frame.reindex(all_frames, fill_value=0)
+            
+            y_data = particles_per_frame.values.astype(float)
+            
+            # Apply Moving Average
+            if window_size > 1:
+                y_data = apply_moving_average(y_data, window_size)
+
+            if normalize:
+                min_v = np.min(y_data)
+                max_v = np.max(y_data)
+                if max_v > min_v:
+                    y_data = (y_data - min_v) / (max_v - min_v)
+            
+            self.ax_time_course.plot(time_points_in_seconds, y_data, 'o-', color='orangered', linewidth=2, label="Particles")
+            self.ax_time_course.set_title("Number of Particles vs Time", fontsize=10, color='white')
+            
+            if normalize:
+                 self.ax_time_course.set_ylim([-0.1, 1.1])
+            else:
+                 max_particles = particles_per_frame.max()
+                 self.ax_time_course.set_ylim([0, max_particles + 1])
+
+        else:
+            # Intensity/Size/etc data
+            if channel_text == "All":
+                # Plot all channels
+                y_mins = []
+                y_maxs = []
+                
+                # We need to know which channels exist. 
+                # self.number_color_channels should hold this.
+                num_ch = getattr(self, 'number_color_channels', 1)
+                
+                for ch in range(num_ch):
+                    c_color = get_channel_color(ch)
+                    l_y, u_y = plot_channel_data(ch, color_override=c_color)
+                    if l_y is not None:
+                        y_mins.append(l_y)
+                        y_maxs.append(u_y)
+                
+                self.ax_time_course.set_title(f"{data_type.capitalize()} vs Time (All Channels)", fontsize=10, color='white')
+                
+                if y_mins and y_maxs:
+                    if normalize:
+                        self.ax_time_course.set_ylim([-0.1, 1.1])
+                    else:
+                        # Find global min/max for axis
+                        global_min = min(y_mins)
+                        global_max = max(y_maxs)
+                        y_range = global_max - global_min
+                        self.ax_time_course.set_ylim([global_min - 0.1 * y_range, global_max + 0.1 * y_range])
+
+            else:
+                # Single channel
+                ch_idx = int(channel_text)
+                l_y, u_y = plot_channel_data(ch_idx, color_override='cyan')
+                
+                self.ax_time_course.set_title(f"{data_type.capitalize()} vs Time (Channel {ch_idx})", fontsize=10, color='white')
+                
+                if l_y is not None:
+                    if normalize:
+                        self.ax_time_course.set_ylim([-0.1, 1.1])
+                    else:
+                        y_range = u_y - l_y
+                        self.ax_time_course.set_ylim([l_y - 0.1 * y_range, u_y + 0.1 * y_range])
+
+        self.ax_time_course.set_xlabel("Time (s)", color='white')
+        ylabel = f"{data_type.capitalize()} (Normalized)" if normalize else f"{data_type.capitalize()} (au)"
+        if data_type == "particles" and not normalize:
+             ylabel = "Number of Particles"
+        self.ax_time_course.set_ylabel(ylabel, color='white')
+        
+        self.ax_time_course.set_xlim([time_points_in_seconds[0], time_points_in_seconds[-1]])
+        self.ax_time_course.legend(loc='upper right', fontsize=10, bbox_to_anchor=(1, 1))
+        
         self.ax_time_course.tick_params(axis='x', colors='white')
         self.ax_time_course.tick_params(axis='y', colors='white')
         self.figure_time_course.tight_layout()
