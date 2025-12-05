@@ -1419,79 +1419,103 @@ class CellSegmentationWatershed:
         self.separation_size = separation_size
 
     def apply_watershed(self):
+        # 1. Prepare 2D image
         if self.image.ndim == 4:  # [Z, Y, X, C]
             image_2d = np.max(self.image, axis=0)
         elif self.image.ndim == 3 and self.image.shape[2] <= 4:  # [Y, X, C]
             image_2d = self.image
         else:
             image_2d = self.image
+
+        # 2. Convert to grayscale
         if image_2d.ndim == 3 and image_2d.shape[2] > 1:
             image_gray = np.mean(image_2d, axis=2)
         else:
             image_gray = image_2d.squeeze()
+
+        # 3. Preprocessing (Equalization + Smoothing)
+        # Use CLAHE for better local contrast without over-amplifying noise
         image_eq = exposure.equalize_adapthist(image_gray)
         sigma_smooth = self.expected_radius / 10.0  # heuristic
         smoothed = filters.gaussian(image_eq, sigma=sigma_smooth)
+
+        # 4. Thresholding
         if self.threshold_method == 'otsu':
             base_thresh = filters.threshold_otsu(smoothed)
         elif self.threshold_method == 'li':
             base_thresh = filters.threshold_li(smoothed)
         else:
             raise ValueError("Use 'otsu' or 'li' threshold_method.")
+        
+        # Apply threshold factor (lower factor = lower threshold = more sensitive)
         thresh_val = base_thresh / self.threshold_factor
-        initial_mask = smoothed > thresh_val
-        clean_mask = remove_small_objects(initial_mask, min_size=self.min_object_size)
+        binary_mask = smoothed > thresh_val
+
+        # 5. Cleanup Binary Mask
+        clean_mask = remove_small_objects(binary_mask, min_size=self.min_object_size)
         clean_mask = remove_small_holes(clean_mask, area_threshold=5*self.min_object_size)
-        fg_pixels = np.sum(clean_mask)
-        edges = feature.canny(smoothed, sigma=self.canny_sigma)
-        edges_dil = morphology.dilation(edges, disk(2))
-        circle_area = np.pi * (self.expected_radius**2)
-        multi_cell_mask = clean_mask.copy()
-        if fg_pixels > 2 * circle_area:
-            multi_cell_mask = np.logical_and(multi_cell_mask, ~edges_dil)
-        distance = ndimage.distance_transform_edt(multi_cell_mask)
-        if self.markers_method == 'local' and fg_pixels > 1.5 * circle_area:
-            min_dist = int(self.expected_radius / 4.0)
-            coords = feature.peak_local_max(distance, min_distance=min_dist, labels=multi_cell_mask)
-            local_max = np.zeros_like(distance, dtype=bool)
-            if coords.size:
-                local_max[tuple(coords.T)] = True
-            markers, _ = ndimage.label(local_max)
-        else:
-            markers, _ = ndimage.label(multi_cell_mask)
+
+        # 6. Distance Transform & Markers
+        distance = ndimage.distance_transform_edt(clean_mask)
+        
+        # Always use local maxima for markers to separate touching cells
+        # The min_distance ensures we don't over-segment
+        min_dist = int(self.expected_radius / 2.0) 
+        coords = feature.peak_local_max(distance, min_distance=min_dist, labels=clean_mask)
+        local_max = np.zeros_like(distance, dtype=bool)
+        if coords.size:
+            local_max[tuple(coords.T)] = True
+        markers, _ = ndimage.label(local_max)
+
+        # 7. Watershed
+        # Use gradient as the "elevation map" for better boundaries
         sobelx = filters.sobel_h(smoothed)
         sobely = filters.sobel_v(smoothed)
         gradient = np.hypot(sobelx, sobely)
-        labels = watershed(gradient, markers=markers, mask=multi_cell_mask)
+        
+        labels = watershed(gradient, markers=markers, mask=clean_mask)
+        
+        # 8. Final Cleanup
         labels = remove_small_objects(labels, min_size=self.min_object_size)
         labels = labels.astype(np.int32)
+        
         num_objects = labels.max()
         if num_objects == 0:
             print("No objects detected.")
             return np.zeros_like(labels, dtype=int)
+
+        # 9. Select Best Region (Largest & Centered)
+        # User requested to keep this logic.
         props = measure.regionprops(labels)
         center_y, center_x = (image_gray.shape[0]/2.0, image_gray.shape[1]/2.0)
         best_region = None
         best_metric = -np.inf
+        
         for rp in props:
             area = rp.area
             cy, cx = rp.centroid
             dist_center = np.sqrt((cy - center_y)**2 + (cx - center_x)**2)
+            # Metric favors large area and proximity to center
             lam = 1.0
             metric = area - lam*dist_center
             if metric > best_metric:
                 best_metric = metric
                 best_region = rp
+                
         if not best_region:
             print("No best region found somehow.")
             return np.zeros_like(labels, dtype=int)
+            
         best_mask = (labels == best_region.label)
         best_mask = ndimage.binary_fill_holes(best_mask)
+        
+        # Ensure we only have one connected component in the result
         relabeled, count = ndimage.label(best_mask)
         if count > 1:
             comp_areas = ndimage.sum(np.ones_like(relabeled), relabeled, index=np.arange(1, count+1))
             largest_comp = np.argmax(comp_areas) + 1
             best_mask = (relabeled == largest_comp)
+            
         if num_objects > 1:
             best_mask = binary_erosion(best_mask, disk(self.separation_size))
 

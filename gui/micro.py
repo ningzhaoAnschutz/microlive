@@ -1340,9 +1340,9 @@ class GUI(QMainWindow):
                     "Missing Metadata",
                     "Enter time increment (s):",
                     default_t,
-                    0.01,
+                    1e-6,
                     1e6,
-                    3
+                    6
                 )
                 if ok:
                     self.time_interval_value = val
@@ -1600,6 +1600,7 @@ class GUI(QMainWindow):
         if voxel_z_nm is not None:
             self.voxel_z_nm = voxel_z_nm
             self.voxel_size_z_nm = voxel_z_nm
+        
         self.time_interval_value = dt_seconds if dt_seconds is not None else self.time_interval_value 
 
         # Determine the data axes order and reshape to standard [T, Z, Y, X, C] if needed
@@ -2783,6 +2784,8 @@ class GUI(QMainWindow):
             normalized_image = rescaled_image.astype(np.float32) / 255.0
             cmap_used = cmap_list_imagej[ch]
             self.ax_segmentation.imshow(normalized_image[..., 0], cmap=cmap_used, vmin=0, vmax=1)
+            
+            # Draw contours for segmentation mask
             if self.segmentation_mask is not None:
                 self.ax_segmentation.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
         else:
@@ -3321,6 +3324,9 @@ class GUI(QMainWindow):
 
     def update_memory(self, value):
         self.memory = value
+
+    def update_use_fixed_size_intensity(self, state):
+        self.use_fixed_size_for_intensity_calculation = (state == Qt.Checked)
 
     def update_tracking_sliders(self):
         """
@@ -3892,7 +3898,7 @@ class GUI(QMainWindow):
         self.min_percentile_spinbox_tracking.setSingleStep(0.1)
         self.min_percentile_spinbox_tracking.setSuffix("%")
         self.min_percentile_spinbox_tracking.setValue(self.tracking_min_percentile)
-        self.min_percentile_spinbox_tracking.editingFinished.connect(
+        self.min_percentile_spinbox_tracking.valueChanged.connect(
             lambda: (setattr(self, 'tracking_min_percentile', self.min_percentile_spinbox_tracking.value()), self.plot_tracking())
         )
         spin_layout.addWidget(QLabel("Min Int", self))
@@ -3903,7 +3909,7 @@ class GUI(QMainWindow):
         self.max_percentile_spinbox_tracking.setSingleStep(0.05)
         self.max_percentile_spinbox_tracking.setSuffix("%")
         self.max_percentile_spinbox_tracking.setValue(self.tracking_max_percentile)
-        self.max_percentile_spinbox_tracking.editingFinished.connect(
+        self.max_percentile_spinbox_tracking.valueChanged.connect(
             lambda: (setattr(self, 'tracking_max_percentile', self.max_percentile_spinbox_tracking.value()), self.plot_tracking())
         )
         spin_layout.addWidget(QLabel("Max Int", self))
@@ -4093,6 +4099,16 @@ class GUI(QMainWindow):
         self.memory_input.setValue(self.memory)
         self.memory_input.valueChanged.connect(self.update_memory)
         linking_layout.addRow("Memory:", self.memory_input)
+        
+        # Group 4: Intensity Calculation
+        intensity_calc_group = QGroupBox("Intensity Calculation")
+        intensity_calc_layout = QVBoxLayout(intensity_calc_group)
+        tracking_right_main_layout.addWidget(intensity_calc_group)
+        
+        self.fixed_size_intensity_checkbox = QCheckBox("Use Fixed Size for Intensity Calculation")
+        self.fixed_size_intensity_checkbox.setChecked(self.use_fixed_size_for_intensity_calculation)
+        self.fixed_size_intensity_checkbox.stateChanged.connect(self.update_use_fixed_size_intensity)
+        intensity_calc_layout.addWidget(self.fixed_size_intensity_checkbox)
         # Control: Random Point Generation
         random_points_group = QGroupBox("Control Spots: Random Locations")
         random_points_layout = QFormLayout(random_points_group)
@@ -4301,7 +4317,7 @@ class GUI(QMainWindow):
         controls_layout.addWidget(self.time_course_channel_combo)
 
         # Data type selection
-        data_type_label = QLabel("Data Type:")
+        data_type_label = QLabel("Data:")
         self.data_type_combo = QComboBox()
         self.data_type_combo.addItems([
             "particles", "spot_int", "spot_size", "psf_amplitude",
@@ -4311,7 +4327,7 @@ class GUI(QMainWindow):
         controls_layout.addWidget(self.data_type_combo)
 
         # Percentile controls
-        min_percentile_label = QLabel("Min Percentile:")
+        min_percentile_label = QLabel("Min_Perc:")
         self.min_percentile_spinbox = QDoubleSpinBox()
         self.min_percentile_spinbox.setRange(0.0, 50.0)
         self.min_percentile_spinbox.setValue(5.0)
@@ -4319,7 +4335,7 @@ class GUI(QMainWindow):
         controls_layout.addWidget(min_percentile_label)
         controls_layout.addWidget(self.min_percentile_spinbox)
 
-        max_percentile_label = QLabel("Max Percentile:")
+        max_percentile_label = QLabel("Max_Perc:")
         self.max_percentile_spinbox = QDoubleSpinBox()
         self.max_percentile_spinbox.setRange(50.0, 100.0)
         self.max_percentile_spinbox.setValue(95.0)
@@ -4328,17 +4344,22 @@ class GUI(QMainWindow):
         controls_layout.addWidget(self.max_percentile_spinbox)
 
         # Show Individual Traces checkbox
-        self.show_traces_checkbox = QCheckBox("Show Individual Traces")
+        self.show_traces_checkbox = QCheckBox("Individual")
         self.show_traces_checkbox.setChecked(False)
         controls_layout.addWidget(self.show_traces_checkbox)
 
         # Normalize Data checkbox
-        self.normalize_time_course_checkbox = QCheckBox("Normalize Data")
+        self.normalize_time_course_checkbox = QCheckBox("Normalize")
         self.normalize_time_course_checkbox.setChecked(False)
         controls_layout.addWidget(self.normalize_time_course_checkbox)
 
+        # Show Time in Minutes checkbox
+        self.show_time_in_minutes_checkbox = QCheckBox("Minutes")
+        self.show_time_in_minutes_checkbox.setChecked(False)
+        controls_layout.addWidget(self.show_time_in_minutes_checkbox)
+
         # Moving Average SpinBox
-        ma_label = QLabel("Moving Average:")
+        ma_label = QLabel("moving_ave:")
         self.moving_average_spinbox = QSpinBox()
         self.moving_average_spinbox.setRange(1, 50)
         self.moving_average_spinbox.setValue(1)
@@ -4346,7 +4367,7 @@ class GUI(QMainWindow):
         controls_layout.addWidget(self.moving_average_spinbox)
 
         # Plot button
-        self.plot_time_course_button = QPushButton("Plot Time Course", self)
+        self.plot_time_course_button = QPushButton("Plot", self)
         self.plot_time_course_button.clicked.connect(self.plot_intensity_time_course)
         controls_layout.addWidget(self.plot_time_course_button)
 
@@ -4366,7 +4387,7 @@ class GUI(QMainWindow):
         self.toolbar_time_course = NavigationToolbar(self.canvas_time_course, self)
         bottom_layout.addWidget(self.toolbar_time_course)
         bottom_layout.addStretch()
-        self.export_time_course_button = QPushButton("Export Time Courses Image", self)
+        self.export_time_course_button = QPushButton("Export Image", self)
         self.export_time_course_button.clicked.connect(self.export_time_course_image)
         bottom_layout.addWidget(self.export_time_course_button)
         time_course_layout.addLayout(bottom_layout)
@@ -6839,6 +6860,8 @@ class GUI(QMainWindow):
         self.canvas_segmentation.draw()
         self.segmentation_mask = None
         self.selected_points = []
+        self.segmentation_current_channel = 0
+        self.segmentation_current_frame = 0
 
     def reset_photobleaching_tab(self):
         self.figure_photobleaching.clear()
@@ -7219,7 +7242,17 @@ class GUI(QMainWindow):
         time_interval = float(self.list_time_intervals[self.selected_image_index]) \
             if self.list_time_intervals and len(self.list_time_intervals) > self.selected_image_index else 1.0
         total_frames = self.image_stack.shape[0]
-        time_points_in_seconds = np.arange(0, total_frames * time_interval, time_interval)
+        
+        # Calculate time points
+        time_points = np.arange(0, total_frames * time_interval, time_interval)
+        
+        # Check if minutes are requested
+        show_minutes = self.show_time_in_minutes_checkbox.isChecked()
+        if show_minutes:
+            time_points = time_points / 60.0
+            x_label = "Time (min)"
+        else:
+            x_label = "Time (s)"
 
         # Helper to apply moving average
         def apply_moving_average(data_array, win_size):
@@ -7278,7 +7311,7 @@ class GUI(QMainWindow):
                         continue
                     # If normalizing, we'd need to normalize traces too? 
                     # Let's keep raw traces for now unless normalization is simple.
-                    self.ax_time_course.plot(time_points_in_seconds, trace, '-', color='gray',
+                    self.ax_time_course.plot(time_points, trace, '-', color='gray',
                                             linewidth=1, alpha=0.5, label='_nolegend_')
 
             # Calculate mean and std dev
@@ -7307,11 +7340,11 @@ class GUI(QMainWindow):
             color = color_override if color_override else 'cyan'
             label_text = f"Ch {ch_idx}" if channel_text == "All" else "Mean"
             
-            self.ax_time_course.plot(time_points_in_seconds, mean_time_intensity, 'o-',
+            self.ax_time_course.plot(time_points, mean_time_intensity, 'o-',
                                     color=color, linewidth=2, label=label_text, alpha=0.8, zorder=3)
             
             # Fill between for std dev (maybe skip for "All" to reduce clutter? or use low alpha)
-            self.ax_time_course.fill_between(time_points_in_seconds,
+            self.ax_time_course.fill_between(time_points,
                                             mean_time_intensity - std_time_intensity,
                                             mean_time_intensity + std_time_intensity,
                                             color=color, alpha=0.1, label='_nolegend_', zorder=1)
@@ -7344,7 +7377,7 @@ class GUI(QMainWindow):
                 if max_v > min_v:
                     y_data = (y_data - min_v) / (max_v - min_v)
             
-            self.ax_time_course.plot(time_points_in_seconds, y_data, 'o-', color='orangered', linewidth=2, label="Particles")
+            self.ax_time_course.plot(time_points, y_data, 'o-', color='orangered', linewidth=2, label="Particles")
             self.ax_time_course.set_title("Number of Particles vs Time", fontsize=10, color='white')
             
             if normalize:
@@ -7397,13 +7430,13 @@ class GUI(QMainWindow):
                         y_range = u_y - l_y
                         self.ax_time_course.set_ylim([l_y - 0.1 * y_range, u_y + 0.1 * y_range])
 
-        self.ax_time_course.set_xlabel("Time (s)", color='white')
+        self.ax_time_course.set_xlabel(x_label, color='white')
         ylabel = f"{data_type.capitalize()} (Normalized)" if normalize else f"{data_type.capitalize()} (au)"
         if data_type == "particles" and not normalize:
              ylabel = "Number of Particles"
         self.ax_time_course.set_ylabel(ylabel, color='white')
         
-        self.ax_time_course.set_xlim([time_points_in_seconds[0], time_points_in_seconds[-1]])
+        self.ax_time_course.set_xlim([time_points[0], time_points[-1]])
         self.ax_time_course.legend(loc='upper right', fontsize=10, bbox_to_anchor=(1, 1))
         
         self.ax_time_course.tick_params(axis='x', colors='white')
