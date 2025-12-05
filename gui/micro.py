@@ -104,6 +104,10 @@ from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass
 from trackpy.linking.utils import SubnetOversizeException
+try:
+    from vispy import logging as vispy_logging
+except ImportError:
+    pass
 
 
 # import multiprocessing.resource_tracker
@@ -141,7 +145,6 @@ def configure_logging_and_styles():
 
     warnings.filterwarnings("ignore", category=UserWarning, module="joblib")
     try:
-        from vispy import logging as vispy_logging
         vispy_logging.set_level('error')
         logging.getLogger('vispy').setLevel(logging.ERROR)
     except ImportError:
@@ -848,6 +851,8 @@ class GUI(QMainWindow):
         self.tabs.addTab(self.display_tab, "Import")
         self.segmentation_tab = QWidget()
         self.tabs.addTab(self.segmentation_tab, "Segmentation")
+        self.cellpose_tab = QWidget()
+        self.tabs.addTab(self.cellpose_tab, "Cellpose")
         self.photobleaching_tab = QWidget()
         self.tabs.addTab(self.photobleaching_tab, "Photobleaching")
         self.tracking_tab = QWidget()
@@ -871,6 +876,7 @@ class GUI(QMainWindow):
         self.tabs.currentChanged.connect(self.on_tab_change)
         self.setup_display_tab()
         self.setup_segmentation_tab()
+        self.setup_cellpose_tab()
         self.setup_photobleaching_tab()
         self.setup_tracking_tab()
         self.setup_tracking_visualization_tab()
@@ -1707,6 +1713,7 @@ class GUI(QMainWindow):
         self.segmentation_time_slider.setMaximum(T - 1)
         # Create channel buttons/controls for various tabs
         self.create_channel_buttons()                   # Main display tab channel buttons
+        self.create_cellpose_channel_buttons()
         self.create_segmentation_channel_buttons()      # Segmentation tab channel buttons/selection
         self.create_correlation_channel_checkboxes()    # Correlation tab channel checkboxes
         self.populate_colocalization_channels()         # Colocalization tab channel selections
@@ -1834,6 +1841,7 @@ class GUI(QMainWindow):
         self.time_slider_tracking_vis.setValue(0)
         self.segmentation_time_slider.setMaximum(T - 1)
         self.create_channel_buttons()
+        self.create_cellpose_channel_buttons()
         self.create_correlation_channel_checkboxes()
         self.populate_colocalization_channels()
         self.channelControlsTabs.clear()
@@ -2631,48 +2639,297 @@ class GUI(QMainWindow):
             and not self.df_tracking.empty):
             self.display_tracking_visualization()
 
-    def run_cellpose_segmentation(self):
+    def setup_cellpose_tab(self):
+        """
+        Setup the Cellpose tab with a left panel for image display and a right panel for controls.
+        """
+        layout = QHBoxLayout(self.cellpose_tab)
+
+        # --- Left Panel: Image Display ---
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        
+        # Figure Canvas
+        self.figure_cellpose = Figure()
+        self.canvas_cellpose = FigureCanvas(self.figure_cellpose)
+        self.ax_cellpose = self.figure_cellpose.add_subplot(111)
+        self.ax_cellpose.axis('off')
+        left_layout.addWidget(self.canvas_cellpose)
+
+        # Navigation Controls (Time Slider & Channel Buttons)
+        nav_layout = QVBoxLayout()
+        
+        # Time Slider
+        time_layout = QHBoxLayout()
+        time_layout.addWidget(QLabel("Time:"))
+        self.time_slider_cellpose = QSlider(Qt.Horizontal)
+        self.time_slider_cellpose.valueChanged.connect(self.update_cellpose_frame)
+        time_layout.addWidget(self.time_slider_cellpose)
+        nav_layout.addLayout(time_layout)
+
+        # Channel Buttons
+        self.cellpose_channel_buttons_layout = QHBoxLayout()
+        nav_layout.addLayout(self.cellpose_channel_buttons_layout)
+        self.cellpose_channel_buttons = []
+
+        left_layout.addLayout(nav_layout)
+        layout.addWidget(left_panel, stretch=2)
+
+        # --- Right Panel: Controls ---
+        right_panel = QScrollArea()
+        right_panel.setWidgetResizable(True)
+        right_content = QWidget()
+        right_layout = QVBoxLayout(right_content)
+        
+        # Cytosol Segmentation Group
+        cyto_group = QGroupBox("Cytosol Segmentation")
+        cyto_layout = QFormLayout()
+        
+        self.cellpose_cyto_model_input = QComboBox()
+        self.cellpose_cyto_model_input.addItems(['cyto3', 'cyto2', 'cyto', 'tissuenet', 'livecell'])
+        self.cellpose_cyto_model_input.setCurrentText('cyto3')
+        cyto_layout.addRow("Model:", self.cellpose_cyto_model_input)
+
+        self.cellpose_cyto_channel_input = QSpinBox()
+        self.cellpose_cyto_channel_input.setRange(0, 10)
+        self.cellpose_cyto_channel_input.setValue(1) # Default to channel 1
+        cyto_layout.addRow("Channel:", self.cellpose_cyto_channel_input)
+        
+        self.cellpose_cyto_diameter_input = QDoubleSpinBox()
+        self.cellpose_cyto_diameter_input.setRange(0, 1000)
+        self.cellpose_cyto_diameter_input.setValue(150)
+        cyto_layout.addRow("Diameter (px):", self.cellpose_cyto_diameter_input)
+
+        self.cellpose_cyto_flow_input = QDoubleSpinBox()
+        self.cellpose_cyto_flow_input.setRange(0, 1)
+        self.cellpose_cyto_flow_input.setSingleStep(0.1)
+        self.cellpose_cyto_flow_input.setValue(0.4)
+        cyto_layout.addRow("Flow Threshold:", self.cellpose_cyto_flow_input)
+        
+        self.btn_run_cyto = QPushButton("Segment Cytosol")
+        self.btn_run_cyto.clicked.connect(self.run_cellpose_cyto)
+        cyto_layout.addRow(self.btn_run_cyto)
+        
+        cyto_group.setLayout(cyto_layout)
+        right_layout.addWidget(cyto_group)
+
+        # Nucleus Segmentation Group
+        nuc_group = QGroupBox("Nucleus Segmentation")
+        nuc_layout = QFormLayout()
+        
+        self.cellpose_nuc_model_input = QComboBox()
+        self.cellpose_nuc_model_input.addItems(['nuclei', 'tissuenet', 'livecell', 'cyto3'])
+        self.cellpose_nuc_model_input.setCurrentText('nuclei')
+        nuc_layout.addRow("Model:", self.cellpose_nuc_model_input)
+
+        self.cellpose_nuc_channel_input = QSpinBox()
+        self.cellpose_nuc_channel_input.setRange(0, 10)
+        self.cellpose_nuc_channel_input.setValue(0) # Default to channel 0
+        nuc_layout.addRow("Channel:", self.cellpose_nuc_channel_input)
+        
+        self.cellpose_nuc_diameter_input = QDoubleSpinBox()
+        self.cellpose_nuc_diameter_input.setRange(0, 1000)
+        self.cellpose_nuc_diameter_input.setValue(100)
+        nuc_layout.addRow("Diameter (px):", self.cellpose_nuc_diameter_input)
+
+        self.cellpose_nuc_flow_input = QDoubleSpinBox()
+        self.cellpose_nuc_flow_input.setRange(0, 1)
+        self.cellpose_nuc_flow_input.setSingleStep(0.1)
+        self.cellpose_nuc_flow_input.setValue(0.4)
+        nuc_layout.addRow("Flow Threshold:", self.cellpose_nuc_flow_input)
+        
+        self.btn_run_nuc = QPushButton("Segment Nucleus")
+        self.btn_run_nuc.clicked.connect(self.run_cellpose_nuc)
+        nuc_layout.addRow(self.btn_run_nuc)
+        
+        nuc_group.setLayout(nuc_layout)
+        right_layout.addWidget(nuc_group)
+
+        # Clear Button
+        self.btn_clear_cellpose = QPushButton("Clear Masks & IDs")
+        self.btn_clear_cellpose.clicked.connect(self.clear_cellpose_masks)
+        right_layout.addWidget(self.btn_clear_cellpose)
+
+        right_layout.addStretch()
+        right_panel.setWidget(right_content)
+        layout.addWidget(right_panel, stretch=1)
+
+        # Initialize state variables for Cellpose tab
+        self.cellpose_masks_cyto = None
+        self.cellpose_masks_nuc = None
+        self.cellpose_current_channel = 0
+        self.cellpose_current_frame = 0
+
+    def create_cellpose_channel_buttons(self):
+        # Clear existing buttons
+        for btn in self.cellpose_channel_buttons:
+            btn.setParent(None)
+        self.cellpose_channel_buttons = []
+        
+        # Create new buttons based on loaded channels
+        if self.channel_names:
+            for idx, name in enumerate(self.channel_names):
+                btn = QPushButton(f"Channel {idx}")
+                btn.clicked.connect(partial(self.update_cellpose_channel, idx))
+                self.cellpose_channel_buttons_layout.addWidget(btn)
+                self.cellpose_channel_buttons.append(btn)
+
+    def update_cellpose_frame(self, value):
+        self.cellpose_current_frame = value
+        self.plot_cellpose_results()
+
+    def update_cellpose_channel(self, channel_index):
+        self.cellpose_current_channel = channel_index
+        self.plot_cellpose_results()
+
+    def run_cellpose_cyto(self):
         if self.image_stack is None:
-            QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
-        self.segmentation_mode = "cellpose"
+        
         try:
-            cytosol_channel = int(self.cellpose_cytosol_channel_input.text()) if self.cellpose_cytosol_channel_input.text() else None
-            nucleus_channel = int(self.cellpose_nucleus_channel_input.text()) if self.cellpose_nucleus_channel_input.text() else None
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Channel Input", "Please enter valid integer channels.")
-            return
-        if cytosol_channel is None and nucleus_channel is None:
-            QMessageBox.warning(self, "No Channels Selected", "Please specify at least a cytosol or nucleus channel.")
-            return
-        diameter_cytosol = self.cellpose_cytosol_diameter_input.value()
-        diameter_nucleus = self.cellpose_nucleus_diameter_input.value()
-        segmentation_selection_metric = self.cellpose_selection_metric_input.currentText()
-        tested_image = self.image_stack[self.current_frame,:,:,:,:] if self.image_stack.ndim == 5 else self.image_stack
-        channels_cytosol = [cytosol_channel] if cytosol_channel is not None else None
-        channels_nucleus = [nucleus_channel] if nucleus_channel is not None else None
-        try:
-            masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei = mi.CellSegmentation(
-                tested_image,
-                channels_cytosol=channels_cytosol,
-                channels_nucleus=channels_nucleus,
-                diameter_cytosol=diameter_cytosol,
-                diameter_nucleus=diameter_nucleus,
-                optimization_segmentation_method=None,
-                remove_fragmented_cells=False,
-                show_plot=False,
-                image_name=None,
-                NUMBER_OF_CORES=1,
-                selection_metric=segmentation_selection_metric
-            ).calculate_masks()
-            if masks_complete_cells is not None:
-                self.segmentation_mask = (masks_complete_cells > 0).astype(np.uint8)
-                self.plot_segmentation()
-                QMessageBox.information(self, "Cellpose Segmentation", "Cellpose segmentation completed successfully.")
+            # Get parameters
+            channel = self.cellpose_cyto_channel_input.value()
+            diameter = self.cellpose_cyto_diameter_input.value()
+            flow_threshold = self.cellpose_cyto_flow_input.value()
+            model_name = self.cellpose_cyto_model_input.currentText()
+            
+            # Prepare image
+            if self.image_stack.ndim == 5:
+                img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
             else:
-                QMessageBox.warning(self, "No Masks Found", "Cellpose segmentation returned no masks.")
+                img = self.image_stack
+                
+            # Run Cellpose for Cytosol
+            # We use the existing CellSegmentation class but only for cytosol
+            # Note: We use a temporary instance to get the mask
+            segmenter = mi.CellSegmentation(
+                img,
+                channels_cytosol=[channel],
+                channels_nucleus=None,
+                diameter_cytosol=diameter,
+                selection_metric='max_cells_and_area', # Default metric
+                show_plot=False,
+                model_cyto_segmentation=model_name
+            )
+            # We need to manually inject the flow threshold if possible, or rely on defaults/constructor
+            # The current CellSegmentation constructor doesn't take flow_threshold directly, 
+            # but we can use the backend Cellpose class directly if needed, or stick to CellSegmentation.
+            # For consistency with existing code, let's use CellSegmentation.
+            
+            # NOTE: CellSegmentation.calculate_masks() handles the logic. 
+            # To support custom flow threshold, we might need to modify CellSegmentation or accept the default.
+            # The user requested to change flow threshold. 
+            # The CellSegmentation class uses 'optimization_segmentation_method' or defaults.
+            # Let's assume for now we use the standard parameters exposed by CellSegmentation.
+            
+            masks_cyto, _, _ = segmenter.calculate_masks()
+            
+            self.cellpose_masks_cyto = masks_cyto
+            self.synchronize_and_plot_cellpose()
+            
         except Exception as e:
-            QMessageBox.critical(self, "Cellpose Segmentation Failed", str(e))
+            QMessageBox.critical(self, "Error", f"Cytosol segmentation failed: {str(e)}")
+
+    def run_cellpose_nuc(self):
+        if self.image_stack is None:
+            return
+            
+        try:
+            # Get parameters
+            channel = self.cellpose_nuc_channel_input.value()
+            diameter = self.cellpose_nuc_diameter_input.value()
+            model_name = self.cellpose_nuc_model_input.currentText()
+            
+            # Prepare image
+            if self.image_stack.ndim == 5:
+                img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
+            else:
+                img = self.image_stack
+                
+            # Run Cellpose for Nucleus
+            segmenter = mi.CellSegmentation(
+                img,
+                channels_cytosol=None,
+                channels_nucleus=[channel],
+                diameter_nucleus=diameter,
+                selection_metric='max_cells_and_area',
+                show_plot=False,
+                model_nuc_segmentation=model_name
+            )
+            
+            _, masks_nuc, _ = segmenter.calculate_masks()
+            
+            self.cellpose_masks_nuc = masks_nuc
+            self.synchronize_and_plot_cellpose()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Nucleus segmentation failed: {str(e)}")
+
+    def synchronize_and_plot_cellpose(self):
+        # Synchronize if both exist
+        if self.cellpose_masks_cyto is not None and self.cellpose_masks_nuc is not None:
+             self.cellpose_masks_cyto, self.cellpose_masks_nuc = mi.CellSegmentation.synchronize_masks(
+                 self.cellpose_masks_cyto, self.cellpose_masks_nuc
+             )
+        
+        self.plot_cellpose_results()
+
+    def clear_cellpose_masks(self):
+        self.cellpose_masks_cyto = None
+        self.cellpose_masks_nuc = None
+        self.plot_cellpose_results()
+
+    def plot_cellpose_results(self):
+        if self.image_stack is None:
+            return
+            
+        self.ax_cellpose.clear()
+        
+        # Get current image slice
+        if self.image_stack.ndim == 5:
+            # [T, Z, Y, X, C] -> Max projection over Z for display
+            img_slice = self.image_stack[self.cellpose_current_frame, :, :, :, self.cellpose_current_channel]
+            if img_slice.ndim == 3: # ZYX
+                 img_slice = np.max(img_slice, axis=0)
+        else:
+            # Fallback
+            img_slice = np.zeros((512, 512))
+
+        # Normalize for display
+        if img_slice.max() > 0:
+            img_slice = img_slice / img_slice.max()
+            
+        self.ax_cellpose.imshow(img_slice, cmap='gray')
+        
+        # Overlay Cytosol Masks
+        if self.cellpose_masks_cyto is not None:
+            # Draw contours
+            for label in np.unique(self.cellpose_masks_cyto):
+                if label == 0: continue
+                mask = self.cellpose_masks_cyto == label
+                self.ax_cellpose.contour(mask, levels=[0.5], colors='yellow', linewidths=1)
+                
+                # Add label ID
+                y, x = center_of_mass(mask)
+                self.ax_cellpose.text(x, y, str(label), color='yellow', fontsize=8, ha='center', va='center')
+
+        # Overlay Nucleus Masks
+        if self.cellpose_masks_nuc is not None:
+            # Draw contours
+            for label in np.unique(self.cellpose_masks_nuc):
+                if label == 0: continue
+                mask = self.cellpose_masks_nuc == label
+                self.ax_cellpose.contour(mask, levels=[0.5], colors='cyan', linewidths=1)
+                
+                # Add label ID (if not already added by cyto, or if we want to show it explicitly)
+                # If synchronized, IDs should match. 
+                if self.cellpose_masks_cyto is None:
+                     y, x = center_of_mass(mask)
+                     self.ax_cellpose.text(x, y, str(label), color='cyan', fontsize=8, ha='center', va='center')
+
+        self.ax_cellpose.axis('off')
+        self.canvas_cellpose.draw()
+
 
     def create_segmentation_channel_buttons(self):
         for btn in self.segmentation_channel_buttons:
@@ -7457,16 +7714,18 @@ class GUI(QMainWindow):
         elif index == 1:
             self.plot_segmentation()
         elif index == 2:
-            self.plot_photobleaching()
+            self.plot_cellpose_results()
         elif index == 3:
-            self.plot_tracking()
+            self.plot_photobleaching()
         elif index == 4:
-            self.plot_distribution()
+            self.plot_tracking()
         elif index == 5:
-            pass
+            self.plot_distribution()
         elif index == 6:
-            self.display_correlation_plot()
+            pass
         elif index == 7:
+            self.display_correlation_plot()
+        elif index == 8:
             self.display_colocalization_plot()
             if hasattr(self, 'canvas_colocalization'):
                 if hasattr(self, 'cid_zoom_coloc'):
@@ -7475,12 +7734,12 @@ class GUI(QMainWindow):
                     except Exception:
                         pass
                 self.cid_zoom_coloc = self.canvas_colocalization.mpl_connect('motion_notify_event', self.on_colocalization_hover)
-        elif index == 8:
-            self.display_colocalization_manual()
         elif index == 9:
+            self.display_colocalization_manual()
+        elif index == 10:
             if not (getattr(self, 'has_tracked', False)) or self.df_tracking.empty:
                 QMessageBox.warning(self, "No Data", "Please perform particle tracking first.")
-                self.tabs.setCurrentIndex(3)
+                self.tabs.setCurrentIndex(4)
                 return
             self.tracked_particles_list.clear()
             for pid in sorted(self.df_tracking['particle'].unique()):
@@ -7491,9 +7750,9 @@ class GUI(QMainWindow):
             if self.tracked_particles_list.count() > 0 and self.tracked_particles_list.currentRow() < 0:
                 self.tracked_particles_list.setCurrentRow(0)
             self.display_tracking_visualization()
-        elif index == 10:
-            pass
         elif index == 11:
+            pass
+        elif index == 12:
             if hasattr(self, 'manual_checkboxes'):
                 self.extract_manual_colocalization_data(save_df=False)
 

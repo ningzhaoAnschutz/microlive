@@ -15,7 +15,10 @@ from itertools import compress
 import math
 #import multiprocessing
 from joblib import Parallel, delayed, cpu_count
-import os; from os import listdir; from os.path import isfile, join
+import os
+from os import listdir
+from os.path import isfile, join
+import logging
 import pathlib
 from pathlib import Path
 import platform
@@ -28,7 +31,7 @@ import pandas as pd
 import numpy as np
 import yaml
 import tifffile
-import pkg_resources
+#import pkg_resources
 import joypy
 import zipfile
 import seaborn as sns
@@ -96,12 +99,7 @@ from IPython.display import display
 from readlif.reader import LifFile
 from bioio import BioImage
 import xml.etree.ElementTree as ET
-try:
-    #import napari
-    #from napari_animation import Animation
-    import torch
-except ImportError:
-    pass
+import torch
 
 # Configure settings and warnings
 import warnings
@@ -1273,7 +1271,7 @@ class Cellpose():
         self.NUMBER_OF_CORES = NUMBER_OF_CORES
         self.default_flow_threshold = 0.4 # default is 0.4
         self.optimization_parameter = np.unique(  np.round(np.linspace(self.minimum_flow_threshold, self.maximum_flow_threshold, self.num_iterations), 2) )
-        self.MINIMUM_CELL_AREA = 10000# np.pi*(diameter/4)**2 #1000  # using half of the diameter to calculate area.
+        self.MINIMUM_CELL_AREA = np.pi*(diameter/4)**2 #1000  # using half of the diameter to calculate area.
         self.BATCH_SIZE = 80
         self.pretrained_model=pretrained_model
         self.minimun_diameter_ratio = 0.5
@@ -1289,7 +1287,8 @@ class Cellpose():
             where an integer larger than zero represents the masked area for each cell, and 0 represents the background in the image.
         '''
         # Check if GPU is available
-        use_gpu = 0 #models.use_gpu()
+        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+        use_gpu = torch.cuda.is_available() or torch.backends.mps.is_available()
         # Initialize Cellpose model
         if self.pretrained_model is None:
             if self.model_type == 'cyto3':
@@ -1313,10 +1312,19 @@ class Cellpose():
         best_masks = None
         best_params = None
 
+        # Ensure image is float32 for MPS compatibility
+        image_input = self.image.astype(np.float32)
+
+        # Ensure logging is available
+
+
         def run_cellpose(flow_threshold, diameter):
+            nonlocal model
+            gpu_status = getattr(model, 'gpu', 'unknown')
+            logging.info(f"Running Cellpose with flow_threshold={flow_threshold}, diameter={diameter}, gpu={gpu_status}")
             try:
                 masks = model.eval(
-                    self.image,
+                    image_input,
                     batch_size=self.BATCH_SIZE,
                     normalize=True,
                     flow_threshold=flow_threshold,
@@ -1324,11 +1332,52 @@ class Cellpose():
                     min_size=self.MINIMUM_CELL_AREA,
                     channels=self.channels,
                 )[0]
+                logging.info(f"Cellpose eval finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
                 # Removing artifacts
                 masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
+            except RuntimeError as e:
+                if "sparse" in str(e) and torch.backends.mps.is_available():
+                    logging.warning(f"MPS sparse error detected: {e}. Attempting to run on GPU with resample=False.")
+                    try:
+                        # Retry on GPU with resample=False
+                        masks = model.eval(
+                            image_input,
+                            batch_size=self.BATCH_SIZE,
+                            normalize=True,
+                            flow_threshold=flow_threshold,
+                            diameter=diameter,
+                            min_size=self.MINIMUM_CELL_AREA,
+                            channels=self.channels,
+                            resample=False
+                        )[0]
+                        logging.info(f"Retry on GPU (resample=False) finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
+                        masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
+                    except RuntimeError as e2:
+                        logging.warning(f"MPS sparse error persisted with resample=False: {e2}. Falling back to CPU.")
+                        # Re-initialize on CPU
+                        if self.model_type == 'cyto3':
+                            model = denoise.CellposeDenoiseModel(gpu=False, model_type="cyto3", restore_type="denoise_cyto3")
+                        else:
+                            model = models.Cellpose(gpu=False, model_type=self.model_type)
+                        # Retry on CPU (with default resample=True)
+                        masks = model.eval(
+                            image_input,
+                            batch_size=self.BATCH_SIZE,
+                            normalize=True,
+                            flow_threshold=flow_threshold,
+                            diameter=diameter,
+                            min_size=self.MINIMUM_CELL_AREA,
+                            channels=self.channels,
+                        )[0]
+                        logging.info(f"Retry on CPU finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
+                        masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
+                else:
+                    logging.error(f"Error during cellpose_max_cells evaluation (RuntimeError): {e}")
+                    masks = np.zeros_like(image_input[:, :, 0])
             except Exception as e:
-                print(f"Error during cellpose_max_cells evaluation: {e}")
-                masks = np.zeros_like(self.image[:, :, 0])
+                logging.error(f"Error during cellpose_max_cells evaluation: {e}")
+                logging.error(traceback.format_exc())
+                masks = np.zeros_like(image_input[:, :, 0])
             if np.max(masks):
                 metric = Utilities().metric_max_cells_and_area(masks, mode=self.selection_method)
             else:
@@ -1341,20 +1390,66 @@ class Cellpose():
             return metric, masks, params
         # If no optimization is desired (selection_method is None)
         if self.selection_method is None:
-            selected_masks = model.eval(
-                self.image,
-                batch_size=self.BATCH_SIZE,
-                normalize=True,
-                flow_threshold=self.default_flow_threshold,
-                diameter=self.diameter,
-                min_size=self.MINIMUM_CELL_AREA,
-                channels=self.channels,
-            )[0]
+            logging.info("Running Cellpose (no optimization)")
+            try:
+                selected_masks = model.eval(
+                    image_input,
+                    batch_size=self.BATCH_SIZE,
+                    normalize=True,
+                    flow_threshold=self.default_flow_threshold,
+                    diameter=self.diameter,
+                    min_size=self.MINIMUM_CELL_AREA,
+                    channels=self.channels,
+                )[0]
+                logging.info(f"Cellpose eval finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
+            except RuntimeError as e:
+                if "sparse" in str(e) and torch.backends.mps.is_available():
+                    logging.warning(f"MPS sparse error detected: {e}. Attempting to run on GPU with resample=False.")
+                    try:
+                        # Retry on GPU with resample=False
+                        selected_masks = model.eval(
+                            image_input,
+                            batch_size=self.BATCH_SIZE,
+                            normalize=True,
+                            flow_threshold=self.default_flow_threshold,
+                            diameter=self.diameter,
+                            min_size=self.MINIMUM_CELL_AREA,
+                            channels=self.channels,
+                            resample=False
+                        )[0]
+                        logging.info(f"Retry on GPU (resample=False) finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
+                    except RuntimeError as e2:
+                        logging.warning(f"MPS sparse error persisted with resample=False: {e2}. Falling back to CPU.")
+                        # Re-initialize on CPU
+                        if self.model_type == 'cyto3':
+                            model = denoise.CellposeDenoiseModel(gpu=False, model_type="cyto3", restore_type="denoise_cyto3")
+                        else:
+                            model = models.Cellpose(gpu=False, model_type=self.model_type)
+                        # Retry on CPU
+                        selected_masks = model.eval(
+                            image_input,
+                            batch_size=self.BATCH_SIZE,
+                            normalize=True,
+                            flow_threshold=self.default_flow_threshold,
+                            diameter=self.diameter,
+                            min_size=self.MINIMUM_CELL_AREA,
+                            channels=self.channels,
+                        )[0]
+                        logging.info(f"Retry on CPU finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
+                else:
+                    logging.error(f"Error during cellpose evaluation (RuntimeError): {e}")
+                    raise e
+            except Exception as e:
+                logging.error(f"Error during cellpose evaluation: {e}")
+                raise e
         else:
-            # Evaluate parameter combinations in parallel
-            results = Parallel(n_jobs=self.NUMBER_OF_CORES)(
-                delayed(evaluate_masks)(params) for params in param_grid
-            )
+            # Evaluate parameter combinations
+            if self.NUMBER_OF_CORES <= 1:
+                results = [evaluate_masks(params) for params in param_grid]
+            else:
+                results = Parallel(n_jobs=self.NUMBER_OF_CORES)(
+                    delayed(evaluate_masks)(params) for params in param_grid
+                )
             # Find the best result
             for metric, masks, params in results:
                 if metric > best_metric:
@@ -1629,7 +1724,7 @@ class CellSegmentation():
     image_name : str or None.
         Name for the image with detected spots. The default is None.
     '''
-    def __init__(self, image:np.ndarray, channels_cytosol = None, channels_nucleus= None, diameter_cytosol:float = 150, diameter_nucleus:float = 100, optimization_segmentation_method='default', remove_fragmented_cells:bool=False, show_plot: bool = True, image_name = None,NUMBER_OF_CORES=1, running_in_pipeline = False, model_nuc_segmentation= 'nuclei', model_cyto_segmentation = 'cyto3',pretrained_model_nuc_segmentation=None, pretrained_model_cyto_segmentation=None,selection_metric='max_cells_and_area'):
+    def __init__(self, image:np.ndarray, channels_cytosol = None, channels_nucleus= None, diameter_cytosol:float = 150, diameter_nucleus:float = 100, optimization_segmentation_method='default', remove_fragmented_cells:bool=False, show_plot: bool = True, image_name = None,NUMBER_OF_CORES=1, running_in_pipeline = False, model_nuc_segmentation= 'nuclei', model_cyto_segmentation = 'cyto3',pretrained_model_nuc_segmentation=None, pretrained_model_cyto_segmentation=None,selection_metric='max_cells_and_area', num_iterations=5):
         self.image = image
         self.channels_cytosol = channels_cytosol
         self.channels_nucleus = channels_nucleus
@@ -1652,7 +1747,154 @@ class CellSegmentation():
         self.MAX_PERCENTILE = 99.5
         self.MIN_PERCENTILE = 0.1
         self.selection_metric = selection_metric #'max_cells_and_area' # 'max_cells' or 'max_area' or 'max_cells_and_area'
+        self.num_iterations = num_iterations
         
+
+
+
+    @staticmethod
+    def synchronize_masks(masks_cyto, masks_nuclei):
+        # Handle cases where one or both masks are None or empty
+        if masks_cyto is None or np.max(masks_cyto) == 0:
+            return masks_cyto, masks_nuclei
+        if masks_nuclei is None or np.max(masks_nuclei) == 0:
+            return masks_cyto, masks_nuclei
+
+        # Function that removes masks that are not paired with a nucleus or cytosol
+        def remove_lonely_masks(masks_0, masks_1,is_nuc=None):
+            n_mask_0 = np.max(masks_0)
+            n_mask_1 = np.max(masks_1)
+            if (n_mask_0>0) and (n_mask_1>0):
+                for ind_0 in range(1,n_mask_0+1):
+                    tested_mask_0 = np.where(masks_0 == ind_0, 1, 0) # Removed erosion
+                    array_paired= np.zeros(n_mask_1)
+                    for ind_1 in range(1,n_mask_1+1):
+                        tested_mask_1 = np.where(masks_1 == ind_1, 1, 0) # Removed erosion
+                        array_paired[ind_1-1] = CellSegmentation.is_nucleus_in_cytosol(tested_mask_1, tested_mask_0)
+                        if (is_nuc =='nuc') and (np.count_nonzero(tested_mask_0) > np.count_nonzero(tested_mask_1) ):
+                            # condition that rejects images with nucleus bigger than the cytosol
+                            array_paired[ind_1-1] = 0
+                        elif (is_nuc is None ) and (np.count_nonzero(tested_mask_1) > np.count_nonzero(tested_mask_0) ):
+                            array_paired[ind_1-1] = 0
+                    if any (array_paired) == False: # If the cytosol is not associated with any mask.
+                        pass # masks_0 = np.where(masks_0 == ind_0, 0, masks_0) # Don't remove unpaired masks
+                    masks_pairs = masks_0
+            else:
+                masks_pairs = masks_0 # np.zeros_like(masks_0) # Don't zero out if other mask is empty
+            return masks_pairs
+        # Function that reorder the index to make it continuos 
+        def reorder_masks(mask_tested):
+            n_mask_0 = np.max(mask_tested)
+            mask_new =np.zeros_like(mask_tested)
+            if n_mask_0>0:
+                counter = 0
+                for ind_0 in range(1,n_mask_0+1):
+                    if ind_0 in mask_tested:
+                        counter = counter + 1
+                        if counter ==1:
+                            mask_new = np.where(mask_tested == ind_0, -counter, mask_tested)
+                        else:
+                            mask_new = np.where(mask_new == ind_0, -counter, mask_new)
+                reordered_mask = np.absolute(mask_new)
+            else:
+                reordered_mask = mask_new
+            return reordered_mask  
+        # Cytosol masks
+        masks_cyto = remove_lonely_masks(masks_cyto, masks_nuclei)
+        masks_cyto = reorder_masks(masks_cyto)
+        # Masks nucleus
+        masks_nuclei = remove_lonely_masks(masks_nuclei, masks_cyto,is_nuc='nuc')
+        masks_nuclei = reorder_masks(masks_nuclei)
+        # Iterate for each cyto mask
+        def matching_masks(masks_cyto, masks_nuclei):
+            n_mask_cyto = np.max(masks_cyto)
+            n_mask_nuc = np.max(masks_nuclei)
+            new_masks_nuclei = np.zeros_like(masks_cyto)
+            matched_nuclei_indices = set()
+
+            if (n_mask_cyto>0) and (n_mask_nuc>0):
+                for mc in range(1,n_mask_cyto+1):
+                    tested_mask_cyto = np.where(masks_cyto == mc, 1, 0)
+                    for mn in range(1,n_mask_nuc+1):
+                        tested_mask_nuc = np.where(masks_nuclei == mn, 1, 0)
+                        mask_paired = CellSegmentation.is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto)
+                        if mask_paired == True:
+                            # Match found: assign negative cyto ID to nucleus
+                            if np.count_nonzero(new_masks_nuclei) ==0:
+                                new_masks_nuclei = np.where(masks_nuclei == mn, -mc, masks_nuclei)
+                            else:
+                                new_masks_nuclei = np.where(new_masks_nuclei == mn, -mc, new_masks_nuclei)
+                            matched_nuclei_indices.add(mn)
+                
+                # Add unmatched nuclei with unique IDs
+                current_max_id = n_mask_cyto
+                for mn in range(1, n_mask_nuc + 1):
+                    if mn not in matched_nuclei_indices:
+                        current_max_id += 1
+                        # Add unmatched nucleus with new positive ID
+                        if np.count_nonzero(new_masks_nuclei) == 0:
+                             new_masks_nuclei = np.where(masks_nuclei == mn, current_max_id, masks_nuclei)
+                        else:
+                             # We need to be careful not to overwrite existing values in new_masks_nuclei
+                             # new_masks_nuclei currently has negative values for matched, and 0 or original values for others?
+                             # Actually, the np.where logic above is a bit flawed if it operates on the whole array every time.
+                             # It replaces ALL 'mn' with '-mc' in 'masks_nuclei' (which is the source), 
+                             # but 'new_masks_nuclei' is the accumulator.
+                             # The previous logic was: new_masks_nuclei = np.where(new_masks_nuclei == mn, -mc, new_masks_nuclei)
+                             # But new_masks_nuclei was initialized to zeros_like(masks_cyto).
+                             # So 'new_masks_nuclei == mn' would only work if we copied masks_nuclei first.
+                             pass
+                
+                # Let's rewrite the accumulation logic to be safer and clearer
+                final_masks_nuclei = np.zeros_like(masks_nuclei)
+                
+                # 1. Process matches
+                for mc in range(1, n_mask_cyto+1):
+                    tested_mask_cyto = np.where(masks_cyto == mc, 1, 0)
+                    for mn in range(1, n_mask_nuc+1):
+                        if mn in matched_nuclei_indices: continue # Already matched? 
+                        # Actually a nucleus could potentially match multiple cytosols? No, physically impossible usually.
+                        # But a cytosol could have multiple nuclei? Maybe.
+                        # Let's stick to the original pairing logic but just accumulate properly.
+                        
+                        tested_mask_nuc = np.where(masks_nuclei == mn, 1, 0)
+                        if CellSegmentation.is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto):
+                             final_masks_nuclei[masks_nuclei == mn] = mc # Assign cyto ID
+                             matched_nuclei_indices.add(mn)
+                
+                # 2. Process unmatched
+                current_max_id = n_mask_cyto
+                for mn in range(1, n_mask_nuc+1):
+                    if mn not in matched_nuclei_indices:
+                        current_max_id += 1
+                        final_masks_nuclei[masks_nuclei == mn] = current_max_id
+
+                reordered_mask_nuclei = final_masks_nuclei
+
+            else:
+                # If one is empty, just return what we have (but ensure IDs don't conflict if we were merging, 
+                # here we just return them as is or zero if empty? 
+                # The original logic zeroed them out.
+                # But we want to preserve them!
+                if n_mask_cyto == 0 and n_mask_nuc > 0:
+                     reordered_mask_nuclei = masks_nuclei
+                elif n_mask_nuc == 0 and n_mask_cyto > 0:
+                     reordered_mask_nuclei = np.zeros_like(masks_nuclei) # No nuclei to show
+                else:
+                     reordered_mask_nuclei = masks_nuclei # Both 0 or both present (handled above)
+            
+            return masks_cyto, reordered_mask_nuclei
+        # Matching nuclei and cytosol
+        masks_cyto, masks_nuclei = matching_masks(masks_cyto, masks_nuclei)                
+        return masks_cyto, masks_nuclei
+    @staticmethod
+    def is_nucleus_in_cytosol(mask_n, mask_c):
+        mask_n[mask_n>1]=1
+        mask_c[mask_c>1]=1
+        size_mask_n = np.count_nonzero(mask_n)
+        size_mask_c = np.count_nonzero(mask_c)
+        min_size =np.min( (size_mask_n,size_mask_c) )
+
     def calculate_masks(self):
         '''
         This method performs the process of cell detection for microscope images using **Cellpose**.
@@ -1666,19 +1908,6 @@ class CellSegmentation():
         masks_cytosol_no_nuclei : NumPy array. np.uint8
             Image containing the masks for every cytosol (removing the nucleus) detected in the image. Numpy array with format [Y, X].
         '''
-        # function that determines if the nucleus is in the cytosol
-        def is_nucleus_in_cytosol(mask_n, mask_c):
-            mask_n[mask_n>1]=1
-            mask_c[mask_c>1]=1
-            size_mask_n = np.count_nonzero(mask_n)
-            size_mask_c = np.count_nonzero(mask_c)
-            min_size =np.min( (size_mask_n,size_mask_c) )
-            mask_combined =  mask_n + mask_c
-            sum_mask = np.count_nonzero(mask_combined[mask_combined==2])
-            if (sum_mask> min_size*0.8) and (min_size>200): # the element is inside if the two masks overlap over the 80% of the smaller mask.
-                return 1
-            else:
-                return 0
         ##### IMPLEMENTATION #####
         if len(self.image.shape) > 3:  # [ZYXC]
             if self.image.shape[0] ==1:
@@ -1747,7 +1976,6 @@ class CellSegmentation():
             else:
                 metric = 0
             return metric
-                
         # Function to find masks
         def function_to_find_masks (image, diameter_cytosol=None,diameter_nucleus=None): 
             if diameter_cytosol is None:
@@ -1755,84 +1983,15 @@ class CellSegmentation():
             if diameter_nucleus is None:
                 diameter_nucleus = self.diameter_nucleus
             if not (self.channels_cytosol in (None,[None])):
-                masks_cyto = Cellpose(image[:, :, self.channels_cytosol],diameter = diameter_cytosol, model_type = self.model_cyto_segmentation, selection_method = self.selection_metric ,NUMBER_OF_CORES=self.NUMBER_OF_CORES,pretrained_model=self.pretrained_model_cyto_segmentation).calculate_masks()
+                masks_cyto = Cellpose(image[:, :, self.channels_cytosol],diameter = diameter_cytosol, model_type = self.model_cyto_segmentation, selection_method = self.selection_metric ,NUMBER_OF_CORES=self.NUMBER_OF_CORES,pretrained_model=self.pretrained_model_cyto_segmentation, num_iterations=self.num_iterations).calculate_masks()
             else:
                 masks_cyto = np.zeros_like(image[:, :, 0])
             if not (self.channels_nucleus in (None,[None])):
-                masks_nuclei = Cellpose(image[:, :, self.channels_nucleus],  diameter = diameter_nucleus, model_type = self.model_nuc_segmentation, selection_method = self.selection_metric,NUMBER_OF_CORES=self.NUMBER_OF_CORES,pretrained_model=self.pretrained_model_nuc_segmentation).calculate_masks()
+                masks_nuclei = Cellpose(image[:, :, self.channels_nucleus],  diameter = diameter_nucleus, model_type = self.model_nuc_segmentation, selection_method = self.selection_metric,NUMBER_OF_CORES=self.NUMBER_OF_CORES,pretrained_model=self.pretrained_model_nuc_segmentation, num_iterations=self.num_iterations).calculate_masks()
             else:
                 masks_nuclei= np.zeros_like(image[:, :, 0])
             if not (self.channels_cytosol in (None,[None])) and not(self.channels_nucleus in (None,[None])):
-                # Function that removes masks that are not paired with a nucleus or cytosol
-                def remove_lonely_masks(masks_0, masks_1,is_nuc=None):
-                    n_mask_0 = np.max(masks_0)
-                    n_mask_1 = np.max(masks_1)
-                    if (n_mask_0>0) and (n_mask_1>0):
-                        for ind_0 in range(1,n_mask_0+1):
-                            tested_mask_0 = erosion(np.where(masks_0 == ind_0, 1, 0))
-                            array_paired= np.zeros(n_mask_1)
-                            for ind_1 in range(1,n_mask_1+1):
-                                tested_mask_1 = erosion(np.where(masks_1 == ind_1, 1, 0))
-                                array_paired[ind_1-1] = is_nucleus_in_cytosol(tested_mask_1, tested_mask_0)
-                                if (is_nuc =='nuc') and (np.count_nonzero(tested_mask_0) > np.count_nonzero(tested_mask_1) ):
-                                    # condition that rejects images with nucleus bigger than the cytosol
-                                    array_paired[ind_1-1] = 0
-                                elif (is_nuc is None ) and (np.count_nonzero(tested_mask_1) > np.count_nonzero(tested_mask_0) ):
-                                    array_paired[ind_1-1] = 0
-                            if any (array_paired) == False: # If the cytosol is not associated with any mask.
-                                masks_0 = np.where(masks_0 == ind_0, 0, masks_0)
-                            masks_pairs = masks_0
-                    else:
-                        masks_pairs = np.zeros_like(masks_0)
-                    return masks_pairs
-                # Function that reorder the index to make it continuos 
-                def reorder_masks(mask_tested):
-                    n_mask_0 = np.max(mask_tested)
-                    mask_new =np.zeros_like(mask_tested)
-                    if n_mask_0>0:
-                        counter = 0
-                        for ind_0 in range(1,n_mask_0+1):
-                            if ind_0 in mask_tested:
-                                counter = counter + 1
-                                if counter ==1:
-                                    mask_new = np.where(mask_tested == ind_0, -counter, mask_tested)
-                                else:
-                                    mask_new = np.where(mask_new == ind_0, -counter, mask_new)
-                        reordered_mask = np.absolute(mask_new)
-                    else:
-                        reordered_mask = mask_new
-                    return reordered_mask  
-                # Cytosol masks
-                masks_cyto = remove_lonely_masks(masks_cyto, masks_nuclei)
-                masks_cyto = reorder_masks(masks_cyto)
-                # Masks nucleus
-                masks_nuclei = remove_lonely_masks(masks_nuclei, masks_cyto,is_nuc='nuc')
-                masks_nuclei = reorder_masks(masks_nuclei)
-                # Iterate for each cyto mask
-                def matching_masks(masks_cyto, masks_nuclei):
-                    n_mask_cyto = np.max(masks_cyto)
-                    n_mask_nuc = np.max(masks_nuclei)
-                    new_masks_nuclei = np.zeros_like(masks_cyto)
-                    reordered_mask_nuclei = np.zeros_like(masks_cyto)     
-                    if (n_mask_cyto>0) and (n_mask_nuc>0):
-                        for mc in range(1,n_mask_cyto+1):
-                            tested_mask_cyto = np.where(masks_cyto == mc, 1, 0)
-                            for mn in range(1,n_mask_nuc+1):
-                                mask_paired = False
-                                tested_mask_nuc = np.where(masks_nuclei == mn, 1, 0)
-                                mask_paired = is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto)
-                                if mask_paired == True:
-                                    if np.count_nonzero(new_masks_nuclei) ==0:
-                                        new_masks_nuclei = np.where(masks_nuclei == mn, -mc, masks_nuclei)
-                                    else:
-                                        new_masks_nuclei = np.where(new_masks_nuclei == mn, -mc, new_masks_nuclei)
-                            reordered_mask_nuclei = np.absolute(new_masks_nuclei)
-                    else:
-                        masks_cyto = np.zeros_like(masks_cyto)
-                        reordered_mask_nuclei = np.zeros_like(masks_nuclei)
-                    return masks_cyto, reordered_mask_nuclei
-                # Matching nuclei and cytosol
-                masks_cyto, masks_nuclei = matching_masks(masks_cyto, masks_nuclei)                
+                masks_cyto, masks_nuclei = CellSegmentation.synchronize_masks(masks_cyto, masks_nuclei)
                 #Generating mask for cyto without nuc
                 masks_cytosol_no_nuclei = masks_cyto - masks_nuclei
                 masks_cytosol_no_nuclei[masks_cytosol_no_nuclei < 0] = 0
@@ -1848,6 +2007,7 @@ class CellSegmentation():
                     masks_complete_cells = masks_nuclei
                     masks_cytosol_no_nuclei = None
             return masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei
+
         # OPTIMIZATION METHODS FOR SEGMENTATION
         if (self.optimization_segmentation_method == 'intensity_segmentation') and (len(self.image.shape) > 3) and (self.image.shape[0]>1):
             # Intensity Based Optimization to find the maximum number of index_paired_masks. 
