@@ -1789,6 +1789,8 @@ class CellSegmentation():
         self.MAX_PERCENTILE = 99.5
         self.MIN_PERCENTILE = 0.1
         self.selection_metric = selection_metric #'max_cells_and_area' # 'max_cells' or 'max_area' or 'max_cells_and_area'
+        # For Z-slice optimization, use a default mode if selection_metric is None
+        self.selection_metric_for_zslice = selection_metric if selection_metric is not None else 'max_cells_and_area'
         self.num_iterations = num_iterations
         
 
@@ -2043,7 +2045,7 @@ class CellSegmentation():
                     list_masks_complete_cells.append(masks_complete_cells)
                     list_masks_nuclei.append(masks_nuclei)
                     list_masks_cytosol_no_nuclei.append(masks_cytosol_no_nuclei)
-                    metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric)
+                    metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric_for_zslice)
                     array_number_paired_masks[idx] = metric
                 selected_index = np.argmax(array_number_paired_masks)
                 masks_complete_cells = list_masks_complete_cells[selected_index]
@@ -2070,13 +2072,13 @@ class CellSegmentation():
                     test_image_optimization = np.max(self.image[slice_range, :, :, :], axis=0)
                     test_image_optimization = RemoveExtrema(test_image_optimization, min_percentile=self.MIN_PERCENTILE, max_percentile=self.MAX_PERCENTILE).remove_outliers()
                     masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei = function_to_find_masks(test_image_optimization)
-                    metric = metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric)
+                    metric = metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric_for_zslice)
                     return masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei, metric
                 # Process the maximum projection of all slices first
                 test_image_optimization = np.max(self.image[:, :, :, :], axis=0)
                 test_image_optimization = RemoveExtrema(test_image_optimization, min_percentile=self.MIN_PERCENTILE, max_percentile=self.MAX_PERCENTILE).remove_outliers()
                 masks_complete_cells_max, masks_nuclei_max, masks_cytosol_no_nuclei_max = function_to_find_masks(test_image_optimization)
-                metric_max = metric_max_cells_and_area(masks_complete_cells_max, mode=self.selection_metric)
+                metric_max = metric_max_cells_and_area(masks_complete_cells_max, mode=self.selection_metric_for_zslice)
                 # Store the result from the maximum projection
                 list_masks_complete_cells.append(masks_complete_cells_max)
                 list_masks_nuclei.append(masks_nuclei_max)
@@ -2120,7 +2122,7 @@ class CellSegmentation():
                 list_masks_complete_cells.append(masks_complete_cells)
                 list_masks_nuclei.append(masks_nuclei)
                 list_masks_cytosol_no_nuclei.append(masks_cytosol_no_nuclei)           
-                metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric)
+                metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric_for_zslice)
                 array_number_paired_masks[0] = metric
                 # performing segmentation for a subsection of z-slices
                 for idx, idx_value in enumerate(list_idx):
@@ -2130,7 +2132,7 @@ class CellSegmentation():
                     list_masks_complete_cells.append(masks_complete_cells)
                     list_masks_nuclei.append(masks_nuclei)
                     list_masks_cytosol_no_nuclei.append(masks_cytosol_no_nuclei)
-                    metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric)
+                    metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric_for_zslice)
                     array_number_paired_masks[idx+1] = metric
                 selected_index = np.argmax(array_number_paired_masks)
                 masks_complete_cells = list_masks_complete_cells[selected_index]
@@ -2164,7 +2166,7 @@ class CellSegmentation():
                     list_masks_nuclei.append(masks_nuclei)
                     list_masks_cytosol_no_nuclei.append(masks_cytosol_no_nuclei)  
                     #metric = Utilities().metric_max_cells_and_area(masks_complete_cells)
-                    metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric)
+                    metric = Utilities().metric_max_cells_and_area(masks_complete_cells, mode=self.selection_metric_for_zslice)
                     array_number_paired_masks[idx] = metric
                 #selected_threshold = list_sigmas[np.argmax(array_number_paired_masks)]
                 selected_index = np.argmax(array_number_paired_masks)
