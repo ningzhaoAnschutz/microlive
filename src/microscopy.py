@@ -1851,62 +1851,24 @@ class CellSegmentation():
         def matching_masks(masks_cyto, masks_nuclei):
             n_mask_cyto = np.max(masks_cyto)
             n_mask_nuc = np.max(masks_nuclei)
-            new_masks_nuclei = np.zeros_like(masks_cyto)
+            final_masks_nuclei = np.zeros_like(masks_nuclei)
             matched_nuclei_indices = set()
 
-            if (n_mask_cyto>0) and (n_mask_nuc>0):
-                for mc in range(1,n_mask_cyto+1):
-                    tested_mask_cyto = np.where(masks_cyto == mc, 1, 0)
-                    for mn in range(1,n_mask_nuc+1):
-                        tested_mask_nuc = np.where(masks_nuclei == mn, 1, 0)
-                        mask_paired = CellSegmentation.is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto)
-                        if mask_paired == True:
-                            # Match found: assign negative cyto ID to nucleus
-                            if np.count_nonzero(new_masks_nuclei) ==0:
-                                new_masks_nuclei = np.where(masks_nuclei == mn, -mc, masks_nuclei)
-                            else:
-                                new_masks_nuclei = np.where(new_masks_nuclei == mn, -mc, new_masks_nuclei)
+            if (n_mask_cyto > 0) and (n_mask_nuc > 0):
+                # Process matches: for each cyto, find nuclei inside it
+                for mc in range(1, n_mask_cyto + 1):
+                    tested_mask_cyto = (masks_cyto == mc).astype(np.uint8)
+                    for mn in range(1, n_mask_nuc + 1):
+                        if mn in matched_nuclei_indices:
+                            continue  # Already matched to another cytosol
+                        tested_mask_nuc = (masks_nuclei == mn).astype(np.uint8)
+                        if CellSegmentation.is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto):
+                            final_masks_nuclei[masks_nuclei == mn] = mc  # Assign cyto ID
                             matched_nuclei_indices.add(mn)
                 
-                # Add unmatched nuclei with unique IDs
+                # Process unmatched nuclei: assign unique IDs starting from n_mask_cyto + 1
                 current_max_id = n_mask_cyto
                 for mn in range(1, n_mask_nuc + 1):
-                    if mn not in matched_nuclei_indices:
-                        current_max_id += 1
-                        # Add unmatched nucleus with new positive ID
-                        if np.count_nonzero(new_masks_nuclei) == 0:
-                             new_masks_nuclei = np.where(masks_nuclei == mn, current_max_id, masks_nuclei)
-                        else:
-                             # We need to be careful not to overwrite existing values in new_masks_nuclei
-                             # new_masks_nuclei currently has negative values for matched, and 0 or original values for others?
-                             # Actually, the np.where logic above is a bit flawed if it operates on the whole array every time.
-                             # It replaces ALL 'mn' with '-mc' in 'masks_nuclei' (which is the source), 
-                             # but 'new_masks_nuclei' is the accumulator.
-                             # The previous logic was: new_masks_nuclei = np.where(new_masks_nuclei == mn, -mc, new_masks_nuclei)
-                             # But new_masks_nuclei was initialized to zeros_like(masks_cyto).
-                             # So 'new_masks_nuclei == mn' would only work if we copied masks_nuclei first.
-                             pass
-                
-                # Let's rewrite the accumulation logic to be safer and clearer
-                final_masks_nuclei = np.zeros_like(masks_nuclei)
-                
-                # 1. Process matches
-                for mc in range(1, n_mask_cyto+1):
-                    tested_mask_cyto = np.where(masks_cyto == mc, 1, 0)
-                    for mn in range(1, n_mask_nuc+1):
-                        if mn in matched_nuclei_indices: continue # Already matched? 
-                        # Actually a nucleus could potentially match multiple cytosols? No, physically impossible usually.
-                        # But a cytosol could have multiple nuclei? Maybe.
-                        # Let's stick to the original pairing logic but just accumulate properly.
-                        
-                        tested_mask_nuc = np.where(masks_nuclei == mn, 1, 0)
-                        if CellSegmentation.is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto):
-                             final_masks_nuclei[masks_nuclei == mn] = mc # Assign cyto ID
-                             matched_nuclei_indices.add(mn)
-                
-                # 2. Process unmatched
-                current_max_id = n_mask_cyto
-                for mn in range(1, n_mask_nuc+1):
                     if mn not in matched_nuclei_indices:
                         current_max_id += 1
                         final_masks_nuclei[masks_nuclei == mn] = current_max_id
@@ -1931,11 +1893,25 @@ class CellSegmentation():
         return masks_cyto, masks_nuclei
     @staticmethod
     def is_nucleus_in_cytosol(mask_n, mask_c):
-        mask_n[mask_n>1]=1
-        mask_c[mask_c>1]=1
+        """
+        Check if a nucleus mask is contained within a cytosol mask.
+        
+        Returns True if >50% of the nucleus pixels overlap with the cytosol.
+        """
+        mask_n = (mask_n > 0).astype(np.uint8)
+        mask_c = (mask_c > 0).astype(np.uint8)
         size_mask_n = np.count_nonzero(mask_n)
         size_mask_c = np.count_nonzero(mask_c)
-        min_size =np.min( (size_mask_n,size_mask_c) )
+        
+        if size_mask_n == 0 or size_mask_c == 0:
+            return False
+        
+        # Calculate overlap
+        overlap = np.count_nonzero(mask_n & mask_c)
+        
+        # Nucleus is "in" cytosol if >50% of nucleus pixels overlap with cytosol
+        overlap_ratio = overlap / size_mask_n
+        return overlap_ratio > 0.5
 
     def calculate_masks(self):
         '''
