@@ -2693,7 +2693,7 @@ class GUI(QMainWindow):
         cyto_layout = QFormLayout()
         
         self.cellpose_cyto_model_input = QComboBox()
-        self.cellpose_cyto_model_input.addItems(['cyto3', 'cyto2', 'cyto', 'tissuenet', 'livecell'])
+        self.cellpose_cyto_model_input.addItems(['cyto3', 'cyto2', 'cyto', ])
         self.cellpose_cyto_model_input.setCurrentText('cyto3')
         cyto_layout.addRow("Model:", self.cellpose_cyto_model_input)
 
@@ -2729,7 +2729,7 @@ class GUI(QMainWindow):
         nuc_layout = QFormLayout()
         
         self.cellpose_nuc_model_input = QComboBox()
-        self.cellpose_nuc_model_input.addItems(['nuclei', 'tissuenet', 'livecell', 'cyto3'])
+        self.cellpose_nuc_model_input.addItems(['nuclei', 'cyto3', 'cyto2', 'cyto'])
         self.cellpose_nuc_model_input.setCurrentText('nuclei')
         nuc_layout.addRow("Model:", self.cellpose_nuc_model_input)
 
