@@ -104,6 +104,7 @@ from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass
 from trackpy.linking.utils import SubnetOversizeException
+vispy_logging = None
 try:
     from vispy import logging as vispy_logging
 except ImportError:
@@ -144,11 +145,9 @@ def configure_logging_and_styles():
     )
 
     warnings.filterwarnings("ignore", category=UserWarning, module="joblib")
-    try:
+    if vispy_logging is not None:
         vispy_logging.set_level('error')
-        logging.getLogger('vispy').setLevel(logging.ERROR)
-    except ImportError:
-        pass
+    logging.getLogger('vispy').setLevel(logging.ERROR)
     def qt_message_handler(msg_type, context, message):
         msg = str(message)
         if "parse stylesheet" not in msg.lower():
