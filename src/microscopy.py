@@ -100,6 +100,44 @@ from readlif.reader import LifFile
 from bioio import BioImage
 import xml.etree.ElementTree as ET
 import torch
+        
+class PatchMPSFloat64:
+    """
+    Context manager to safely monkeypatch torch.zeros on MPS devices 
+    to force float32 instead of float64 (which is not supported).
+    """
+    def __init__(self):
+        self.original_zeros = torch.zeros
+        self.is_mps = torch.backends.mps.is_available() and torch.backends.mps.is_built()
+
+    def __enter__(self):
+        if not self.is_mps:
+            return
+        
+        def patched_zeros(*args, **kwargs):
+            # Check if device is MPS (either string or torch.device)
+            device = kwargs.get('device', None)
+            is_target_device = False
+            if device is not None:
+                if isinstance(device, str) and 'mps' in device:
+                    is_target_device = True
+                elif isinstance(device, torch.device) and device.type == 'mps':
+                    is_target_device = True
+            
+            # Check if dtype is float64/double
+            dtype = kwargs.get('dtype', None)
+            is_target_dtype = (dtype == torch.float64 or dtype == torch.double)
+
+            if is_target_device and is_target_dtype:
+                kwargs['dtype'] = torch.float32
+            
+            return self.original_zeros(*args, **kwargs)
+        
+        torch.zeros = patched_zeros
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.is_mps:
+            torch.zeros = self.original_zeros
 
 # Configure settings and warnings
 import warnings
@@ -1251,7 +1289,7 @@ class Cellpose():
     NUMBER_OF_CORES : int, optional
         The number of CPU cores to use for parallel computing. The default is 1.
     '''
-    def __init__(self, image:np.ndarray, num_iterations:int = 3, channels:list = [0, 0], diameter:float = 120, model_type:str = 'cyto3', selection_method:str = 'cellpose_max_cells_and_area', NUMBER_OF_CORES:int=1,pretrained_model=None,selection_metric='max_cells'):
+    def __init__(self, image:np.ndarray, num_iterations:int = 3, channels:list = [0, 0], diameter:float = 120, model_type:str = 'cyto3', selection_method:str = 'max_cells_and_area', NUMBER_OF_CORES:int=1,pretrained_model=None,selection_metric='max_cells'):
         def preprocess_image(image):
             image = exposure.rescale_intensity(image)            # Enhance contrast
             image = exposure.equalize_adapthist(image)
@@ -1300,13 +1338,15 @@ class Cellpose():
         else:
             model = models.CellposeModel(gpu=use_gpu, pretrained_model=self.pretrained_model)
 
-        # Define ranges for optimization parameters
-        flow_thresholds = np.linspace(self.minimum_flow_threshold, self.maximum_flow_threshold, self.num_iterations)
-        diameter_ratios = np.linspace(self.minimun_diameter_ratio, self.maximum_diameter_ratio, self.num_iterations) # Adjust diameter by ±20%
-        diameters = self.diameter * diameter_ratios
-        diameters = diameters.astype(int)
-        # Create grid of parameter combinations
-        param_grid = [(flow, dia) for flow in flow_thresholds for dia in diameters]
+        if self.selection_method is not None:
+             # Define parameter ranges
+            flow_thresholds = [0.25, 0.45, 0.8]
+            diameter_ratios = np.array([0.5, 1.0, 1.5])
+            
+            diameters = self.diameter * diameter_ratios
+            diameters = diameters.astype(int)
+            # Create grid of parameter combinations
+            param_grid = [(flow, dia) for flow in flow_thresholds for dia in diameters]
         # Initialize variables to store the best results
         best_metric = -np.inf
         best_masks = None
@@ -1323,15 +1363,16 @@ class Cellpose():
             gpu_status = getattr(model, 'gpu', 'unknown')
             logging.info(f"Running Cellpose with flow_threshold={flow_threshold}, diameter={diameter}, gpu={gpu_status}")
             try:
-                masks = model.eval(
-                    image_input,
-                    batch_size=self.BATCH_SIZE,
-                    normalize=True,
-                    flow_threshold=flow_threshold,
-                    diameter=diameter,
-                    min_size=self.MINIMUM_CELL_AREA,
-                    channels=self.channels,
-                )[0]
+                with PatchMPSFloat64():
+                    masks = model.eval(
+                        image_input,
+                        batch_size=self.BATCH_SIZE,
+                        normalize=True,
+                        flow_threshold=flow_threshold,
+                        diameter=diameter,
+                        min_size=self.MINIMUM_CELL_AREA,
+                        channels=self.channels,
+                    )[0]
                 logging.info(f"Cellpose eval finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
                 # Removing artifacts
                 masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
@@ -1392,15 +1433,16 @@ class Cellpose():
         if self.selection_method is None:
             logging.info("Running Cellpose (no optimization)")
             try:
-                selected_masks = model.eval(
-                    image_input,
-                    batch_size=self.BATCH_SIZE,
-                    normalize=True,
-                    flow_threshold=self.default_flow_threshold,
-                    diameter=self.diameter,
-                    min_size=self.MINIMUM_CELL_AREA,
-                    channels=self.channels,
-                )[0]
+                with PatchMPSFloat64():
+                    selected_masks = model.eval(
+                        image_input,
+                        batch_size=self.BATCH_SIZE,
+                        normalize=True,
+                        flow_threshold=self.default_flow_threshold,
+                        diameter=self.diameter,
+                        min_size=self.MINIMUM_CELL_AREA,
+                        channels=self.channels,
+                    )[0]
                 logging.info(f"Cellpose eval finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
             except RuntimeError as e:
                 if "sparse" in str(e) and torch.backends.mps.is_available():

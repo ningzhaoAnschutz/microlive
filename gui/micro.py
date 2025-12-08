@@ -1511,6 +1511,14 @@ class GUI(QMainWindow):
         else:
             # Toggle folder expansion
             item.setExpanded(not item.isExpanded())
+        
+        # Reset segmentation masks when loading a new image
+        if info.get('tif') or info.get('index') is not None:
+             self.cellpose_masks_cyto = None
+             self.cellpose_masks_nuc = None
+             if hasattr(self, 'manual_segmentation_mask'):
+                 del self.manual_segmentation_mask
+        
         self.plot_image()
         self.plot_tracking()
         self.reset_tracking_visualization_tab()
@@ -2705,6 +2713,10 @@ class GUI(QMainWindow):
         self.cellpose_cyto_flow_input.setValue(0.4)
         cyto_layout.addRow("Flow Threshold:", self.cellpose_cyto_flow_input)
         
+        self.chk_optimize_cyto = QCheckBox("Optimize Parameters")
+        self.chk_optimize_cyto.setChecked(False)
+        cyto_layout.addRow(self.chk_optimize_cyto)
+        
         self.btn_run_cyto = QPushButton("Segment Cytosol")
         self.btn_run_cyto.clicked.connect(self.run_cellpose_cyto)
         cyto_layout.addRow(self.btn_run_cyto)
@@ -2736,6 +2748,10 @@ class GUI(QMainWindow):
         self.cellpose_nuc_flow_input.setSingleStep(0.1)
         self.cellpose_nuc_flow_input.setValue(0.4)
         nuc_layout.addRow("Flow Threshold:", self.cellpose_nuc_flow_input)
+        
+        self.chk_optimize_nuc = QCheckBox("Optimize Parameters")
+        self.chk_optimize_nuc.setChecked(False)
+        nuc_layout.addRow(self.chk_optimize_nuc)
         
         self.btn_run_nuc = QPushButton("Segment Nucleus")
         self.btn_run_nuc.clicked.connect(self.run_cellpose_nuc)
@@ -2806,7 +2822,7 @@ class GUI(QMainWindow):
                 channels_cytosol=[channel],
                 channels_nucleus=None,
                 diameter_cytosol=diameter,
-                selection_metric='max_cells_and_area', # Default metric
+                selection_metric='max_cells_and_area' if self.chk_optimize_cyto.isChecked() else None,
                 show_plot=False,
                 model_cyto_segmentation=model_name
             )
@@ -2851,7 +2867,7 @@ class GUI(QMainWindow):
                 channels_cytosol=None,
                 channels_nucleus=[channel],
                 diameter_nucleus=diameter,
-                selection_metric='max_cells_and_area',
+                selection_metric='max_cells_and_area' if self.chk_optimize_nuc.isChecked() else None,
                 show_plot=False,
                 model_nuc_segmentation=model_name
             )
