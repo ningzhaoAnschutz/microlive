@@ -2760,6 +2760,18 @@ class GUI(QMainWindow):
         nuc_group.setLayout(nuc_layout)
         right_layout.addWidget(nuc_group)
 
+        # Improve Segmentation Group
+        improve_group = QGroupBox("Improve Segmentation")
+        improve_layout = QFormLayout()
+
+        self.chk_remove_border_cells = QCheckBox("Remove cells touching border")
+        self.chk_remove_border_cells.setChecked(False)
+        self.chk_remove_border_cells.stateChanged.connect(self.on_remove_border_cells_changed)
+        improve_layout.addRow(self.chk_remove_border_cells)
+
+        improve_group.setLayout(improve_layout)
+        right_layout.addWidget(improve_group)
+
         # Clear Button
         self.btn_clear_cellpose = QPushButton("Clear Masks & IDs")
         self.btn_clear_cellpose.clicked.connect(self.clear_cellpose_masks)
@@ -2893,6 +2905,57 @@ class GUI(QMainWindow):
         self.cellpose_masks_cyto = None
         self.cellpose_masks_nuc = None
         self.plot_cellpose_results()
+
+    def on_remove_border_cells_changed(self, state):
+        """Handle checkbox state change for removing border-touching cells."""
+        if state == Qt.Checked:
+            # Collect border-touching labels from BOTH masks (they share IDs after sync)
+            border_labels = set()
+            
+            if self.cellpose_masks_cyto is not None:
+                border_labels.update(self.get_border_touching_labels(self.cellpose_masks_cyto))
+            if self.cellpose_masks_nuc is not None:
+                border_labels.update(self.get_border_touching_labels(self.cellpose_masks_nuc))
+            
+            # Remove those labels from BOTH masks
+            if self.cellpose_masks_cyto is not None:
+                self.cellpose_masks_cyto = self.remove_labels_and_reindex(self.cellpose_masks_cyto, border_labels)
+            if self.cellpose_masks_nuc is not None:
+                self.cellpose_masks_nuc = self.remove_labels_and_reindex(self.cellpose_masks_nuc, border_labels)
+        self.plot_cellpose_results()
+
+    def get_border_touching_labels(self, masks):
+        """Get set of labels touching image border."""
+        if masks is None or np.max(masks) == 0:
+            return set()
+        
+        border_labels = set()
+        border_labels.update(np.unique(masks[0, :]))    # Top
+        border_labels.update(np.unique(masks[-1, :]))   # Bottom
+        border_labels.update(np.unique(masks[:, 0]))    # Left
+        border_labels.update(np.unique(masks[:, -1]))   # Right
+        border_labels.discard(0)  # Remove background
+        return border_labels
+
+    def remove_labels_and_reindex(self, masks, labels_to_remove):
+        """Remove specified labels from masks and reindex remaining."""
+        if masks is None or np.max(masks) == 0:
+            return masks
+        
+        result = masks.copy()
+        for label in labels_to_remove:
+            result[result == label] = 0
+        
+        return self.reindex_masks(result)
+
+    def reindex_masks(self, masks):
+        """Reindex mask labels to be continuous starting from 1."""
+        unique_labels = np.unique(masks)
+        unique_labels = unique_labels[unique_labels > 0]
+        new_masks = np.zeros_like(masks)
+        for new_id, old_id in enumerate(unique_labels, start=1):
+            new_masks[masks == old_id] = new_id
+        return new_masks
 
     def plot_cellpose_results(self):
         if self.image_stack is None:
