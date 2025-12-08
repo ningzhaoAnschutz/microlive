@@ -2740,7 +2740,7 @@ class GUI(QMainWindow):
         
         self.cellpose_nuc_diameter_input = QDoubleSpinBox()
         self.cellpose_nuc_diameter_input.setRange(0, 1000)
-        self.cellpose_nuc_diameter_input.setValue(100)
+        self.cellpose_nuc_diameter_input.setValue(60)
         nuc_layout.addRow("Diameter (px):", self.cellpose_nuc_diameter_input)
 
         self.cellpose_nuc_flow_input = QDoubleSpinBox()
@@ -2768,6 +2768,11 @@ class GUI(QMainWindow):
         self.chk_remove_border_cells.setChecked(False)
         self.chk_remove_border_cells.stateChanged.connect(self.on_remove_border_cells_changed)
         improve_layout.addRow(self.chk_remove_border_cells)
+
+        self.chk_remove_unpaired_cells = QCheckBox("Remove unpaired cells")
+        self.chk_remove_unpaired_cells.setChecked(False)
+        self.chk_remove_unpaired_cells.stateChanged.connect(self.on_remove_unpaired_cells_changed)
+        improve_layout.addRow(self.chk_remove_unpaired_cells)
 
         improve_group.setLayout(improve_layout)
         right_layout.addWidget(improve_group)
@@ -2922,6 +2927,47 @@ class GUI(QMainWindow):
                 self.cellpose_masks_cyto = self.remove_labels_and_reindex(self.cellpose_masks_cyto, border_labels)
             if self.cellpose_masks_nuc is not None:
                 self.cellpose_masks_nuc = self.remove_labels_and_reindex(self.cellpose_masks_nuc, border_labels)
+        self.plot_cellpose_results()
+
+    def on_remove_unpaired_cells_changed(self, state):
+        """Handle checkbox state change for removing unpaired cells."""
+        if state == Qt.Checked:
+            # Only works if both cytosol and nucleus have been segmented
+            if self.cellpose_masks_cyto is None or self.cellpose_masks_nuc is None:
+                QMessageBox.warning(self, "Warning", 
+                    "Please segment both cytosol and nucleus first.")
+                self.chk_remove_unpaired_cells.blockSignals(True)
+                self.chk_remove_unpaired_cells.setChecked(False)
+                self.chk_remove_unpaired_cells.blockSignals(False)
+                return
+            
+            # Find IDs present in both masks
+            cyto_ids = set(np.unique(self.cellpose_masks_cyto))
+            nuc_ids = set(np.unique(self.cellpose_masks_nuc))
+            cyto_ids.discard(0)
+            nuc_ids.discard(0)
+            
+            # Paired IDs are those present in both masks
+            paired_ids = cyto_ids & nuc_ids
+            
+            # Remove unpaired cytosols (IDs only in cyto, not in nuc)
+            unpaired_cyto_ids = cyto_ids - paired_ids
+            if unpaired_cyto_ids:
+                self.cellpose_masks_cyto = self.remove_labels_and_reindex(
+                    self.cellpose_masks_cyto, unpaired_cyto_ids)
+            
+            # Remove unpaired nuclei (IDs only in nuc, not in cyto)
+            unpaired_nuc_ids = nuc_ids - paired_ids
+            if unpaired_nuc_ids:
+                self.cellpose_masks_nuc = self.remove_labels_and_reindex(
+                    self.cellpose_masks_nuc, unpaired_nuc_ids)
+            
+            # Re-synchronize to ensure IDs match after reindexing
+            if self.cellpose_masks_cyto is not None and self.cellpose_masks_nuc is not None:
+                self.cellpose_masks_cyto, self.cellpose_masks_nuc = mi.CellSegmentation.synchronize_masks(
+                    self.cellpose_masks_cyto, self.cellpose_masks_nuc
+                )
+        
         self.plot_cellpose_results()
 
     def get_border_touching_labels(self, masks):

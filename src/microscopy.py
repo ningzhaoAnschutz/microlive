@@ -1867,14 +1867,7 @@ class CellSegmentation():
                         if CellSegmentation.is_nucleus_in_cytosol(tested_mask_nuc, tested_mask_cyto):
                             final_masks_nuclei[masks_nuclei == mn] = mc  # Assign cyto ID
                             matched_nuclei_indices.add(mn)
-                
-                # Process unmatched nuclei: assign unique IDs starting from n_mask_cyto + 1
-                current_max_id = n_mask_cyto
-                for mn in range(1, n_mask_nuc + 1):
-                    if mn not in matched_nuclei_indices:
-                        current_max_id += 1
-                        final_masks_nuclei[masks_nuclei == mn] = current_max_id
-
+                # Unmatched nuclei remain as 0 (removed) since they have no cytosol
                 reordered_mask_nuclei = final_masks_nuclei
 
             else:
