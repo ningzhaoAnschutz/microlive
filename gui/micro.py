@@ -5960,6 +5960,8 @@ class GUI(QMainWindow):
             self.checkbox_scalebar.setChecked(False)
         if hasattr(self, 'checkbox_show_timestamp'):
             self.checkbox_show_timestamp.setChecked(False)
+        if hasattr(self, 'time_slider_tracking_vis'):
+            self.time_slider_tracking_vis.setValue(0)
         self.canvas_tracking_vis.draw_idle()
 
     
@@ -7184,6 +7186,8 @@ class GUI(QMainWindow):
         self.selected_points = []
         self.segmentation_current_channel = 0
         self.segmentation_current_frame = 0
+        if hasattr(self, 'segmentation_time_slider'):
+            self.segmentation_time_slider.setValue(0)
 
     def reset_photobleaching_tab(self):
         self.figure_photobleaching.clear()
@@ -7216,6 +7220,8 @@ class GUI(QMainWindow):
             transform=self.ax_tracking.transAxes
         )
         self.canvas_tracking.draw()
+        if hasattr(self, 'time_slider_tracking'):
+            self.time_slider_tracking.setValue(0)
 
     def reset_distribution_tab(self):
         self.figure_distribution.clear()
@@ -7389,6 +7395,10 @@ class GUI(QMainWindow):
         # Update tracking sliders if they exist
         if hasattr(self, 'min_percentile_slider_tracking'):
             self.update_tracking_sliders()
+        
+        # Reset current frame and channel indices
+        self.current_frame = 0
+        self.current_channel = 0
 
 # =============================================================================
 # =============================================================================
