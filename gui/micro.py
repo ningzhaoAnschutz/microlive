@@ -1680,29 +1680,8 @@ class GUI(QMainWindow):
         self.voxel_z_nm_label.setText(f"{self.voxel_z_nm:.0f} nm" if self.voxel_z_nm is not None else "N/A")
         self.bit_depth_label.setText(str(self.bit_depth))
         self.time_interval_label.setText(f"{self.time_interval_value} s" if self.time_interval_value is not None else "N/A")
-        # Reset and clear various tabs and controls for new data
-        self.display_min_percentile = 1.0
-        self.display_max_percentile = 99.5
-        self.channelDisplayParams.clear()
-        self.reset_display_tab()
-        self.reset_segmentation_tab()
-        self.reset_photobleaching_tab()
-        self.reset_tracking_tab() 
-        if hasattr(self, 'min_percentile_slider_tracking'):
-            self.update_tracking_sliders()
-        self.reset_distribution_tab()
-        self.reset_time_course_tab()
-        self.reset_correlation_tab()
-        self.reset_colocalization_tab()
-        self.reset_crops_tab()  
-        self.reset_export_comment()
-        # Reset manual tracking/colocalization stats
-        self.manual_scroll_area.setWidget(QWidget())
-        self.manual_checkboxes = []
-        self.manual_mean_crop = None
-        self.df_manual_colocalization = pd.DataFrame()
-        self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
-        self.has_tracked = False
+        # Reset all tabs and state for new data
+        self.reset_all_state()
         # Initialize current frame and channel
         self.current_frame = 0
         self.current_channel = 0
@@ -1804,33 +1783,8 @@ class GUI(QMainWindow):
         self.intensities_label.setText(str(list_intensities[image_index]))
         self.wave_ranges_label.setText(str(list_wave_ranges[image_index]))
         self.selected_image_index = image_index
-        self.manual_current_image_name = None
-        self.reset_segmentation_tab()
-        self.reset_photobleaching_tab()
-        self.reset_tracking_tab()
-        if hasattr(self, 'min_percentile_slider_tracking'):
-            self.update_tracking_sliders()
-        self.reset_distribution_tab()
-        self.reset_time_course_tab()
-        self.reset_correlation_tab()
-        self.reset_colocalization_tab()
-        self.reset_crops_tab()
-        self.reset_export_comment()
-        self.manual_scroll_area.setWidget(QWidget())
-        self.manual_checkboxes = []
-        self.manual_mean_crop = None
-        self.df_manual_colocalization = pd.DataFrame()
-        self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
-        self.has_tracked = False
-        self.photobleaching_calculated = False
-        self.segmentation_mask = None
-        self.df_tracking = pd.DataFrame()
-        self.detected_spots_frame = None
-        self.corrected_image = None
-        self.colocalization_results = None
-        self.correlation_results = []
-        self.current_total_plots = None
-        self.manual_current_image_name = None
+        # Reset all tabs and state for new data
+        self.reset_all_state()
         T = self.image_stack.shape[0]
         self.current_frame = 0
         self.current_channel = 0
@@ -2077,44 +2031,16 @@ class GUI(QMainWindow):
             self.image_tree.takeTopLevelItem(idx)
        
         if hasattr(self, 'data_folder_path') and str(self.data_folder_path) == file_path:
-            # Clear core data
+            # Clear core data specific to closing a file
             self.image_stack = None
             self.data_folder_path = None
-            self.df_tracking = pd.DataFrame()
-            self.has_tracked = False
-            self.detected_spots_frame = None
-            self.corrected_image = None
-            self.segmentation_mask = None
             self.colocalization_results = None
-            self.correlation_results = []
-            self.photobleaching_calculated = False
+            self.current_total_plots = None
             
-            # Reset all tabs
-            self.reset_display_tab()
-            self.reset_segmentation_tab()
-            self.reset_photobleaching_tab()
-            self.reset_tracking_tab()
-            self.reset_distribution_tab()
-            self.reset_time_course_tab()
-            self.reset_correlation_tab()
-            self.reset_colocalization_tab()
-            self.reset_crops_tab()
-            self.reset_tracking_visualization_tab()
-            self.reset_export_comment()
+            # Use unified reset for all tabs and state
+            self.reset_all_state()
             
-            # Clear manual colocalization
-            if hasattr(self, 'manual_scroll_area'):
-                self.manual_scroll_area.setWidget(QWidget())
-            if hasattr(self, 'manual_checkboxes'):
-                self.manual_checkboxes = []
-            if hasattr(self, 'manual_mean_crop'):
-                self.manual_mean_crop = None
-            if hasattr(self, 'df_manual_colocalization'):
-                self.df_manual_colocalization = pd.DataFrame()
-            if hasattr(self, 'manual_stats_label'):
-                self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
-            
-            # Clear info labels
+            # Clear info labels (close-specific: show empty state)
             for lbl in (self.file_label, self.frames_label, self.z_scales_label, 
                     self.y_pixels_label, self.x_pixels_label, self.channels_label, 
                     self.voxel_yx_size_label, self.voxel_z_nm_label, 
@@ -2130,11 +2056,11 @@ class GUI(QMainWindow):
             if hasattr(self, 'wave_ranges_label'):
                 self.wave_ranges_label.setText("")
             
-            # Clear channel controls
+            # Clear channel controls (close-specific: remove channel UI)
             if hasattr(self, 'channelControlsTabs'):
                 self.channelControlsTabs.clear()
             
-            # Clear channel buttons
+            # Clear channel buttons (close-specific: remove buttons)
             for btn_list in [getattr(self, 'channel_buttons_display', []),
                             getattr(self, 'channel_buttons_tracking', []),
                             getattr(self, 'channel_buttons_tracking_vis', []),
@@ -2171,13 +2097,12 @@ class GUI(QMainWindow):
             if hasattr(self, 'channel_combo_box_2'):
                 self.channel_combo_box_2.clear()
             
-            # Disable controls
+            # Disable controls (close-specific: no image loaded)
             if hasattr(self, 'time_slider_display'):
                 self.time_slider_display.setEnabled(False)
                 self.time_slider_display.setValue(0)
             if hasattr(self, 'play_button_display'):
                 self.play_button_display.setEnabled(False)
-                self.play_button_display.setText("Play")
             if hasattr(self, 'time_slider_tracking'):
                 self.time_slider_tracking.setValue(0)
             if hasattr(self, 'time_slider_tracking_vis'):
@@ -2190,17 +2115,6 @@ class GUI(QMainWindow):
             # Reset current indices
             self.current_frame = 0
             self.current_channel = 0
-            
-            # Clear display parameters
-            if hasattr(self, 'channelDisplayParams'):
-                self.channelDisplayParams.clear()
-            
-            # Reset tracking visualization
-            if hasattr(self, 'tracked_particles_list'):
-                self.tracked_particles_list.clear()
-            
-            # Reset variables
-            self.manual_current_image_name = None
 
     def on_tree_current_item_changed(self, current, previous):
         """
@@ -7363,7 +7277,118 @@ class GUI(QMainWindow):
         )
         self.canvas_crops.draw()
 
-    
+    def reset_manual_colocalization(self):
+        """Reset manual colocalization state and UI elements."""
+        if hasattr(self, 'manual_scroll_area'):
+            self.manual_scroll_area.setWidget(QWidget())
+        if hasattr(self, 'manual_checkboxes'):
+            self.manual_checkboxes = []
+        if hasattr(self, 'manual_mean_crop'):
+            self.manual_mean_crop = None
+        if hasattr(self, 'df_manual_colocalization'):
+            self.df_manual_colocalization = pd.DataFrame()
+        if hasattr(self, 'manual_stats_label'):
+            self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
+        self.manual_current_image_name = None
+
+    def reset_cellpose_tab(self):
+        """Reset Cellpose tab state, masks, and UI controls to defaults."""
+        # Clear masks
+        self.cellpose_masks_cyto = None
+        self.cellpose_masks_nuc = None
+        
+        # Reset frame/channel indices
+        if hasattr(self, 'cellpose_current_frame'):
+            self.cellpose_current_frame = 0
+        if hasattr(self, 'cellpose_current_channel'):
+            self.cellpose_current_channel = 0
+        
+        # Reset time slider
+        if hasattr(self, 'time_slider_cellpose'):
+            self.time_slider_cellpose.setValue(0)
+        
+        # Reset Cytosol parameters to defaults
+        if hasattr(self, 'cellpose_cyto_model_input'):
+            self.cellpose_cyto_model_input.setCurrentText('cyto3')
+        if hasattr(self, 'cellpose_cyto_channel_input'):
+            self.cellpose_cyto_channel_input.setValue(1)
+        if hasattr(self, 'cellpose_cyto_diameter_input'):
+            self.cellpose_cyto_diameter_input.setValue(120)
+        if hasattr(self, 'cellpose_cyto_flow_input'):
+            self.cellpose_cyto_flow_input.setValue(0.4)
+        if hasattr(self, 'chk_optimize_cyto'):
+            self.chk_optimize_cyto.setChecked(False)
+        
+        # Reset Nucleus parameters to defaults
+        if hasattr(self, 'cellpose_nuc_model_input'):
+            self.cellpose_nuc_model_input.setCurrentText('nuclei')
+        if hasattr(self, 'cellpose_nuc_channel_input'):
+            self.cellpose_nuc_channel_input.setValue(0)
+        if hasattr(self, 'cellpose_nuc_diameter_input'):
+            self.cellpose_nuc_diameter_input.setValue(60)
+        if hasattr(self, 'cellpose_nuc_flow_input'):
+            self.cellpose_nuc_flow_input.setValue(0.4)
+        if hasattr(self, 'chk_optimize_nuc'):
+            self.chk_optimize_nuc.setChecked(False)
+        
+        # Reset Improve Segmentation checkboxes
+        if hasattr(self, 'chk_remove_border_cells'):
+            self.chk_remove_border_cells.setChecked(False)
+        if hasattr(self, 'chk_remove_unpaired_cells'):
+            self.chk_remove_unpaired_cells.setChecked(False)
+        
+        # Clear the figure
+        if hasattr(self, 'figure_cellpose'):
+            self.figure_cellpose.clear()
+            self.ax_cellpose = self.figure_cellpose.add_subplot(111)
+            self.ax_cellpose.set_facecolor('black')
+            self.ax_cellpose.axis('off')
+            self.ax_cellpose.text(
+                0.5, 0.5, 'No Cellpose segmentation performed.',
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=12, color='white',
+                transform=self.ax_cellpose.transAxes
+            )
+            if hasattr(self, 'canvas_cellpose'):
+                self.canvas_cellpose.draw()
+
+    def reset_all_state(self):
+        """
+        Unified reset method called when loading a new image.
+        Resets all tabs, clears state variables, and prepares the GUI for new data.
+        """
+        # Reset all tab displays
+        self.reset_display_tab()
+        self.reset_segmentation_tab()
+        self.reset_photobleaching_tab()
+        self.reset_tracking_tab()
+        self.reset_distribution_tab()
+        self.reset_time_course_tab()
+        self.reset_correlation_tab()
+        self.reset_colocalization_tab()
+        self.reset_crops_tab()
+        self.reset_tracking_visualization_tab()
+        self.reset_export_comment()
+        self.reset_manual_colocalization()
+        self.reset_cellpose_tab()
+        
+        # Reset shared state variables
+        self.has_tracked = False
+        self.photobleaching_calculated = False
+        self.detected_spots_frame = None
+        self.corrected_image = None
+        self.df_tracking = pd.DataFrame()
+        
+        # Reset display parameters
+        self.display_min_percentile = 1.0
+        self.display_max_percentile = 99.95
+        if hasattr(self, 'channelDisplayParams'):
+            self.channelDisplayParams.clear()
+        
+        # Update tracking sliders if they exist
+        if hasattr(self, 'min_percentile_slider_tracking'):
+            self.update_tracking_sliders()
 
 # =============================================================================
 # =============================================================================
