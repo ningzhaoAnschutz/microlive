@@ -214,45 +214,58 @@ color_yellow = (1.0, 1.0, 0.0)  # Full Red, Full Green, No Blue
 list_colors_default = [ color_green, color_magenta, color_yellow, color_red]
 
 
-# Define a custom green colormap from black to green
-cdict_green = {
-    'red':   ((0.0, 0.0, 0.0),  # No red at any point
-              (1.0, 0.0, 0.0)),
-    'green': ((0.0, 0.0, 0.0),  # Start with no green
-              (1.0, 1.0, 1.0)), # Full green at the end
-    'blue':  ((0.0, 0.0, 0.0),  # No blue at any point
-              (1.0, 0.0, 0.0))
+# Define colormaps for multi-channel imaging (10 colors for flexibility)
+# Colors: green, magenta, yellow, red, cyan, orange, blue, pink, lime, purple
+
+# Additional colormaps for 10-channel support
+cdict_cyan = {
+    'red':   ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    'green': ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    'blue':  ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
 }
-cdict_magenta = {
-    'red':   ((0.0, 0.0, 0.0),  # Start with no red
-              (1.0, 1.0, 1.0)), # Full red at the end
-    'green': ((0.0, 0.0, 0.0),  # No green at any point
-              (1.0, 0.0, 0.0)),
-    'blue':  ((0.0, 0.0, 0.0),  # Start with no blue
-              (1.0, 1.0, 1.0))  # Full blue at the end
+cdict_orange = {
+    'red':   ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    'green': ((0.0, 0.0, 0.0), (1.0, 0.65, 0.65)),
+    'blue':  ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
 }
-cdict_red = {
-    'red':   ((0.0, 0.0, 0.0),  # Start with no red
-              (1.0, 1.0, 1.0)), # Full red at the end
-    'green': ((0.0, 0.0, 0.0),  # No green at any point
-              (1.0, 0.0, 0.0)),
-    'blue':  ((0.0, 0.0, 0.0),  # No blue at any point
-              (1.0, 0.0, 0.0))
+cdict_blue = {
+    'red':   ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    'green': ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    'blue':  ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
 }
-cdict_yellow = {
-    'red':   ((0.0, 0.0, 0.0),  # Start with no red
-              (1.0, 1.0, 1.0)), # Full red at the end
-    'green': ((0.0, 0.0, 0.0),  # Start with no green
-              (1.0, 1.0, 1.0)), # Full green at the end
-    'blue':  ((0.0, 0.0, 0.0),  # No blue at any point
-              (1.0, 0.0, 0.0))
+cdict_pink = {
+    'red':   ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    'green': ((0.0, 0.0, 0.0), (1.0, 0.4, 0.4)),
+    'blue':  ((0.0, 0.0, 0.0), (1.0, 0.7, 0.7))
+}
+cdict_lime = {
+    'red':   ((0.0, 0.0, 0.0), (1.0, 0.5, 0.5)),
+    'green': ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+    'blue':  ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
+}
+cdict_purple = {
+    'red':   ((0.0, 0.0, 0.0), (1.0, 0.5, 0.5)),
+    'green': ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    'blue':  ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
 }
 
 yellow_colormap = LinearSegmentedColormap('BlackYellow', cdict_yellow)
 red_colormap = LinearSegmentedColormap('BlackRed', cdict_red)
 green_colormap = LinearSegmentedColormap('BlackGreen', cdict_green)
 magenta_colormap = LinearSegmentedColormap('BlackMagenta', cdict_magenta)
-cmap_list_imagej = [magenta_colormap, green_colormap,yellow_colormap,red_colormap]
+cyan_colormap = LinearSegmentedColormap('BlackCyan', cdict_cyan)
+orange_colormap = LinearSegmentedColormap('BlackOrange', cdict_orange)
+blue_colormap = LinearSegmentedColormap('BlackBlue', cdict_blue)
+pink_colormap = LinearSegmentedColormap('BlackPink', cdict_pink)
+lime_colormap = LinearSegmentedColormap('BlackLime', cdict_lime)
+purple_colormap = LinearSegmentedColormap('BlackPurple', cdict_purple)
+
+# 10 colormaps for multi-channel display (cycles back for >10 channels)
+cmap_list_imagej = [
+    green_colormap, magenta_colormap, yellow_colormap, red_colormap,
+    cyan_colormap, orange_colormap, blue_colormap, pink_colormap,
+    lime_colormap, purple_colormap
+]
 
 
 class Banner:

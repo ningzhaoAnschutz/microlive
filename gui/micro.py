@@ -1567,6 +1567,16 @@ class GUI(QMainWindow):
         self.create_correlation_channel_checkboxes()
         self.populate_colocalization_channels()
         
+        # Update Cellpose channel spinbox ranges based on actual channels
+        max_ch = max(0, C - 1)
+        if hasattr(self, 'cellpose_cyto_channel_input'):
+            self.cellpose_cyto_channel_input.setMaximum(max_ch)
+            # Set to channel 1 if available, otherwise channel 0
+            self.cellpose_cyto_channel_input.setValue(min(1, max_ch))
+        if hasattr(self, 'cellpose_nuc_channel_input'):
+            self.cellpose_nuc_channel_input.setMaximum(max_ch)
+            self.cellpose_nuc_channel_input.setValue(0)
+        
         # Create crops channel buttons
         for btn in getattr(self, 'channel_buttons_crops', []):
             btn.setParent(None)
@@ -1957,7 +1967,7 @@ class GUI(QMainWindow):
                 if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
                     mask = (self.segmentation_mask > 0).astype(float)
                     img_to_show = img_to_show * mask
-                cmap_imagej = cmap_list_imagej[self.current_channel]
+                cmap_imagej = cmap_list_imagej[self.current_channel % len(cmap_list_imagej)]
                 self.ax_display.imshow(img_to_show, cmap=cmap_imagej, vmin=0, vmax=1)
             if self.display_time_text_checkbox.isChecked():
                 current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
@@ -2508,7 +2518,7 @@ class GUI(QMainWindow):
             cv2.fillPoly(mask, polygon, 255)
             self.segmentation_mask = np.array(mask, dtype=np.uint8)
             self.ax_segmentation.clear()
-            cmap_imagej = cmap_list_imagej[ch]
+            cmap_imagej = cmap_list_imagej[ch % len(cmap_list_imagej)]
             self.ax_segmentation.imshow(max_proj, cmap=cmap_imagej)
             self.ax_segmentation.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
             self.ax_segmentation.axis('off')
@@ -2608,7 +2618,7 @@ class GUI(QMainWindow):
 
         self.cellpose_cyto_channel_input = QSpinBox()
         self.cellpose_cyto_channel_input.setRange(0, 10)
-        self.cellpose_cyto_channel_input.setValue(1) # Default to channel 1
+        self.cellpose_cyto_channel_input.setValue(0) # Default to channel 0 (updated dynamically)
         cyto_layout.addRow("Channel:", self.cellpose_cyto_channel_input)
         
         self.cellpose_cyto_diameter_input = QDoubleSpinBox()
@@ -2919,20 +2929,42 @@ class GUI(QMainWindow):
         self.ax_cellpose.clear()
         
         # Get current image slice
+        ch = self.cellpose_current_channel
         if self.image_stack.ndim == 5:
             # [T, Z, Y, X, C] -> Max projection over Z for display
-            img_slice = self.image_stack[self.cellpose_current_frame, :, :, :, self.cellpose_current_channel]
+            img_slice = self.image_stack[self.cellpose_current_frame, :, :, :, ch]
             if img_slice.ndim == 3: # ZYX
                  img_slice = np.max(img_slice, axis=0)
         else:
             # Fallback
             img_slice = np.zeros((512, 512))
 
-        # Normalize for display
-        if img_slice.max() > 0:
-            img_slice = img_slice / img_slice.max()
-            
-        self.ax_cellpose.imshow(img_slice, cmap='gray')
+        # Get display parameters for channel (match other tabs)
+        params = self.channelDisplayParams.get(ch, {
+            'min_percentile': self.display_min_percentile,
+            'max_percentile': self.display_max_percentile,
+            'sigma': self.display_sigma,
+            'low_sigma': self.low_display_sigma
+        })
+        
+        # Normalize using percentiles (like other tabs)
+        rescaled = mi.Utilities().convert_to_int8(
+            img_slice,
+            rescale=True,
+            min_percentile=params['min_percentile'],
+            max_percentile=params['max_percentile']
+        )
+        if params['low_sigma'] > 0:
+            rescaled = gaussian_filter(rescaled, sigma=params['low_sigma'])
+        if params['sigma'] > 0:
+            rescaled = gaussian_filter(rescaled, sigma=params['sigma'])
+        normalized = rescaled.astype(float) / 255.0
+        if normalized.ndim == 3:
+            normalized = normalized[..., 0]
+        
+        # Use the same colormap as other tabs
+        cmap_used = cmap_list_imagej[ch % len(cmap_list_imagej)]
+        self.ax_cellpose.imshow(normalized, cmap=cmap_used, vmin=0, vmax=1)
         
         # Overlay Cytosol Masks
         if self.cellpose_masks_cyto is not None:
@@ -3074,7 +3106,7 @@ class GUI(QMainWindow):
                 rescaled_image = gaussian_filter(rescaled_image, sigma=params['sigma'])
             rescaled_image = mi.Utilities().convert_to_int8(rescaled_image, rescale=False)
             normalized_image = rescaled_image.astype(np.float32) / 255.0
-            cmap_used = cmap_list_imagej[ch]
+            cmap_used = cmap_list_imagej[ch % len(cmap_list_imagej)]
             self.ax_segmentation.imshow(normalized_image[..., 0], cmap=cmap_used, vmin=0, vmax=1)
             
             # Draw contours for segmentation mask
@@ -3086,7 +3118,7 @@ class GUI(QMainWindow):
                 horizontalalignment='center', verticalalignment='center',
                 fontsize=12, color='white', transform=self.ax_segmentation.transAxes
             )
-        self.ax_segmentation.axis('off')
+        # Keep axes visible (removed axis('off'))
         self.figure_segmentation.tight_layout()
         self.canvas_segmentation.draw()
 
@@ -3833,7 +3865,7 @@ class GUI(QMainWindow):
         rescaled_image = mi.Utilities().convert_to_int8(rescaled_image, rescale=False)
         normalized_image = rescaled_image.astype(np.float32) / 255.0
         normalized_image = normalized_image[..., 0]
-        cmap_imagej = cmap_list_imagej[ch]
+        cmap_imagej = cmap_list_imagej[ch % len(cmap_list_imagej)]
         self.ax_tracking.imshow(normalized_image, cmap=cmap_imagej, vmin=0, vmax=1)
         dpi = self.figure_tracking.get_dpi()
         marker_scale = dpi / 100.0
@@ -5840,7 +5872,7 @@ class GUI(QMainWindow):
             main_cmap = None
         else:
             main_img = norm_stack[selected_channelIndex]
-            main_cmap = cmap_list_imagej[selected_channelIndex]
+            main_cmap = cmap_list_imagej[selected_channelIndex % len(cmap_list_imagej)]
         gs = fig.add_gridspec(1, 2, width_ratios=[3, 2], hspace=0.1, wspace=0.1)
         ax_main = fig.add_subplot(gs[0, 0])
         gs2 = gs[0, 1].subgridspec(C, 1, hspace=0.1)
@@ -5896,7 +5928,7 @@ class GUI(QMainWindow):
                 crop = norm_stack[ci, y0:y1, x0:x1]
             else:
                 crop = np.zeros((crop_sz, crop_sz))
-            ax.imshow(crop, cmap=cmap_list_imagej[ci], interpolation='nearest', vmin=0, vmax=1)
+            ax.imshow(crop, cmap=cmap_list_imagej[ci % len(cmap_list_imagej)], interpolation='nearest', vmin=0, vmax=1)
             ax.axis('off')
         fig.tight_layout()
         self.canvas_tracking_vis.draw_idle()
@@ -7287,7 +7319,11 @@ class GUI(QMainWindow):
         if hasattr(self, 'cellpose_cyto_model_input'):
             self.cellpose_cyto_model_input.setCurrentText('cyto3')
         if hasattr(self, 'cellpose_cyto_channel_input'):
-            self.cellpose_cyto_channel_input.setValue(1)
+            # Set to channel 1 if available, otherwise channel 0
+            max_ch = max(0, (self.number_color_channels or 1) - 1)
+            self.cellpose_cyto_channel_input.setMaximum(max_ch)
+            default_cyto_ch = min(1, max_ch)
+            self.cellpose_cyto_channel_input.setValue(default_cyto_ch)
         if hasattr(self, 'cellpose_cyto_diameter_input'):
             self.cellpose_cyto_diameter_input.setValue(120)
         if hasattr(self, 'cellpose_cyto_flow_input'):
@@ -7299,6 +7335,9 @@ class GUI(QMainWindow):
         if hasattr(self, 'cellpose_nuc_model_input'):
             self.cellpose_nuc_model_input.setCurrentText('nuclei')
         if hasattr(self, 'cellpose_nuc_channel_input'):
+            # Set maximum based on available channels
+            max_ch = max(0, (self.number_color_channels or 1) - 1)
+            self.cellpose_nuc_channel_input.setMaximum(max_ch)
             self.cellpose_nuc_channel_input.setValue(0)
         if hasattr(self, 'cellpose_nuc_diameter_input'):
             self.cellpose_nuc_diameter_input.setValue(60)
