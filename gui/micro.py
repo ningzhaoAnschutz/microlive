@@ -1718,6 +1718,10 @@ class GUI(QMainWindow):
         self.time_slider_tracking_vis.setMaximum(T - 1)
         self.time_slider_tracking_vis.setValue(0)
         self.segmentation_time_slider.setMaximum(T - 1)
+        if hasattr(self, 'time_slider_cellpose'):
+            self.time_slider_cellpose.setMaximum(T - 1)
+            self.time_slider_cellpose.setValue(0)
+            self.cellpose_current_frame = 0
         # Create channel buttons/controls for various tabs
         self.create_channel_buttons()                   # Main display tab channel buttons
         self.create_cellpose_channel_buttons()
@@ -1847,6 +1851,10 @@ class GUI(QMainWindow):
         self.time_slider_tracking_vis.setMaximum(T - 1)
         self.time_slider_tracking_vis.setValue(0)
         self.segmentation_time_slider.setMaximum(T - 1)
+        if hasattr(self, 'time_slider_cellpose'):
+            self.time_slider_cellpose.setMaximum(T - 1)
+            self.time_slider_cellpose.setValue(0)
+            self.cellpose_current_frame = 0
         self.create_channel_buttons()
         self.create_cellpose_channel_buttons()
         self.create_correlation_channel_checkboxes()
@@ -1891,6 +1899,8 @@ class GUI(QMainWindow):
             self.play_button_display.setText("Play")
             self.play_button_tracking.setText("Play")
             self.play_button_tracking_vis.setText("Play")
+            if hasattr(self, 'play_button_cellpose'):
+                self.play_button_cellpose.setText("Play")
         else:
             interval = 16 if sys.platform.startswith('win') else 100
             self.timer.start(interval)
@@ -1898,6 +1908,8 @@ class GUI(QMainWindow):
             self.play_button_display.setText("Pause")
             self.play_button_tracking.setText("Pause")
             self.play_button_tracking_vis.setText("Pause")
+            if hasattr(self, 'play_button_cellpose'):
+                self.play_button_cellpose.setText("Pause")
 
     def update_channel(self, channel):
         self.current_channel = channel
@@ -2632,7 +2644,10 @@ class GUI(QMainWindow):
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
-        for slider in (self.time_slider_display, self.time_slider_tracking, getattr(self, 'time_slider_tracking_vis', None)):
+        self.cellpose_current_frame = self.current_frame  # Sync Cellpose frame
+        for slider in (self.time_slider_display, self.time_slider_tracking, 
+                       getattr(self, 'time_slider_tracking_vis', None),
+                       getattr(self, 'time_slider_cellpose', None)):
             if slider is not None:
                 slider.blockSignals(True)
                 slider.setValue(self.current_frame)
@@ -2645,6 +2660,8 @@ class GUI(QMainWindow):
             and getattr(self, 'has_tracked', False)
             and not self.df_tracking.empty):
             self.display_tracking_visualization()
+        elif current_tab == self.tabs.indexOf(self.cellpose_tab):
+            self.plot_cellpose_results()
 
     def setup_cellpose_tab(self):
         """
@@ -2660,7 +2677,9 @@ class GUI(QMainWindow):
         self.figure_cellpose = Figure()
         self.canvas_cellpose = FigureCanvas(self.figure_cellpose)
         self.ax_cellpose = self.figure_cellpose.add_subplot(111)
-        self.ax_cellpose.axis('off')
+        #self.ax_cellpose.axis('off')
+        # grid off
+        self.ax_cellpose.grid(False)
         left_layout.addWidget(self.canvas_cellpose)
 
         # Navigation Controls (Time Slider & Channel Buttons)
@@ -2672,6 +2691,12 @@ class GUI(QMainWindow):
         self.time_slider_cellpose = QSlider(Qt.Horizontal)
         self.time_slider_cellpose.valueChanged.connect(self.update_cellpose_frame)
         time_layout.addWidget(self.time_slider_cellpose)
+        
+        # Play Button
+        self.play_button_cellpose = QPushButton("Play", self)
+        self.play_button_cellpose.clicked.connect(self.play_pause)
+        time_layout.addWidget(self.play_button_cellpose)
+        
         nav_layout.addLayout(time_layout)
 
         # Channel Buttons
@@ -3051,7 +3076,9 @@ class GUI(QMainWindow):
                      y, x = center_of_mass(mask)
                      self.ax_cellpose.text(x, y, str(label), color='cyan', fontsize=8, ha='center', va='center')
 
-        self.ax_cellpose.axis('off')
+        #self.ax_cellpose.axis('off')
+        # grid off
+        self.ax_cellpose.grid(False)
         self.canvas_cellpose.draw()
 
 
