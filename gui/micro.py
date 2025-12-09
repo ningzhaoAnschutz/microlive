@@ -800,6 +800,7 @@ class GUI(QMainWindow):
         self.channelDisplayParams = {}
         self.random_mode_enabled = True
         self.segmentation_mask = None
+        self._active_mask_source = 'segmentation'  # 'segmentation' or 'cellpose'
         self.total_frames = 0
         self.tracking_remove_background_checkbox = False
         self.tracking_vis_merged = False
@@ -807,6 +808,37 @@ class GUI(QMainWindow):
         self.use_multi = False
         mi.Banner().print_banner()
         self.initUI()
+
+# =============================================================================
+# =============================================================================
+# MASK ACCESS PROPERTIES
+# =============================================================================
+# =============================================================================
+    @property
+    def active_mask(self):
+        """
+        Returns the currently active binary mask for background removal.
+        Uses last generated mask (from Segmentation or Cellpose tab).
+        """
+        if self._active_mask_source == 'cellpose':
+            if self.cellpose_masks_cyto is not None:
+                return (self.cellpose_masks_cyto > 0).astype(np.uint8)
+            elif self.cellpose_masks_nuc is not None:
+                return (self.cellpose_masks_nuc > 0).astype(np.uint8)
+        return self.segmentation_mask
+
+    @property
+    def active_labeled_mask(self):
+        """
+        Returns the labeled mask with cell IDs (for per-cell analysis).
+        Returns None if no mask is set.
+        """
+        if self._active_mask_source == 'cellpose':
+            if self.cellpose_masks_cyto is not None:
+                return self.cellpose_masks_cyto
+            elif self.cellpose_masks_nuc is not None:
+                return self.cellpose_masks_nuc
+        return self.segmentation_mask
 
 # =============================================================================
 # =============================================================================
@@ -1898,8 +1930,8 @@ class GUI(QMainWindow):
                     merged_img = self.compute_merged_image()
                     if merged_img is not None:
                         img_to_show = merged_img
-                        if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
-                            mask = (self.segmentation_mask > 0).astype(float)
+                        if self.display_remove_background_checkbox.isChecked() and self.active_mask is not None:
+                            mask = (self.active_mask > 0).astype(float)
                             img_to_show = img_to_show * mask[..., None] 
                         self.ax_display.imshow(img_to_show, vmin=0, vmax=1)
                     else:
@@ -1937,8 +1969,8 @@ class GUI(QMainWindow):
                                 norm = gaussian_filter(norm, sigma=params['sigma'])
                             combined_image += cmap_funcs[ch](norm)
                         img_to_show = np.clip(combined_image, 0, 1)
-                    if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
-                        mask = (self.segmentation_mask > 0).astype(float)
+                    if self.display_remove_background_checkbox.isChecked() and self.active_mask is not None:
+                        mask = (self.active_mask > 0).astype(float)
                         img_to_show = img_to_show * (mask[..., None] if img_to_show.ndim == 3 else mask)
                     self.ax_display.imshow(img_to_show, vmin=0, vmax=1)
             else:
@@ -1964,8 +1996,8 @@ class GUI(QMainWindow):
                 normalized = rescaled.astype(float) / 255.0
                 normalized = normalized[..., 0]  
                 img_to_show = normalized
-                if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
-                    mask = (self.segmentation_mask > 0).astype(float)
+                if self.display_remove_background_checkbox.isChecked() and self.active_mask is not None:
+                    mask = (self.active_mask > 0).astype(float)
                     img_to_show = img_to_show * mask
                 cmap_imagej = cmap_list_imagej[self.current_channel % len(cmap_list_imagej)]
                 self.ax_display.imshow(img_to_show, cmap=cmap_imagej, vmin=0, vmax=1)
@@ -2208,8 +2240,8 @@ class GUI(QMainWindow):
         self.ax_display = self.figure_display.add_subplot(111)
         # Apply background removal if requested
         img_to_show = merged_img
-        if self.display_remove_background_checkbox.isChecked() and self.segmentation_mask is not None:
-            mask = (self.segmentation_mask > 0).astype(float)
+        if self.display_remove_background_checkbox.isChecked() and self.active_mask is not None:
+            mask = (self.active_mask > 0).astype(float)
             # expand mask to match RGB channels
             img_to_show = img_to_show * mask[..., None]
         self.ax_display.imshow(img_to_show, vmin=0, vmax=1)
@@ -2517,6 +2549,7 @@ class GUI(QMainWindow):
             polygon = np.array([self.selected_points], dtype=np.int32)
             cv2.fillPoly(mask, polygon, 255)
             self.segmentation_mask = np.array(mask, dtype=np.uint8)
+            self._active_mask_source = 'segmentation'
             self.ax_segmentation.clear()
             cmap_imagej = cmap_list_imagej[ch % len(cmap_list_imagej)]
             self.ax_segmentation.imshow(max_proj, cmap=cmap_imagej)
@@ -2776,6 +2809,7 @@ class GUI(QMainWindow):
             masks_cyto, _, _ = segmenter.calculate_masks()
             
             self.cellpose_masks_cyto = masks_cyto
+            self._active_mask_source = 'cellpose'
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -2811,6 +2845,7 @@ class GUI(QMainWindow):
             _, masks_nuc, _ = segmenter.calculate_masks()
             
             self.cellpose_masks_nuc = masks_nuc
+            self._active_mask_source = 'cellpose'
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -3045,6 +3080,7 @@ class GUI(QMainWindow):
             )
             segmentation_mask = watershed_segmentation.apply_watershed()
             self.segmentation_mask = segmentation_mask
+            self._active_mask_source = 'segmentation'
             self.plot_segmentation()
             self.segmentation_mode = "watershed"
         else:
@@ -3118,7 +3154,7 @@ class GUI(QMainWindow):
                 horizontalalignment='center', verticalalignment='center',
                 fontsize=12, color='white', transform=self.ax_segmentation.transAxes
             )
-        # Keep axes visible (removed axis('off'))
+        self.ax_segmentation.axis('off')
         self.figure_segmentation.tight_layout()
         self.canvas_segmentation.draw()
 
@@ -3267,20 +3303,34 @@ class GUI(QMainWindow):
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
-        if self.segmentation_mask is None:
-            QMessageBox.warning(self, "No Segmentation Mask", "Please perform segmentation first.")
-            return
+        
+        # Check if we have any mask (segmentation or Cellpose)
+        has_segmentation_mask = self.segmentation_mask is not None
+        has_cellpose_mask = (self.cellpose_masks_cyto is not None or 
+                             self.cellpose_masks_nuc is not None)
+        
         mode = self.mode_combo.currentText().lower()
+        
+        # If no masks at all and mode is not entire_image, show warning
+        if not has_segmentation_mask and not has_cellpose_mask:
+            if mode != 'entire_image':
+                QMessageBox.warning(self, "No Segmentation Mask", 
+                                    "Please perform segmentation first, or use 'entire_image' mode.")
+                return
+        
+        # If Cellpose masks exist but no segmentation mask, use entire_image mode
+        # (Cellpose masks are labeled, not suitable for photobleaching mask input)
+        if has_cellpose_mask and not has_segmentation_mask:
+            mode = 'entire_image'
+            # Inform user that we're using entire_image mode
+            QMessageBox.information(self, "Using Entire Image", 
+                                    "Cellpose masks detected. Photobleaching will be calculated using the entire image.")
+        
         self.photobleaching_mode = mode
         radius = self.radius_spinbox.value()
         
         if self.segmentation_mask is None:
-            if mode != 'entire_image': 
-                QMessageBox.warning(self, "No Segmentation Mask", 
-                                    "Please perform segmentation first.")
-                return
-            else:
-                mask_GUI = None 
+            mask_GUI = None 
         else:
             mask_GUI = self.segmentation_mask.copy().astype(int)
             mask_GUI = np.where(mask_GUI > 0, 1, 0)
@@ -3939,7 +3989,37 @@ class GUI(QMainWindow):
                                                  loc='upper right', bbox_to_anchor=(1, 1))
                 for text in legend.get_texts():
                     text.set_color("w")
-        if self.segmentation_mask is not None:
+        # Draw mask contours and IDs if checkbox is checked
+        if self.tracking_show_masks_checkbox.isChecked():
+            masks_to_draw = []
+            
+            # Check if Cellpose is the active source - show both mask types
+            if self._active_mask_source == 'cellpose':
+                if self.cellpose_masks_cyto is not None:
+                    masks_to_draw.append(('cyto', self.cellpose_masks_cyto, 'cyan'))
+                if self.cellpose_masks_nuc is not None:
+                    masks_to_draw.append(('nuc', self.cellpose_masks_nuc, 'magenta'))
+            elif self.segmentation_mask is not None:
+                # Segmentation mask (binary)
+                masks_to_draw.append(('seg', self.segmentation_mask, 'cyan'))
+            
+            for mask_type, labeled_mask, color in masks_to_draw:
+                if labeled_mask is not None:
+                    # Draw contours for each labeled region
+                    unique_labels = np.unique(labeled_mask)
+                    unique_labels = unique_labels[unique_labels > 0]  # Exclude background
+                    for label_id in unique_labels:
+                        single_mask = (labeled_mask == label_id).astype(np.uint8)
+                        self.ax_tracking.contour(single_mask, levels=[0.5], colors=color, linewidths=0.8, alpha=0.7)
+                        # Find centroid for label text
+                        coords = np.argwhere(single_mask > 0)
+                        if len(coords) > 0:
+                            cy, cx = coords.mean(axis=0)
+                            self.ax_tracking.text(cx, cy, str(int(label_id)),
+                                                  color=color, fontsize=6, ha='center', va='center',
+                                                  fontweight='bold', alpha=0.9)
+        elif self.segmentation_mask is not None:
+            # Fallback: show binary segmentation mask contour if checkbox is off
             self.ax_tracking.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
         if self.tracking_time_text_checkbox.isChecked():
             current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
@@ -4291,6 +4371,11 @@ class GUI(QMainWindow):
         self.tracking_remove_background_checkbox = QCheckBox("Remove Background")
         self.tracking_remove_background_checkbox.setChecked(False)
         checkbox_layout.addWidget(self.tracking_remove_background_checkbox)
+        # Add "Show Masks" checkbox for visualizing mask contours and IDs
+        self.tracking_show_masks_checkbox = QCheckBox("Masks")
+        self.tracking_show_masks_checkbox.setChecked(False)
+        self.tracking_show_masks_checkbox.stateChanged.connect(self.plot_tracking)
+        checkbox_layout.addWidget(self.tracking_show_masks_checkbox)
         tracking_left_layout.addLayout(checkbox_layout)
         # RIGHT PANEL: Scroll Area for Parameters
         scroll = QScrollArea()
@@ -7224,6 +7309,8 @@ class GUI(QMainWindow):
         self.canvas_tracking.draw()
         if hasattr(self, 'time_slider_tracking'):
             self.time_slider_tracking.setValue(0)
+        if hasattr(self, 'tracking_show_masks_checkbox'):
+            self.tracking_show_masks_checkbox.setChecked(False)
 
     def reset_distribution_tab(self):
         self.figure_distribution.clear()
@@ -7394,6 +7481,7 @@ class GUI(QMainWindow):
         self.detected_spots_frame = None
         self.corrected_image = None
         self.df_tracking = pd.DataFrame()
+        self._active_mask_source = 'segmentation'
         
         # Reset display parameters
         self.display_min_percentile = 1.0
