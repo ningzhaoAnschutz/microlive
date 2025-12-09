@@ -1523,6 +1523,96 @@ class GUI(QMainWindow):
         self.plot_tracking()
         self.reset_tracking_visualization_tab()
 
+    def _setup_image_ui(self, T, C):
+        """
+        Shared setup logic after loading a new image.
+        Called by both load_tif_image() and load_lif_image() to set up UI elements.
+        
+        Args:
+            T: Number of time frames
+            C: Number of channels
+        """
+        # Reset all tabs and state for new data
+        self.reset_all_state()
+        
+        # Initialize frame counts
+        self.total_frames = T
+        self.max_lag = T - 1
+        if hasattr(self, 'max_lag_input'):
+            self.max_lag_input.setMaximum(self.max_lag - 1)
+            self.max_lag_input.setValue(self.max_lag - 1)
+        
+        # Set time slider maximums for all tabs
+        self.time_slider_display.setMaximum(T - 1)
+        self.time_slider_display.setValue(0)
+        self.time_slider_tracking.setMaximum(T - 1)
+        self.time_slider_tracking.setValue(0)
+        self.time_slider_tracking_vis.setMaximum(T - 1)
+        self.time_slider_tracking_vis.setValue(0)
+        self.segmentation_time_slider.setMaximum(T - 1)
+        if hasattr(self, 'time_slider_cellpose'):
+            self.time_slider_cellpose.setMaximum(T - 1)
+            self.time_slider_cellpose.setValue(0)
+            self.cellpose_current_frame = 0
+        
+        # Enable display controls
+        self.set_display_controls_enabled(True)
+        self.playing = False
+        self.play_button_display.setText("Play")
+        
+        # Create channel buttons for all tabs
+        self.create_channel_buttons()
+        self.create_cellpose_channel_buttons()
+        self.create_segmentation_channel_buttons()
+        self.create_correlation_channel_checkboxes()
+        self.populate_colocalization_channels()
+        
+        # Create crops channel buttons
+        for btn in getattr(self, 'channel_buttons_crops', []):
+            btn.setParent(None)
+        self.channel_buttons_crops = []
+        for idx in range(C):
+            button = QPushButton(f"Channel {idx}", self)
+            button.clicked.connect(partial(self.update_channel_crops, idx))
+            self.channel_buttons_layout_crops.addWidget(button)
+            self.channel_buttons_crops.append(button)
+        
+        # Setup channel visualization control tabs
+        self.channelControlsTabs.clear()
+        for ch in range(C):
+            init_params = self.channelDisplayParams.get(ch, {
+                'min_percentile': self.display_min_percentile,
+                'max_percentile': self.display_max_percentile,
+                'sigma': self.display_sigma,
+                'low_sigma': self.low_display_sigma
+            })
+            widget = self.create_channel_visualization_controls(ch, init_params)
+            self.channelControlsTabs.addTab(widget, f"Ch {ch}")
+        
+        # Populate channel combo boxes
+        self.intensity_channel_combo.clear()
+        for ch in range(self.number_color_channels):
+            self.intensity_channel_combo.addItem(str(ch), ch)
+        self.intensity_channel_combo.setCurrentIndex(0)
+        
+        self.time_course_channel_combo.clear()
+        for ch in range(self.number_color_channels):
+            self.time_course_channel_combo.addItem(str(ch), ch)
+        self.time_course_channel_combo.addItem("All")
+        self.time_course_channel_combo.setCurrentIndex(0)
+        
+        # Update tracking sliders if needed
+        if hasattr(self, 'min_percentile_spinbox_tracking'):
+            self.update_tracking_sliders()
+        
+        # Stop playback if running
+        if self.playing:
+            self.play_pause()
+        
+        # Plot first frame
+        self.plot_image()
+        self.plot_tracking()
+
     def load_tif_image(self, file_path):
         """
         Load a single-image TIFF (or OME-TIFF) file as a single scene,
@@ -1680,70 +1770,8 @@ class GUI(QMainWindow):
         self.voxel_z_nm_label.setText(f"{self.voxel_z_nm:.0f} nm" if self.voxel_z_nm is not None else "N/A")
         self.bit_depth_label.setText(str(self.bit_depth))
         self.time_interval_label.setText(f"{self.time_interval_value} s" if self.time_interval_value is not None else "N/A")
-        # Reset all tabs and state for new data
-        self.reset_all_state()
-        # Initialize current frame and channel
-        self.current_frame = 0
-        self.current_channel = 0
-        self.time_slider_display.setMaximum(T - 1)
-        self.time_slider_display.setValue(0)
-        
-        self.set_display_controls_enabled(True)
-        self.playing = False
-        self.play_button_display.setText("Play")
-
-        self.time_slider_tracking.setMaximum(T - 1)
-        self.time_slider_tracking.setValue(0)
-        self.time_slider_tracking_vis.setMaximum(T - 1)
-        self.time_slider_tracking_vis.setValue(0)
-        self.segmentation_time_slider.setMaximum(T - 1)
-        if hasattr(self, 'time_slider_cellpose'):
-            self.time_slider_cellpose.setMaximum(T - 1)
-            self.time_slider_cellpose.setValue(0)
-            self.cellpose_current_frame = 0
-        # Create channel buttons/controls for various tabs
-        self.create_channel_buttons()                   # Main display tab channel buttons
-        self.create_cellpose_channel_buttons()
-        self.create_segmentation_channel_buttons()      # Segmentation tab channel buttons/selection
-        self.create_correlation_channel_checkboxes()    # Correlation tab channel checkboxes
-        self.populate_colocalization_channels()         # Colocalization tab channel selections
-        for btn in getattr(self, 'channel_buttons_crops', []):
-            btn.setParent(None)
-        self.channel_buttons_crops = []
-        for idx in range(C):
-            button = QPushButton(f"Channel {idx}", self)
-            button.clicked.connect(partial(self.update_channel_crops, idx))
-            self.channel_buttons_layout_crops.addWidget(button)
-            self.channel_buttons_crops.append(button)
-        # Clear and repopulate the channel visualization controls
-        self.channelControlsTabs.clear()
-        for ch in range(C):
-            init = self.channelDisplayParams.get(ch, {
-                'min_percentile': self.display_min_percentile,
-                'max_percentile': self.display_max_percentile,
-                'sigma': self.display_sigma,
-                'low_sigma': self.low_display_sigma
-            })
-            widget = self.create_channel_visualization_controls(ch, init)
-            self.channelControlsTabs.addTab(widget, f"Ch {ch}")
-        # Update intensity channel combo boxes in other UI elements
-        self.intensity_channel_combo.clear()
-        for ch in range(self.number_color_channels):
-            self.intensity_channel_combo.addItem(str(ch), ch)
-        self.intensity_channel_combo.setCurrentIndex(0)
-        self.time_course_channel_combo.clear()
-        for ch in range(self.number_color_channels):
-            self.time_course_channel_combo.addItem(str(ch), ch)
-        self.time_course_channel_combo.addItem("All")
-        self.time_course_channel_combo.setCurrentIndex(0)
-        if hasattr(self, 'min_percentile_spinbox_tracking'):
-            self.update_tracking_sliders()
-        if self.playing:
-            self.play_pause() 
-        self.current_frame = 0
-        # Finalize by plotting the first frame and initializing tracking overlay if needed
-        self.plot_image()
-        self.plot_tracking()
+        # Setup UI for the new image
+        self._setup_image_ui(T, C)
 
 
     def load_lif_image(self, file_path, image_index):
@@ -1783,68 +1811,10 @@ class GUI(QMainWindow):
         self.intensities_label.setText(str(list_intensities[image_index]))
         self.wave_ranges_label.setText(str(list_wave_ranges[image_index]))
         self.selected_image_index = image_index
-        # Reset all tabs and state for new data
-        self.reset_all_state()
+        # Setup UI for the new image
         T = self.image_stack.shape[0]
-        self.current_frame = 0
-        self.current_channel = 0
-        self.total_frames = T
-        self.max_lag = self.image_stack.shape[0] - 1
-        if hasattr(self, 'max_lag_input'):
-            self.max_lag_input.setMaximum(self.max_lag - 1)
-            self.max_lag_input.setValue(self.max_lag - 1)
-        self.time_slider_display.setMaximum(T - 1)
-        self.time_slider_display.setValue(0)
-
-        self.set_display_controls_enabled(True)
-        self.playing = False
-        self.play_button_display.setText("Play")
-
-        self.time_slider_tracking.setMaximum(T - 1)
-        self.time_slider_tracking.setValue(0)
-        self.time_slider_tracking_vis.setMaximum(T - 1)
-        self.time_slider_tracking_vis.setValue(0)
-        self.segmentation_time_slider.setMaximum(T - 1)
-        if hasattr(self, 'time_slider_cellpose'):
-            self.time_slider_cellpose.setMaximum(T - 1)
-            self.time_slider_cellpose.setValue(0)
-            self.cellpose_current_frame = 0
-        self.create_channel_buttons()
-        self.create_cellpose_channel_buttons()
-        self.create_correlation_channel_checkboxes()
-        self.populate_colocalization_channels()
-        self.channelControlsTabs.clear()
-        self.create_segmentation_channel_buttons()
-        self.display_min_percentile = 1.0
-        self.display_max_percentile = 99.95
-        self.channelDisplayParams.clear()
-        num_ch = self.number_color_channels or 1
-        for ch in range(num_ch):
-            init_params = self.channelDisplayParams.get(ch, {
-                'min_percentile': self.display_min_percentile,
-                'max_percentile': self.display_max_percentile,
-                'sigma': self.display_sigma,
-                'low_sigma': self.low_display_sigma
-            })
-            widget = self.create_channel_visualization_controls(ch, init_params)
-            self.channelControlsTabs.addTab(widget, f"Ch {ch}")
-
-        self.intensity_channel_combo.clear()
-        for ch in range(self.number_color_channels):
-            self.intensity_channel_combo.addItem(str(ch), ch)
-        self.intensity_channel_combo.setCurrentIndex(0)
-        self.time_course_channel_combo.clear()
-        for ch in range(self.number_color_channels):
-            self.time_course_channel_combo.addItem(str(ch), ch)
-        self.time_course_channel_combo.addItem("All")
-        self.time_course_channel_combo.setCurrentIndex(0)
-        if hasattr(self, 'min_percentile_spinbox_tracking'):
-            self.update_tracking_sliders()
-        if self.playing:
-            self.play_pause() 
-        self.current_frame = 0
-        self.plot_image()
-        self.plot_tracking()
+        C = self.number_color_channels
+        self._setup_image_ui(T, C)
 
     def play_pause(self):
         if self.playing:
