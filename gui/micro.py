@@ -664,7 +664,9 @@ class Metadata:
                 write_section('Tracking Parameters')
                 
                 write_subsection('Spot Detection')
-                write_attr('Threshold', 'user_selected_threshold')
+                write_attr('Threshold (User Selected)', 'user_selected_threshold')
+                write_attr('Threshold (Calculated)', 'threshold_spot_detection')
+                write_attr('Max Spots for Threshold Calc', 'max_spots_for_threshold')
                 write_attr('YX Spot Size (px)', 'yx_spot_size_in_px')
                 write_attr('Z Spot Size (px)', 'z_spot_size_in_px')
                 write_attr('Cluster Radius (nm)', 'cluster_radius_nm')
