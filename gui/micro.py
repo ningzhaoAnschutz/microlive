@@ -2209,25 +2209,20 @@ class GUI(QMainWindow):
             self.colocalization_results = None
             self.current_total_plots = None
             
-            # Use unified reset for all tabs and state
+            # Use unified reset for all tabs and state (includes registration tab)
             self.reset_all_state()
-            self.reset_registration_state()
 
             # Clear info labels (close-specific: show empty state)
-            for lbl in (self.file_label, self.frames_label, self.z_scales_label, 
-                    self.y_pixels_label, self.x_pixels_label, self.channels_label, 
-                    self.voxel_yx_size_label, self.voxel_z_nm_label, 
-                    self.bit_depth_label, self.time_interval_label):
-                if hasattr(self, lbl.objectName()) if hasattr(lbl, 'objectName') else True:
-                    lbl.setText("")
-            
-            # Clear additional info labels if they exist
-            if hasattr(self, 'laser_lines_label'):
-                self.laser_lines_label.setText("")
-            if hasattr(self, 'intensities_label'):
-                self.intensities_label.setText("")
-            if hasattr(self, 'wave_ranges_label'):
-                self.wave_ranges_label.setText("")
+            labels_to_clear = [
+                'file_label', 'frames_label', 'z_scales_label',
+                'y_pixels_label', 'x_pixels_label', 'channels_label',
+                'voxel_yx_size_label', 'voxel_z_nm_label',
+                'bit_depth_label', 'time_interval_label',
+                'laser_lines_label', 'intensities_label', 'wave_ranges_label'
+            ]
+            for lbl_name in labels_to_clear:
+                if hasattr(self, lbl_name):
+                    getattr(self, lbl_name).setText("")
             
             # Clear channel controls (close-specific: remove channel UI)
             if hasattr(self, 'channelControlsTabs'):
@@ -2706,10 +2701,12 @@ class GUI(QMainWindow):
             max_proj = np.max(image_channel, axis=0)
             max_proj = gaussian_filter(max_proj, sigma=1)
             max_proj = np.clip(max_proj, np.percentile(max_proj, 0.01), np.percentile(max_proj, 99.95))
-            mask = np.zeros(max_proj.shape[:2], dtype=np.uint8)
+            # Create labeled mask with cell ID = 1 (not 255 which was incorrect)
+            # Use int32 dtype for proper labeled mask compatibility with tracking
+            mask = np.zeros(max_proj.shape[:2], dtype=np.int32)
             polygon = np.array([self.selected_points], dtype=np.int32)
-            cv2.fillPoly(mask, polygon, 255)
-            self.segmentation_mask = np.array(mask, dtype=np.uint8)
+            cv2.fillPoly(mask, polygon, 1)  # Fill with cell ID 1, not 255
+            self.segmentation_mask = mask
             self._active_mask_source = 'segmentation'
             self.ax_segmentation.clear()
             cmap_imagej = cmap_list_imagej[ch % len(cmap_list_imagej)]
@@ -2940,6 +2937,22 @@ class GUI(QMainWindow):
         self.chk_remove_unpaired_cells.setChecked(False)
         self.chk_remove_unpaired_cells.stateChanged.connect(self.on_remove_unpaired_cells_changed)
         improve_layout.addRow(self.chk_remove_unpaired_cells)
+
+        # Cell expansion controls
+        expand_layout = QHBoxLayout()
+        self.cell_expansion_spinbox = QSpinBox()
+        self.cell_expansion_spinbox.setMinimum(0)
+        self.cell_expansion_spinbox.setMaximum(50)
+        self.cell_expansion_spinbox.setValue(1)
+        self.cell_expansion_spinbox.setToolTip("Number of pixels to expand each cell mask")
+        expand_layout.addWidget(QLabel("Expand by (px):"))
+        expand_layout.addWidget(self.cell_expansion_spinbox)
+        
+        self.btn_expand_cells = QPushButton("Expand Cells")
+        self.btn_expand_cells.setToolTip("Expand all cell masks by the specified number of pixels without overlap")
+        self.btn_expand_cells.clicked.connect(self.expand_cell_masks)
+        expand_layout.addWidget(self.btn_expand_cells)
+        improve_layout.addRow(expand_layout)
 
         improve_group.setLayout(improve_layout)
         right_layout.addWidget(improve_group)
@@ -3320,6 +3333,93 @@ class GUI(QMainWindow):
         
         self.plot_cellpose_results()
 
+    def expand_cell_masks(self):
+        """
+        Expand all cell masks by N pixels without causing overlaps.
+        Uses a Voronoi-like expansion where disputed pixels are assigned
+        to the nearest cell boundary.
+        """
+        expand_px = self.cell_expansion_spinbox.value()
+        if expand_px <= 0:
+            QMessageBox.information(self, "Info", "Expansion value must be at least 1 pixel.")
+            return
+        
+        if self.cellpose_masks_cyto is None and self.cellpose_masks_nuc is None:
+            QMessageBox.warning(self, "No Masks", "Please run Cellpose segmentation first.")
+            return
+        
+        from scipy.ndimage import distance_transform_edt
+        
+        def expand_labeled_mask(mask, expansion_pixels):
+            """Expand each label in a mask without overlaps."""
+            if mask is None:
+                return None
+            
+            expanded = np.zeros_like(mask)
+            unique_labels = np.unique(mask)
+            unique_labels = unique_labels[unique_labels != 0]  # Exclude background
+            
+            if len(unique_labels) == 0:
+                return mask
+            
+            # For each pixel in the expanded region, find which cell is closest
+            # Create distance arrays for each cell
+            all_distances = np.full((len(unique_labels),) + mask.shape, np.inf)
+            
+            for i, label_id in enumerate(unique_labels):
+                # Distance from each pixel to this cell's boundary
+                cell_mask = (mask == label_id)
+                # Distance transform: 0 inside cell, increasing outside
+                all_distances[i] = distance_transform_edt(~cell_mask)
+            
+            # For each pixel, find the closest cell (minimum distance)
+            min_distance_idx = np.argmin(all_distances, axis=0)
+            min_distances = np.min(all_distances, axis=0)
+            
+            # Assign pixels within expansion_pixels distance to the nearest cell
+            for i, label_id in enumerate(unique_labels):
+                # Original cell pixels always keep their label
+                expanded[mask == label_id] = label_id
+                # Expanded region: pixels closest to this cell and within expansion distance
+                expansion_mask = (
+                    (min_distance_idx == i) & 
+                    (min_distances <= expansion_pixels) & 
+                    (min_distances > 0)  # Not already inside the cell
+                )
+                expanded[expansion_mask] = label_id
+            
+            return expanded
+        
+        # Expand cytosol masks
+        if self.cellpose_masks_cyto is not None:
+            self.cellpose_masks_cyto = expand_labeled_mask(
+                self.cellpose_masks_cyto, expand_px
+            )
+        
+        # Expand nucleus masks  
+        if self.cellpose_masks_nuc is not None:
+            self.cellpose_masks_nuc = expand_labeled_mask(
+                self.cellpose_masks_nuc, expand_px
+            )
+        
+        # Also expand TYX masks if active
+        if getattr(self, 'use_tyx_masks', False):
+            if self.cellpose_masks_cyto_tyx is not None:
+                for t in range(self.cellpose_masks_cyto_tyx.shape[0]):
+                    self.cellpose_masks_cyto_tyx[t] = expand_labeled_mask(
+                        self.cellpose_masks_cyto_tyx[t], expand_px
+                    )
+            if self.cellpose_masks_nuc_tyx is not None:
+                for t in range(self.cellpose_masks_nuc_tyx.shape[0]):
+                    self.cellpose_masks_nuc_tyx[t] = expand_labeled_mask(
+                        self.cellpose_masks_nuc_tyx[t], expand_px
+                    )
+        
+        self.plot_cellpose_results()
+        n_cyto = int(self.cellpose_masks_cyto.max()) if self.cellpose_masks_cyto is not None else 0
+        n_nuc = int(self.cellpose_masks_nuc.max()) if self.cellpose_masks_nuc is not None else 0
+        self.statusBar().showMessage(f"Expanded masks by {expand_px}px. Cytosol: {n_cyto} cells, Nucleus: {n_nuc} cells.")
+
     def get_border_touching_labels(self, masks):
         """Get set of labels touching image border."""
         if masks is None or np.max(masks) == 0:
@@ -3572,37 +3672,46 @@ class GUI(QMainWindow):
         - Bottom: Channel buttons, time slider, mode dropdown, registration buttons
         """
         layout = QVBoxLayout(self.registration_tab)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
         
         # --- Top: Dual image panels ---
         panels_layout = QHBoxLayout()
+        panels_layout.setSpacing(10)
         
         # Left panel: Original Image
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(2)
         left_layout.addWidget(QLabel("Original Image - Click and drag to draw ROI rectangle"))
         self.figure_reg_original = Figure()
         self.figure_reg_original.patch.set_facecolor('black')
+        self.figure_reg_original.subplots_adjust(left=0, right=1, top=1, bottom=0)
         self.canvas_reg_original = FigureCanvas(self.figure_reg_original)
         self.ax_reg_original = self.figure_reg_original.add_subplot(111)
         self.ax_reg_original.set_facecolor('black')
         self.ax_reg_original.axis('off')
-        left_layout.addWidget(self.canvas_reg_original)
+        left_layout.addWidget(self.canvas_reg_original, stretch=1)
         panels_layout.addWidget(left_panel)
         
         # Right panel: Registered Image
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(2)
         right_layout.addWidget(QLabel("Registered Image"))
         self.figure_reg_result = Figure()
         self.figure_reg_result.patch.set_facecolor('black')
+        self.figure_reg_result.subplots_adjust(left=0, right=1, top=1, bottom=0)
         self.canvas_reg_result = FigureCanvas(self.figure_reg_result)
         self.ax_reg_result = self.figure_reg_result.add_subplot(111)
         self.ax_reg_result.set_facecolor('black')
         self.ax_reg_result.axis('off')
-        right_layout.addWidget(self.canvas_reg_result)
+        right_layout.addWidget(self.canvas_reg_result, stretch=1)
         panels_layout.addWidget(right_panel)
         
-        layout.addLayout(panels_layout)
+        layout.addLayout(panels_layout, stretch=1)
         
         # --- Channel buttons ---
         channel_layout = QHBoxLayout()
@@ -3696,10 +3805,17 @@ class GUI(QMainWindow):
         if event.inaxes != self.ax_reg_original or event.xdata is None:
             return
         self.reg_roi_start = (int(event.xdata), int(event.ydata))
-        # Remove old rectangle
+        # Remove old preview rectangle (may fail if axes were cleared)
         if self.reg_roi_rect is not None:
-            self.reg_roi_rect.remove()
+            try:
+                self.reg_roi_rect.remove()
+            except (NotImplementedError, ValueError):
+                pass
             self.reg_roi_rect = None
+        # Clear stored ROI and refresh to remove old drawn rectangle
+        if self.registration_roi is not None:
+            self.registration_roi = None
+            self.plot_registration_panels()
     
     def on_reg_mouse_move(self, event):
         """Update ROI rectangle preview during drag."""
@@ -3710,7 +3826,11 @@ class GUI(QMainWindow):
         
         # Update rectangle preview (allow rectangles of any size)
         if self.reg_roi_rect is not None:
-            self.reg_roi_rect.remove()
+            try:
+                self.reg_roi_rect.remove()
+            except (NotImplementedError, ValueError):
+                pass
+            self.reg_roi_rect = None
         rect_x = min(x0, x1)
         rect_y = min(y0, y1)
         rect_w = abs(x1 - x0)
@@ -3772,7 +3892,8 @@ class GUI(QMainWindow):
         
         # Max Z projection of current frame and channel
         img_orig = np.max(self.image_stack[self.current_frame, :, :, :, ch], axis=0)
-        vmin, vmax = np.percentile(img_orig, [0.5, 99.5])
+        # Use configurable percentile values for contrast (consistent with other tabs)
+        vmin, vmax = np.percentile(img_orig, [self.display_min_percentile, self.display_max_percentile])
         self.ax_reg_original.imshow(img_orig, cmap=cmap, vmin=vmin, vmax=vmax)
         
         # Draw ROI rectangle if exists
@@ -3782,7 +3903,7 @@ class GUI(QMainWindow):
                                        linewidth=2, edgecolor='cyan', facecolor='none')
             self.ax_reg_original.add_patch(rect)
         
-        self.figure_reg_original.tight_layout()
+        self.figure_reg_original.subplots_adjust(left=0, right=1, top=1, bottom=0)
         self.canvas_reg_original.draw_idle()
         
         # --- Registered panel ---
@@ -3799,11 +3920,17 @@ class GUI(QMainWindow):
             else:
                 vmin, vmax = 0, 1
             self.ax_reg_result.imshow(img_reg, cmap=cmap, vmin=vmin, vmax=vmax)
+            # Draw ROI rectangle on registered image too
+            if self.registration_roi is not None:
+                y_min, y_max, x_min, x_max = self.registration_roi
+                rect_reg = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
+                                              linewidth=2, edgecolor='cyan', facecolor='none')
+                self.ax_reg_result.add_patch(rect_reg)
         else:
             self.ax_reg_result.text(0.5, 0.5, "No registration yet", ha='center', va='center',
                                      color='gray', fontsize=12, transform=self.ax_reg_result.transAxes)
         
-        self.figure_reg_result.tight_layout()
+        self.figure_reg_result.subplots_adjust(left=0, right=1, top=1, bottom=0)
         self.canvas_reg_result.draw_idle()
     
     def perform_registration(self):
@@ -3812,14 +3939,24 @@ class GUI(QMainWindow):
             QMessageBox.warning(self, "No Image", "Please load an image first.")
             return
         
-        if self.registration_roi is None:
-            QMessageBox.warning(self, "No ROI", "Please draw a region of interest first.")
-            return
-        
         T = self.image_stack.shape[0]
         if T <= 1:
             QMessageBox.warning(self, "Single Timepoint", "Registration not necessary for single timepoint images.")
             return
+        
+        # If no ROI selected, use full image with padding and show warning
+        padding = 10
+        if self.registration_roi is None:
+            H, W = self.image_stack.shape[2], self.image_stack.shape[3]
+            # Use full image minus padding from all edges
+            self.registration_roi = (padding, H - padding, padding, W - padding)
+            QMessageBox.warning(
+                self, 
+                "Using Full Image", 
+                "No ROI selected. Using full image for registration.\n\n"
+                "Tip: Registration may be more accurate if you select a specific "
+                "region with distinct features (e.g., a single cell or bright structure)."
+            )
         
         # Create progress dialog
         progress = QProgressDialog("Performing Registration...", "Cancel", 0, 100, self)
@@ -4795,9 +4932,6 @@ class GUI(QMainWindow):
                             self.ax_tracking.text(cx, cy, str(int(label_id)),
                                                   color=color, fontsize=6, ha='center', va='center',
                                                   fontweight='bold', alpha=0.9)
-        elif self.segmentation_mask is not None:
-            # Fallback: show binary segmentation mask contour if checkbox is off
-            self.ax_tracking.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
         if self.tracking_time_text_checkbox.isChecked():
             current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
             time_str = f"{int(current_time)} s" if current_time <= 300 else self.format_time(current_time)
@@ -5167,7 +5301,7 @@ class GUI(QMainWindow):
         checkbox_layout.addWidget(self.tracking_remove_background_checkbox)
         # Add "Show Masks" checkbox for visualizing mask contours and IDs
         self.tracking_show_masks_checkbox = QCheckBox("Masks")
-        self.tracking_show_masks_checkbox.setChecked(False)
+        self.tracking_show_masks_checkbox.setChecked(True)  # Default to showing masks
         self.tracking_show_masks_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.tracking_show_masks_checkbox)
         tracking_left_layout.addLayout(checkbox_layout)
@@ -7425,6 +7559,17 @@ class GUI(QMainWindow):
             channels_cytosol=self.channels_cytosol,
             channels_nucleus=self.channels_nucleus,
             
+            # Registration Parameters
+            registered_image=self.registered_image,
+            registration_mode=self.registration_mode,
+            registration_roi=self.registration_roi,
+            
+            # Segmentation Masks
+            segmentation_mask=self.segmentation_mask,
+            cellpose_masks_cyto=self.cellpose_masks_cyto,
+            cellpose_masks_nuc=self.cellpose_masks_nuc,
+            _active_mask_source=self._active_mask_source,
+            
             # Updated Tracking Params (Values)
             min_length_trajectory=min_len,
             yx_spot_size_in_px=yx_spot,
@@ -8152,6 +8297,72 @@ class GUI(QMainWindow):
         self.play_button_display.setText("Play")
         self.playing = False
 
+    def reset_registration_tab(self):
+        """Reset registration tab state and display."""
+        # Reset state variables
+        self.registered_image = None
+        self.registration_roi = None
+        if hasattr(self, 'reg_roi_rect') and self.reg_roi_rect is not None:
+            try:
+                self.reg_roi_rect.remove()
+            except:
+                pass
+            self.reg_roi_rect = None
+        self.reg_roi_start = None
+        
+        # Reset time slider
+        if hasattr(self, 'time_slider_reg'):
+            self.time_slider_reg.setValue(0)
+        
+        # Stop playback if running
+        if hasattr(self, 'reg_playing') and self.reg_playing:
+            if hasattr(self, 'reg_timer'):
+                self.reg_timer.stop()
+            self.reg_playing = False
+            if hasattr(self, 'play_button_reg'):
+                self.play_button_reg.setText("▶")
+        
+        # Clear the original panel
+        if hasattr(self, 'figure_reg_original'):
+            self.figure_reg_original.clear()
+            self.ax_reg_original = self.figure_reg_original.add_subplot(111)
+            self.ax_reg_original.set_facecolor('black')
+            self.ax_reg_original.axis('off')
+            self.ax_reg_original.text(
+                0.5, 0.5, 'No image loaded.',
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=12, color='white',
+                transform=self.ax_reg_original.transAxes
+            )
+            self.figure_reg_original.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            if hasattr(self, 'canvas_reg_original'):
+                self.canvas_reg_original.draw()
+        
+        # Clear the result panel
+        if hasattr(self, 'figure_reg_result'):
+            self.figure_reg_result.clear()
+            self.ax_reg_result = self.figure_reg_result.add_subplot(111)
+            self.ax_reg_result.set_facecolor('black')
+            self.ax_reg_result.axis('off')
+            self.ax_reg_result.text(
+                0.5, 0.5, 'No registration yet.',
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=12, color='white',
+                transform=self.ax_reg_result.transAxes
+            )
+            self.figure_reg_result.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            if hasattr(self, 'canvas_reg_result'):
+                self.canvas_reg_result.draw()
+        
+        # Clear channel buttons
+        if hasattr(self, 'channel_buttons_reg'):
+            for btn in self.channel_buttons_reg:
+                if btn:
+                    btn.setParent(None)
+            self.channel_buttons_reg = []
+
     def reset_segmentation_tab(self):
         self.figure_segmentation.clear()
         self.use_max_proj_for_segmentation = False
@@ -8375,6 +8586,7 @@ class GUI(QMainWindow):
         """
         # Reset all tab displays
         self.reset_display_tab()
+        self.reset_registration_tab()
         self.reset_segmentation_tab()
         self.reset_photobleaching_tab()
         self.reset_tracking_tab()
