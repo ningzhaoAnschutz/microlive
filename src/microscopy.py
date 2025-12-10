@@ -98,6 +98,8 @@ from IPython.display import display
 ### Lif file imports
 from readlif.reader import LifFile
 from bioio import BioImage
+### Registration imports
+from pystackreg import StackReg
 import xml.etree.ElementTree as ET
 import torch
         
@@ -3998,6 +4000,160 @@ class ParticleTracking:
                 else:
                     list_dfs_traj.append(pd.DataFrame())
             return list_dfs_traj, filtered_image_stack
+
+
+class Registration:
+    """
+    Image registration using pystackreg StackReg.
+    
+    Computes registration on Z-max projection of selected channel,
+    then applies same transformations to all Z-planes and channels.
+    
+    Parameters
+    ----------
+    image : ndarray [T, Z, Y, X, C]
+        5D image stack
+    roi_bounds : tuple
+        (y_min, y_max, x_min, x_max) defining region for registration
+    reference_channel : int
+        Channel to use for computing registration (default 0)
+    mode : str
+        StackReg mode: 'TRANSLATION', 'RIGID_BODY', 'SCALED_ROTATION', 'AFFINE'
+    padding : int
+        Pixels to add around ROI bounds (default 10)
+    progress_callback : callable or None
+        Function(message: str) called to report progress
+    """
+    
+    MODES = {
+        'TRANSLATION': StackReg.TRANSLATION,
+        'RIGID_BODY': StackReg.RIGID_BODY,
+        'SCALED_ROTATION': StackReg.SCALED_ROTATION,
+        'AFFINE': StackReg.AFFINE
+    }
+    
+    def __init__(self, image, roi_bounds, reference_channel=0,
+                 mode='RIGID_BODY', padding=10, progress_callback=None):
+        if image.ndim != 5:
+            raise ValueError(f"Expected 5D image [T,Z,Y,X,C], got {image.ndim}D")
+        
+        self.image = image
+        self.T, self.Z, self.Y, self.X, self.C = image.shape
+        self.roi_bounds = roi_bounds  # (y_min, y_max, x_min, x_max)
+        self.reference_channel = reference_channel
+        self.padding = padding
+        self.progress_callback = progress_callback
+        
+        if mode not in self.MODES:
+            raise ValueError(f"Invalid mode '{mode}'. Choose from: {list(self.MODES.keys())}")
+        self.mode = mode
+        self.stackreg_mode = self.MODES[mode]
+        
+        self.registered_image = None
+        
+        # Create ROI mask with padding
+        y_min, y_max, x_min, x_max = self.roi_bounds
+        y_min = max(0, y_min - self.padding)
+        y_max = min(self.Y, y_max + self.padding)
+        x_min = max(0, x_min - self.padding)
+        x_max = min(self.X, x_max + self.padding)
+        self.roi_mask = np.zeros((self.Y, self.X), dtype=bool)
+        self.roi_mask[y_min:y_max, x_min:x_max] = True
+    
+    def _report_progress(self, message):
+        """Report progress via callback if available."""
+        if self.progress_callback:
+            self.progress_callback(message)
+        print(f"[Registration] {message}")
+    
+    def register(self):
+        """
+        Perform registration on full 5D stack.
+        
+        1. Crop image to ROI + padding (to absorb edge artifacts)
+        2. Compute registration from Z-max projection of reference channel (ONCE)
+        3. Apply SAME transformation matrices to all Z-planes and channels
+        4. Crop to exact ROI after transformation
+        
+        Returns
+        -------
+        registered_image : ndarray [T, Z, Y, X, C]
+            Registered 5D image stack (exact ROI size)
+        """
+        self._report_progress("Preparing cropped region with padding...")
+        
+        # Get ROI bounds with padding
+        y_min, y_max, x_min, x_max = self.roi_bounds
+        
+        # Expand ROI with padding (for absorbing edge artifacts during transformation)
+        y_min_padded = max(0, y_min - self.padding)
+        y_max_padded = min(self.Y, y_max + self.padding)
+        x_min_padded = max(0, x_min - self.padding)
+        x_max_padded = min(self.X, x_max + self.padding)
+        
+        # Step 1: Crop image to ROI + padding from ORIGINAL image
+        cropped_image = self.image[:, :, y_min_padded:y_max_padded, x_min_padded:x_max_padded, :]
+        crop_T, crop_Z, crop_H, crop_W, crop_C = cropped_image.shape
+        
+        self._report_progress(f"Cropped region: {crop_H}x{crop_W} (ROI + {self.padding}px padding)")
+        
+        # Step 2: Compute registration from Z-max projection of reference channel
+        # This is computed ONCE and applied to all slices
+        stack_TYX = np.max(cropped_image[:, :, :, :, self.reference_channel], axis=1)
+        
+        sr = StackReg(self.stackreg_mode)
+        # Compute transformation matrices
+        tmats = sr.register_stack(stack_TYX.astype(np.float64), reference='first')
+        
+        self._report_progress(f"Computed {self.mode} transformation matrices for {crop_T} frames")
+        
+        # Step 3: Apply the SAME transformation matrices to all Z-planes and channels
+        registered_cropped = np.zeros((crop_T, crop_Z, crop_H, crop_W, crop_C), dtype=np.float64)
+        total_ops = crop_Z * crop_C
+        current_op = 0
+        
+        for z in range(crop_Z):
+            for c in range(crop_C):
+                slice_TYX = cropped_image[:, z, :, :, c].astype(np.float64)
+                
+                # Apply the PRE-COMPUTED transformation matrices
+                transformed = sr.transform_stack(slice_TYX, tmats=tmats)
+                registered_cropped[:, z, :, :, c] = transformed
+                
+                current_op += 1
+                progress_pct = int(100 * current_op / total_ops)
+                self._report_progress(f"Progress: {progress_pct}%")
+        
+        # Step 4: Crop to exact ROI (remove padding) from the registered result
+        roi_y_start = y_min - y_min_padded
+        roi_y_end = roi_y_start + (y_max - y_min)
+        roi_x_start = x_min - x_min_padded
+        roi_x_end = roi_x_start + (x_max - x_min)
+        
+        # Extract just the ROI from registered cropped image
+        final_roi = registered_cropped[:, :, roi_y_start:roi_y_end, roi_x_start:roi_x_end, :]
+        
+        # Step 5: Clip values to valid range and convert dtype
+        dtype_info = np.iinfo(self.image.dtype) if np.issubdtype(self.image.dtype, np.integer) else None
+        if dtype_info:
+            final_roi = np.clip(final_roi, 0, dtype_info.max)
+        else:
+            final_roi = np.clip(final_roi, 0, None)
+        
+        # Step 6: Create output with same shape as input, zeros outside ROI
+        registered = np.zeros_like(self.image, dtype=np.float64)
+        registered[:, :, y_min:y_max, x_min:x_max, :] = final_roi
+        
+        self.registered_image = registered.astype(self.image.dtype)
+        self._report_progress("Registration complete.")
+        return self.registered_image
+    
+    def get_registered_image(self):
+        """Return registered [T,Z,Y,X,C] image."""
+        if self.registered_image is None:
+            self.register()
+        return self.registered_image
+
 
 class DataProcessing():
     '''

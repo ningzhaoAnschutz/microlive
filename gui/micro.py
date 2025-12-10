@@ -625,6 +625,15 @@ class Metadata:
                 else:
                     write_value('Image Dimensions', 'None')
                 
+                # Registration
+                write_subsection('Image Registration')
+                registration_used = self.registered_image is not None
+                write_value('Registration Applied', 'Yes' if registration_used else 'No')
+                if registration_used:
+                    write_value('Registration Mode', self.registration_mode)
+                    if self.registration_roi:
+                        write_value('ROI Bounds (y_min, y_max, x_min, x_max)', str(self.registration_roi))
+                
                 # Segmentation / Masks
                 write_section('Segmentation / Masks')
                 
@@ -808,6 +817,10 @@ class GUI(QMainWindow):
         self.image_source_combo_value = "Original Image"
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
+        # Registration state
+        self.registered_image = None  # [T,Z,Y,X,C] registered image
+        self.registration_roi = None  # (y_min, y_max, x_min, x_max)
+        self.registration_mode = 'RIGID_BODY'
         self.display_max_percentile = 99.95
         self.display_min_percentile = 0.1
         self.tracking_min_percentile = 0.05   # self.display_min_percentile
@@ -987,6 +1000,8 @@ class GUI(QMainWindow):
         main_layout.addWidget(self.tabs)
         self.display_tab = QWidget()
         self.tabs.addTab(self.display_tab, "Import")
+        self.registration_tab = QWidget()
+        self.tabs.addTab(self.registration_tab, "Registration")
         self.segmentation_tab = QWidget()
         self.tabs.addTab(self.segmentation_tab, "Segmentation")
         self.cellpose_tab = QWidget()
@@ -1013,6 +1028,7 @@ class GUI(QMainWindow):
         self.tabs.addTab(self.export_tab, "Export")
         self.tabs.currentChanged.connect(self.on_tab_change)
         self.setup_display_tab()
+        self.setup_registration_tab()
         self.setup_segmentation_tab()
         self.setup_cellpose_tab()
         self.setup_photobleaching_tab()
@@ -1535,7 +1551,16 @@ class GUI(QMainWindow):
             button.clicked.connect(partial(self.update_channel_crops, idx))
             self.channel_buttons_layout_crops.addWidget(button)
             self.channel_buttons_crops.append(button)
-
+        # Create registration tab channel buttons
+        if hasattr(self, 'channel_buttons_reg'):
+            for btn in self.channel_buttons_reg:
+                btn.setParent(None)
+        self.channel_buttons_reg = []
+        for idx, channel_name in enumerate(self.channel_names):
+            button = QPushButton(f"Channel {idx}", self)
+            button.clicked.connect(partial(self.update_registration_channel, idx))
+            self.channel_buttons_layout_reg.addWidget(button)
+            self.channel_buttons_reg.append(button)
 
 
 # =============================================================================
@@ -1692,6 +1717,17 @@ class GUI(QMainWindow):
             self.time_slider_cellpose.setValue(0)
             self.cellpose_current_frame = 0
         
+        # Setup registration tab time slider
+        if hasattr(self, 'time_slider_reg'):
+            self.time_slider_reg.setMaximum(T - 1)
+            self.time_slider_reg.setValue(0)
+        
+        # Reset registration state when loading new image
+        self.reset_registration_state()
+        # Display image in registration panel
+        if hasattr(self, 'plot_registration_panels'):
+            self.plot_registration_panels()
+
         # Reset TYX mask spinbox and validate against image timepoints
         if hasattr(self, 'max_timepoints_spinbox'):
             self.max_timepoints_spinbox.setMaximum(T)
@@ -2175,7 +2211,8 @@ class GUI(QMainWindow):
             
             # Use unified reset for all tabs and state
             self.reset_all_state()
-            
+            self.reset_registration_state()
+
             # Clear info labels (close-specific: show empty state)
             for lbl in (self.file_label, self.frames_label, self.z_scales_label, 
                     self.y_pixels_label, self.x_pixels_label, self.channels_label, 
@@ -2994,8 +3031,9 @@ class GUI(QMainWindow):
                         progress.setLabelText(msg)
                     QApplication.processEvents()
                 
+                image_to_use = self.get_current_image_source()
                 tyx_generator = mi.CellposeTimeSeries(
-                    image=self.image_stack,
+                    image=image_to_use,
                     channels_cytosol=channel,
                     channels_nucleus=None,
                     diameter_cytosol=diameter,
@@ -3024,10 +3062,11 @@ class GUI(QMainWindow):
                 self.statusBar().showMessage(f"TYX cytosol masks calculated: {max_tp} timepoints")
             else:
                 # Standard YX mask (existing behavior)
-                if self.image_stack.ndim == 5:
-                    img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
+                image_to_use = self.get_current_image_source()
+                if image_to_use.ndim == 5:
+                    img = image_to_use[self.cellpose_current_frame, :, :, :, :]
                 else:
-                    img = self.image_stack
+                    img = image_to_use
                     
                 segmenter = mi.CellSegmentation(
                     img,
@@ -3094,8 +3133,9 @@ class GUI(QMainWindow):
                         progress.setLabelText(msg)
                     QApplication.processEvents()
                 
+                image_to_use = self.get_current_image_source()
                 tyx_generator = mi.CellposeTimeSeries(
-                    image=self.image_stack,
+                    image=image_to_use,
                     channels_cytosol=None,
                     channels_nucleus=channel,
                     diameter_cytosol=150,
@@ -3124,10 +3164,11 @@ class GUI(QMainWindow):
                 self.statusBar().showMessage(f"TYX nucleus masks calculated: {max_tp} timepoints")
             else:
                 # Standard YX mask (existing behavior)
-                if self.image_stack.ndim == 5:
-                    img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
+                image_to_use = self.get_current_image_source()
+                if image_to_use.ndim == 5:
+                    img = image_to_use[self.cellpose_current_frame, :, :, :, :]
                 else:
-                    img = self.image_stack
+                    img = image_to_use
                     
                 segmenter = mi.CellSegmentation(
                     img,
@@ -3318,11 +3359,12 @@ class GUI(QMainWindow):
             
         self.ax_cellpose.clear()
         
-        # Get current image slice
+        # Get current image slice - use registered image if available
+        image_to_use = self.get_current_image_source()
         ch = self.cellpose_current_channel
-        if self.image_stack.ndim == 5:
+        if image_to_use.ndim == 5:
             # [T, Z, Y, X, C] -> Max projection over Z for display
-            img_slice = self.image_stack[self.cellpose_current_frame, :, :, :, ch]
+            img_slice = image_to_use[self.cellpose_current_frame, :, :, :, ch]
             if img_slice.ndim == 3: # ZYX
                  img_slice = np.max(img_slice, axis=0)
         else:
@@ -3477,12 +3519,14 @@ class GUI(QMainWindow):
         self.ax_segmentation = self.figure_segmentation.add_subplot(111)
         self.ax_segmentation.set_facecolor('black')
         if self.image_stack is not None:
+            # Use registered image if available
+            image_to_use = self.get_current_image_source()
             ch = self.segmentation_current_channel
             # Choose image to display (max projection vs current frame)
             if self.use_max_proj_for_segmentation and self.segmentation_maxproj is not None:
                 image_to_display = self.segmentation_maxproj[..., ch]
             else:
-                image_channel = self.image_stack[self.segmentation_current_frame, :, :, :, ch]
+                image_channel = image_to_use[self.segmentation_current_frame, :, :, :, ch]
                 image_to_display = np.max(image_channel, axis=0)
             # Get display parameters for channel (fallback to global defaults)
             params = self.channelDisplayParams.get(ch, {
@@ -3519,6 +3563,331 @@ class GUI(QMainWindow):
         self.ax_segmentation.axis('off')
         self.figure_segmentation.tight_layout()
         self.canvas_segmentation.draw()
+
+    def setup_registration_tab(self):
+        """
+        Setup the Registration tab with dual-panel layout:
+        - Left panel: Original image with square ROI selection
+        - Right panel: Registered image result
+        - Bottom: Channel buttons, time slider, mode dropdown, registration buttons
+        """
+        layout = QVBoxLayout(self.registration_tab)
+        
+        # --- Top: Dual image panels ---
+        panels_layout = QHBoxLayout()
+        
+        # Left panel: Original Image
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.addWidget(QLabel("Original Image - Click and drag to draw ROI rectangle"))
+        self.figure_reg_original = Figure()
+        self.figure_reg_original.patch.set_facecolor('black')
+        self.canvas_reg_original = FigureCanvas(self.figure_reg_original)
+        self.ax_reg_original = self.figure_reg_original.add_subplot(111)
+        self.ax_reg_original.set_facecolor('black')
+        self.ax_reg_original.axis('off')
+        left_layout.addWidget(self.canvas_reg_original)
+        panels_layout.addWidget(left_panel)
+        
+        # Right panel: Registered Image
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.addWidget(QLabel("Registered Image"))
+        self.figure_reg_result = Figure()
+        self.figure_reg_result.patch.set_facecolor('black')
+        self.canvas_reg_result = FigureCanvas(self.figure_reg_result)
+        self.ax_reg_result = self.figure_reg_result.add_subplot(111)
+        self.ax_reg_result.set_facecolor('black')
+        self.ax_reg_result.axis('off')
+        right_layout.addWidget(self.canvas_reg_result)
+        panels_layout.addWidget(right_panel)
+        
+        layout.addLayout(panels_layout)
+        
+        # --- Channel buttons ---
+        channel_layout = QHBoxLayout()
+        channel_layout.addWidget(QLabel("Channel:"))
+        self.channel_buttons_reg = []
+        self.channel_buttons_layout_reg = QHBoxLayout()
+        channel_layout.addLayout(self.channel_buttons_layout_reg)
+        channel_layout.addStretch()
+        layout.addLayout(channel_layout)
+        
+        # --- Time slider and play button ---
+        time_layout = QHBoxLayout()
+        time_layout.addWidget(QLabel("Time:"))
+        self.time_slider_reg = QSlider(Qt.Horizontal)
+        self.time_slider_reg.setMinimum(0)
+        self.time_slider_reg.setMaximum(0)
+        self.time_slider_reg.valueChanged.connect(self.on_registration_time_changed)
+        time_layout.addWidget(self.time_slider_reg)
+        self.play_button_reg = QPushButton("▶")
+        self.play_button_reg.setFixedWidth(40)
+        self.play_button_reg.clicked.connect(self.toggle_playback_registration)
+        time_layout.addWidget(self.play_button_reg)
+        layout.addLayout(time_layout)
+        
+        # --- Mode dropdown ---
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Registration Mode:"))
+        self.registration_mode_combo = QComboBox()
+        self.registration_mode_combo.addItems(['RIGID_BODY', 'TRANSLATION', 'SCALED_ROTATION', 'AFFINE'])
+        self.registration_mode_combo.setCurrentText('RIGID_BODY')
+        self.registration_mode_combo.currentTextChanged.connect(self.on_registration_mode_changed)
+        mode_layout.addWidget(self.registration_mode_combo)
+        mode_layout.addStretch()
+        layout.addLayout(mode_layout)
+        
+        # --- Buttons ---
+        buttons_layout = QHBoxLayout()
+        self.perform_registration_btn = QPushButton("Perform Registration")
+        self.perform_registration_btn.setMinimumHeight(40)
+        self.perform_registration_btn.clicked.connect(self.perform_registration)
+        buttons_layout.addWidget(self.perform_registration_btn)
+        
+        self.remove_registration_btn = QPushButton("Remove Registration")
+        self.remove_registration_btn.setMinimumHeight(40)
+        self.remove_registration_btn.clicked.connect(self.remove_registration)
+        buttons_layout.addWidget(self.remove_registration_btn)
+        layout.addLayout(buttons_layout)
+        
+        # --- ROI drawing state ---
+        self.reg_roi_start = None
+        self.reg_roi_rect = None
+        self.reg_timer = QTimer()
+        self.reg_timer.timeout.connect(self.registration_next_frame)
+        self.reg_playing = False
+        
+        # --- Connect mouse events for ROI drawing ---
+        self.canvas_reg_original.mpl_connect('button_press_event', self.on_reg_mouse_press)
+        self.canvas_reg_original.mpl_connect('motion_notify_event', self.on_reg_mouse_move)
+        self.canvas_reg_original.mpl_connect('button_release_event', self.on_reg_mouse_release)
+    
+    def on_registration_mode_changed(self, mode):
+        """Update registration mode when dropdown changes."""
+        self.registration_mode = mode
+    
+    def on_registration_time_changed(self, value):
+        """Update display when time slider changes in registration tab."""
+        self.current_frame = value
+        self.plot_registration_panels()
+    
+    def toggle_playback_registration(self):
+        """Toggle play/pause for registration tab."""
+        if self.reg_playing:
+            self.reg_timer.stop()
+            self.play_button_reg.setText("▶")
+            self.reg_playing = False
+        else:
+            self.reg_timer.start(200)
+            self.play_button_reg.setText("❚❚")
+            self.reg_playing = True
+    
+    def registration_next_frame(self):
+        """Advance to next frame during playback."""
+        if self.image_stack is None:
+            return
+        max_frame = self.image_stack.shape[0] - 1
+        next_frame = (self.current_frame + 1) % (max_frame + 1)
+        self.time_slider_reg.setValue(next_frame)
+    
+    def on_reg_mouse_press(self, event):
+        """Start drawing square ROI on mouse press."""
+        if event.inaxes != self.ax_reg_original or event.xdata is None:
+            return
+        self.reg_roi_start = (int(event.xdata), int(event.ydata))
+        # Remove old rectangle
+        if self.reg_roi_rect is not None:
+            self.reg_roi_rect.remove()
+            self.reg_roi_rect = None
+    
+    def on_reg_mouse_move(self, event):
+        """Update ROI rectangle preview during drag."""
+        if self.reg_roi_start is None or event.inaxes != self.ax_reg_original or event.xdata is None:
+            return
+        x0, y0 = self.reg_roi_start
+        x1, y1 = int(event.xdata), int(event.ydata)
+        
+        # Update rectangle preview (allow rectangles of any size)
+        if self.reg_roi_rect is not None:
+            self.reg_roi_rect.remove()
+        rect_x = min(x0, x1)
+        rect_y = min(y0, y1)
+        rect_w = abs(x1 - x0)
+        rect_h = abs(y1 - y0)
+        self.reg_roi_rect = patches.Rectangle((rect_x, rect_y), rect_w, rect_h,
+                                               linewidth=2, edgecolor='cyan', facecolor='none')
+        self.ax_reg_original.add_patch(self.reg_roi_rect)
+        self.canvas_reg_original.draw_idle()
+    
+    def on_reg_mouse_release(self, event):
+        """Finalize ROI rectangle on mouse release."""
+        if self.reg_roi_start is None:
+            return
+        if event.xdata is None or event.inaxes != self.ax_reg_original:
+            self.reg_roi_start = None
+            return
+        
+        x0, y0 = self.reg_roi_start
+        x1, y1 = int(event.xdata), int(event.ydata)
+        
+        # Normalize bounds (allow any rectangle)
+        x_min, x_max = min(x0, x1), max(x0, x1)
+        y_min, y_max = min(y0, y1), max(y0, y1)
+        
+        # Validate: at least 10px from border and min 20px² area
+        if self.image_stack is not None:
+            H, W = self.image_stack.shape[2], self.image_stack.shape[3]
+            if x_min < 10 or y_min < 10 or x_max > W - 10 or y_max > H - 10:
+                QMessageBox.warning(self, "Invalid ROI", "ROI must be at least 10 pixels from image border.")
+                self.reg_roi_start = None
+                return
+        
+        area = (x_max - x_min) * (y_max - y_min)
+        if area < 20:
+            QMessageBox.warning(self, "Invalid ROI", "ROI too small (minimum 20 square pixels).")
+            self.reg_roi_start = None
+            return
+        
+        # Store ROI as (y_min, y_max, x_min, x_max)
+        self.registration_roi = (y_min, y_max, x_min, x_max)
+        self.reg_roi_start = None
+        
+        # Update display
+        self.plot_registration_panels()
+    
+    def plot_registration_panels(self):
+        """Plot both original and registered image panels."""
+        if self.image_stack is None:
+            return
+        
+        # Get current channel
+        ch = self.current_channel
+        cmap = cmap_list_imagej[ch % len(cmap_list_imagej)]
+        
+        # --- Original panel ---
+        self.ax_reg_original.clear()
+        self.ax_reg_original.set_facecolor('black')
+        self.ax_reg_original.axis('off')
+        
+        # Max Z projection of current frame and channel
+        img_orig = np.max(self.image_stack[self.current_frame, :, :, :, ch], axis=0)
+        vmin, vmax = np.percentile(img_orig, [0.5, 99.5])
+        self.ax_reg_original.imshow(img_orig, cmap=cmap, vmin=vmin, vmax=vmax)
+        
+        # Draw ROI rectangle if exists
+        if self.registration_roi is not None:
+            y_min, y_max, x_min, x_max = self.registration_roi
+            rect = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
+                                       linewidth=2, edgecolor='cyan', facecolor='none')
+            self.ax_reg_original.add_patch(rect)
+        
+        self.figure_reg_original.tight_layout()
+        self.canvas_reg_original.draw_idle()
+        
+        # --- Registered panel ---
+        self.ax_reg_result.clear()
+        self.ax_reg_result.set_facecolor('black')
+        self.ax_reg_result.axis('off')
+        
+        if self.registered_image is not None:
+            img_reg = np.max(self.registered_image[self.current_frame, :, :, :, ch], axis=0)
+            # Use percentile on non-zero pixels only (outside ROI is zeros)
+            nonzero_pixels = img_reg[img_reg > 0]
+            if len(nonzero_pixels) > 0:
+                vmin, vmax = np.percentile(nonzero_pixels, [0.5, 99.5])
+            else:
+                vmin, vmax = 0, 1
+            self.ax_reg_result.imshow(img_reg, cmap=cmap, vmin=vmin, vmax=vmax)
+        else:
+            self.ax_reg_result.text(0.5, 0.5, "No registration yet", ha='center', va='center',
+                                     color='gray', fontsize=12, transform=self.ax_reg_result.transAxes)
+        
+        self.figure_reg_result.tight_layout()
+        self.canvas_reg_result.draw_idle()
+    
+    def perform_registration(self):
+        """Perform image registration using the selected ROI and mode."""
+        if self.image_stack is None:
+            QMessageBox.warning(self, "No Image", "Please load an image first.")
+            return
+        
+        if self.registration_roi is None:
+            QMessageBox.warning(self, "No ROI", "Please draw a region of interest first.")
+            return
+        
+        T = self.image_stack.shape[0]
+        if T <= 1:
+            QMessageBox.warning(self, "Single Timepoint", "Registration not necessary for single timepoint images.")
+            return
+        
+        # Create progress dialog
+        progress = QProgressDialog("Performing Registration...", "Cancel", 0, 100, self)
+        progress.setWindowTitle("Registration")
+        progress.setWindowModality(Qt.WindowModal)
+        progress.show()
+        QApplication.processEvents()
+        
+        def update_progress(message):
+            if "Progress:" in message:
+                try:
+                    pct = int(message.split(":")[1].split("%")[0].strip())
+                    progress.setValue(pct)
+                except:
+                    pass
+            progress.setLabelText(message)
+            QApplication.processEvents()
+        
+        try:
+            reg = mi.Registration(
+                image=self.image_stack,
+                roi_bounds=self.registration_roi,
+                reference_channel=self.current_channel,
+                mode=self.registration_mode,
+                padding=10,
+                progress_callback=update_progress
+            )
+            self.registered_image = reg.get_registered_image()
+            progress.setValue(100)
+            self.plot_registration_panels()
+            # Update other tabs that use the registered image
+            self.plot_segmentation()
+            if hasattr(self, 'plot_cellpose_results'):
+                self.plot_cellpose_results()
+            self.statusBar().showMessage(f"Registration complete using {self.registration_mode} mode.")
+        except Exception as e:
+            QMessageBox.critical(self, "Registration Error", str(e))
+        finally:
+            progress.close()
+    
+    def remove_registration(self):
+        """Remove registration and reset to original image."""
+        self.registered_image = None
+        self.registration_roi = None
+        if hasattr(self, 'reg_roi_rect') and self.reg_roi_rect is not None:
+            try:
+                self.reg_roi_rect.remove()
+            except:
+                pass
+            self.reg_roi_rect = None
+        self.plot_registration_panels()
+        self.statusBar().showMessage("Registration removed.")
+    
+    def reset_registration_state(self):
+        """Reset all registration state. Called on new image load or close."""
+        self.registered_image = None
+        self.registration_roi = None
+        if hasattr(self, 'reg_roi_rect') and self.reg_roi_rect is not None:
+            try:
+                self.reg_roi_rect.remove()
+            except:
+                pass
+            self.reg_roi_rect = None
+    
+    def update_registration_channel(self, idx):
+        """Update channel for registration tab and redraw."""
+        self.current_channel = idx
+        self.plot_registration_panels()
 
     def setup_segmentation_tab(self):
         """
@@ -3698,8 +4067,11 @@ class GUI(QMainWindow):
             mask_GUI = np.where(mask_GUI > 0, 1, 0)
             mask_GUI.setflags(write=1)
 
+        # Use registered image if available, otherwise original
+        image_for_correction = self.registered_image if self.registered_image is not None else self.image_stack
+
         photobleaching_obj = mi.Photobleaching(
-            image_TZYXC=self.image_stack,
+            image_TZYXC=image_for_correction,
             mask_YX=mask_GUI,
             show_plot=False,
             mode=mode,
@@ -3956,7 +4328,22 @@ class GUI(QMainWindow):
     
 
     def get_current_image_source(self):
-        return self.corrected_image if self.image_source_combo.currentText() == "Photobleaching Corrected" and self.corrected_image is not None else self.image_stack
+        """Returns the current image source in priority order: corrected > registered > original.
+        
+        Priority:
+        1. Photobleaching corrected image (highest - this would be correction of registered if that was used)
+        2. Registered image (stabilized)
+        3. Original raw image
+        """
+        # Return corrected image if available (highest priority)
+        # This handles the case where photobleaching is applied to registered image
+        if self.corrected_image is not None:
+            return self.corrected_image
+        # Then check for registered image
+        if self.registered_image is not None:
+            return self.registered_image
+        # Fall back to original
+        return self.image_stack
 
     def show_tracking_error(self, error_message):
         QMessageBox.warning(self, "Tracking Error", error_message)
