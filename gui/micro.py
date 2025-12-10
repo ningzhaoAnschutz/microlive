@@ -883,6 +883,9 @@ class GUI(QMainWindow):
         """
         Prepares masks for tracking based on available segmentation data.
         
+        Returns TYX [T,Y,X] masks when TYX mode is active, otherwise YX [Y,X].
+        ParticleTracking normalizes to TYX internally for backward compatibility.
+        
         Returns
         -------
         tuple: (masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei)
@@ -891,30 +894,58 @@ class GUI(QMainWindow):
             - masks_cytosol_no_nuclei: Cytosol with overlapping nucleus regions removed (or None)
         """
         if self._active_mask_source == 'cellpose':
-            masks_cyto = self.cellpose_masks_cyto  # labeled [Y,X] or None
-            masks_nuc = self.cellpose_masks_nuc    # labeled [Y,X] or None
-            
-            if masks_cyto is not None and masks_nuc is not None:
-                # Both exist: compute cytosol-only (cytosol minus overlapping nucleus)
-                # Only remove nucleus pixels that are INSIDE the cytosol
-                masks_cytosol_no_nuclei = masks_cyto.copy()
-                # Zero out pixels where nucleus exists AND cytosol exists
-                overlap_mask = (masks_nuc > 0) & (masks_cyto > 0)
-                masks_cytosol_no_nuclei[overlap_mask] = 0
-                return masks_cyto, masks_nuc, masks_cytosol_no_nuclei
-            elif masks_cyto is not None:
-                # Only cytosol - cytosol is the "complete cell", no nucleus to subtract
-                return masks_cyto, None, None
-            elif masks_nuc is not None:
-                # Only nuclei - nuclei serve as the "complete cell"
-                return masks_nuc, masks_nuc, None
+            # Check if TYX masks are active
+            if getattr(self, 'use_tyx_masks', False):
+                masks_cyto = getattr(self, 'cellpose_masks_cyto_tyx', None)
+                masks_nuc = getattr(self, 'cellpose_masks_nuc_tyx', None)
+                
+                if masks_cyto is not None and masks_nuc is not None:
+                    # Compute cytosol_no_nuclei as TYX (per-frame overlap removal)
+                    masks_cytosol_no_nuclei = masks_cyto.copy()
+                    overlap = (masks_nuc > 0) & (masks_cyto > 0)
+                    masks_cytosol_no_nuclei[overlap] = 0
+                    return masks_cyto, masks_nuc, masks_cytosol_no_nuclei
+                elif masks_cyto is not None:
+                    return masks_cyto, None, None
+                elif masks_nuc is not None:
+                    return masks_nuc, masks_nuc, None
+            else:
+                # Standard YX masks
+                masks_cyto = self.cellpose_masks_cyto
+                masks_nuc = self.cellpose_masks_nuc
+                
+                if masks_cyto is not None and masks_nuc is not None:
+                    masks_cytosol_no_nuclei = masks_cyto.copy()
+                    overlap_mask = (masks_nuc > 0) & (masks_cyto > 0)
+                    masks_cytosol_no_nuclei[overlap_mask] = 0
+                    return masks_cyto, masks_nuc, masks_cytosol_no_nuclei
+                elif masks_cyto is not None:
+                    return masks_cyto, None, None
+                elif masks_nuc is not None:
+                    return masks_nuc, masks_nuc, None
         
-        # Fallback: segmentation mask (binary)
+        # Fallback: segmentation mask (binary) - always YX
         if self.segmentation_mask is not None:
             return self.segmentation_mask, None, None
         
         # No masks at all
         return None, None, None
+
+    def _get_validated_voxels(self):
+        """
+        Returns validated voxel sizes [voxel_z_nm, voxel_yx_nm] with defaults for None/NaN.
+        
+        Returns
+        -------
+        list: [voxel_z, voxel_yx] with validated values (defaults: 500, 160)
+        """
+        voxel_z = self.voxel_z_nm if (self.voxel_z_nm is not None and 
+                                       not np.isnan(self.voxel_z_nm) and 
+                                       self.voxel_z_nm > 0) else 500
+        voxel_yx = self.voxel_yx_nm if (self.voxel_yx_nm is not None and 
+                                         not np.isnan(self.voxel_yx_nm) and 
+                                         self.voxel_yx_nm > 0) else 160
+        return [voxel_z, voxel_yx]
 
 # =============================================================================
 # =============================================================================
@@ -1405,7 +1436,7 @@ class GUI(QMainWindow):
         for field in missing_fields:
             if "voxel size X" in field:
                 # Ensure default is a float
-                default_x = float(self.voxel_yx_nm) if isinstance(self.voxel_yx_nm, (int, float)) else 100.0
+                default_x = float(self.voxel_yx_nm) if isinstance(self.voxel_yx_nm, (int, float)) and self.voxel_yx_nm is not None else 100.0
                 val, ok = QInputDialog.getDouble(
                     self,
                     "Missing Metadata",
@@ -1415,12 +1446,12 @@ class GUI(QMainWindow):
                     1e6,
                     3
                 )
-                if ok:
-                    self.voxel_yx_nm = val
-                    self.voxel_size_x_nm = val
-                    self.voxel_size_y_nm = val
+                # Set value even if cancelled - use default
+                self.voxel_yx_nm = val if ok else default_x
+                self.voxel_size_x_nm = self.voxel_yx_nm
+                self.voxel_size_y_nm = self.voxel_yx_nm
             elif "voxel size Y" in field:
-                default_y = float(self.voxel_size_y_nm) if isinstance(self.voxel_size_y_nm, (int, float)) else (float(self.voxel_yx_nm) if isinstance(self.voxel_yx_nm, (int, float)) else 100.0)
+                default_y = float(self.voxel_size_y_nm) if isinstance(self.voxel_size_y_nm, (int, float)) and self.voxel_size_y_nm is not None else (float(self.voxel_yx_nm) if isinstance(self.voxel_yx_nm, (int, float)) and self.voxel_yx_nm is not None else 100.0)
                 val, ok = QInputDialog.getDouble(
                     self,
                     "Missing Metadata",
@@ -1430,10 +1461,9 @@ class GUI(QMainWindow):
                     1e6,
                     3
                 )
-                if ok:
-                    self.voxel_size_y_nm = val
+                self.voxel_size_y_nm = val if ok else default_y
             elif "voxel size Z" in field:
-                default_z = float(self.voxel_z_nm) if isinstance(self.voxel_z_nm, (int, float)) else 100.0
+                default_z = float(self.voxel_z_nm) if isinstance(self.voxel_z_nm, (int, float)) and self.voxel_z_nm is not None else 500.0
                 val, ok = QInputDialog.getDouble(
                     self,
                     "Missing Metadata",
@@ -1443,11 +1473,11 @@ class GUI(QMainWindow):
                     1e6,
                     3
                 )
-                if ok:
-                    self.voxel_z_nm = val
-                    self.voxel_size_z_nm = val
+                # Set value even if cancelled - use default
+                self.voxel_z_nm = val if ok else default_z
+                self.voxel_size_z_nm = self.voxel_z_nm
             elif "time increment" in field or "TimeIncrement" in field:
-                default_t = float(self.time_interval_value) if isinstance(self.time_interval_value, (int, float)) else 1.0
+                default_t = float(self.time_interval_value) if isinstance(self.time_interval_value, (int, float)) and self.time_interval_value is not None else 1.0
                 val, ok = QInputDialog.getDouble(
                     self,
                     "Missing Metadata",
@@ -1457,8 +1487,7 @@ class GUI(QMainWindow):
                     1e6,
                     6
                 )
-                if ok:
-                    self.time_interval_value = val
+                self.time_interval_value = val if ok else default_t
 
     def onChannelParamsChanged(self, channel, params):
         self.channelDisplayParams[channel] = params
@@ -2677,6 +2706,12 @@ class GUI(QMainWindow):
         self.plot_image()
         current_tab = self.tabs.currentIndex()
         if current_tab == self.tabs.indexOf(self.tracking_tab):
+            # Sync TYX masks if active before plotting tracking
+            if getattr(self, 'use_tyx_masks', False):
+                if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+                if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
             self.plot_tracking()
         elif (current_tab == self.tabs.indexOf(self.tracking_visualization_tab)
             and getattr(self, 'has_tracked', False)
@@ -4110,6 +4145,7 @@ class GUI(QMainWindow):
             masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
         self.tracking_channel = self.current_channel
         self._sync_tracking_channel()
+        
         # Run spot detection (no linking)
         list_dataframes_trajectories, _ = mi.ParticleTracking(
             image=image_to_use,
@@ -4117,7 +4153,7 @@ class GUI(QMainWindow):
             masks=masks_complete,
             masks_nuclei=masks_nuc,
             masks_cytosol_no_nuclei=masks_cyto_no_nuc,
-            list_voxels=[self.voxel_z_nm, self.voxel_yx_nm],
+            list_voxels=self._get_validated_voxels(),
             memory=self.memory,
             channels_cytosol=self.channels_cytosol,
             channels_nucleus=self.channels_nucleus,
@@ -4149,7 +4185,7 @@ class GUI(QMainWindow):
                 masks=masks_complete,
                 masks_nuclei=masks_nuc,
                 masks_cytosol_no_nuclei=masks_cyto_no_nuc,
-                list_voxels=[self.voxel_z_nm, self.voxel_yx_nm],
+                list_voxels=self._get_validated_voxels(),
                 memory=self.memory,
                 channels_cytosol=self.channels_cytosol,
                 channels_nucleus=self.channels_nucleus,
@@ -4428,12 +4464,20 @@ class GUI(QMainWindow):
             return
         image_to_use = self.get_current_image_source()
         image_channel = np.expand_dims(image_to_use[self.current_frame, :, :, :, self.current_channel], axis=3)
-        if self.voxel_z_nm == 0:
-            self.voxel_z_nm = 0.1 
-        list_voxels = [self.voxel_z_nm, self.voxel_yx_nm]
+        list_voxels = self._get_validated_voxels()
         threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else np.percentile(image_channel, 99)
+        
         # Get masks for tracking (supports both Cellpose and Segmentation)
         masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks()
+        
+        # For single-frame detection, slice TYX masks to current frame's YX mask
+        if masks_complete is not None and masks_complete.ndim == 3:
+            masks_complete = masks_complete[self.current_frame]
+        if masks_nuc is not None and masks_nuc.ndim == 3:
+            masks_nuc = masks_nuc[self.current_frame]
+        if masks_cyto_no_nuc is not None and masks_cyto_no_nuc.ndim == 3:
+            masks_cyto_no_nuc = masks_cyto_no_nuc[self.current_frame]
+            
         if masks_complete is None:
             masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
         spots = self.detect_spots(image_channel, threshold, list_voxels, masks_complete, masks_nuc, masks_cyto_no_nuc)
@@ -4445,6 +4489,7 @@ class GUI(QMainWindow):
             self.detected_spots_frame = None
             self.df_tracking = pd.DataFrame()
         self.plot_tracking()
+
 
     def perform_particle_tracking(self):
         if self.image_stack is None:
@@ -4463,9 +4508,7 @@ class GUI(QMainWindow):
         image_to_use = self.get_current_image_source()
         if self.use_maximum_projection:
             image_to_use = np.max(image_to_use, axis=1, keepdims=True)
-        if self.voxel_z_nm == 0:
-            self.voxel_z_nm = 0.1 
-        list_voxels = [self.voxel_z_nm, self.voxel_yx_nm]
+        list_voxels = self._get_validated_voxels()
         channels_spots = [self.current_channel]
         starting_threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else mi.Utilities().calculate_threshold_for_spot_detection(
             image_to_use,

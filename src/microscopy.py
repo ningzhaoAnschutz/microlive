@@ -3604,6 +3604,13 @@ class ParticleTracking:
         self.masks = masks if masks is not None else np.ones(image[0].shape[:3], dtype=bool)
         self.masks_nuclei = masks_nuclei
         self.masks_cytosol_no_nuclei = masks_cytosol_no_nuclei
+        
+        # Normalize masks to TYX format for per-frame tracking support
+        # If YX [Y,X] mask is passed, expand to TYX [T,Y,X] by tiling
+        T = image.shape[0]
+        self.masks_tyx = self._normalize_mask_to_tyx(self.masks, T)
+        self.masks_nuclei_tyx = self._normalize_mask_to_tyx(masks_nuclei, T)
+        self.masks_cytosol_no_nuclei_tyx = self._normalize_mask_to_tyx(masks_cytosol_no_nuclei, T)
         self.channels_cytosol = channels_cytosol
         self.channels_nucleus = channels_nucleus
         self.threshold_for_spot_detection = threshold_for_spot_detection
@@ -3621,18 +3628,25 @@ class ParticleTracking:
         self.z_spot_size_in_px = z_spot_size_in_px
         # Cluster properties.
         if cluster_radius_nm is None:
-            self.cluster_radius_nm = int(list_voxels[1] * 4)
+            # Validate voxel value before int conversion
+            voxel_yx = list_voxels[1] if list_voxels[1] is not None and not np.isnan(list_voxels[1]) else 160
+            self.cluster_radius_nm = int(voxel_yx * 4)
         else:
             self.cluster_radius_nm = cluster_radius_nm
         self.remove_clusters = remove_clusters
         self.maximum_spots_cluster = maximum_spots_cluster
         self.separate_clusters_and_spots = separate_clusters_and_spots
+        
+        # Validate voxel values for spot radius calculation
+        voxel_z_val = list_voxels[0] if list_voxels[0] is not None and not np.isnan(list_voxels[0]) else 500
+        voxel_yx_val = list_voxels[1] if list_voxels[1] is not None and not np.isnan(list_voxels[1]) else 160
+        
         # Compute spot radius in pixels.
         self.spot_radius_px = detection.get_object_radius_pixel(
-            voxel_size_nm=(list_voxels[0], list_voxels[1], list_voxels[1]),
-            object_radius_nm=(list_voxels[0]*(z_spot_size_in_px//2),
-                              list_voxels[1]*(yx_spot_size_in_px//2),
-                              list_voxels[1]*(yx_spot_size_in_px//2)),
+            voxel_size_nm=(voxel_z_val, voxel_yx_val, voxel_yx_val),
+            object_radius_nm=(voxel_z_val*(z_spot_size_in_px//2),
+                              voxel_yx_val*(yx_spot_size_in_px//2),
+                              voxel_yx_val*(yx_spot_size_in_px//2)),
             ndim=3
         )
         self.link_particles = link_particles
@@ -3649,6 +3663,45 @@ class ParticleTracking:
             number_of_random_particles_trajectories = 50
         self.number_of_random_particles_trajectories = number_of_random_particles_trajectories
         self.step_size_in_sec = step_size_in_sec
+
+    def _normalize_mask_to_tyx(self, mask, T):
+        """
+        Normalize a mask to TYX [T, Y, X] format for per-frame tracking.
+        
+        Parameters
+        ----------
+        mask : ndarray or None
+            Input mask - can be YX [Y,X], ZYX [Z,Y,X], or TYX [T,Y,X]
+        T : int
+            Number of timepoints
+            
+        Returns
+        -------
+        ndarray or None
+            Mask in TYX format, or None if input is None
+        """
+        if mask is None:
+            return None
+        
+        if mask.ndim == 2:
+            # YX [Y, X] -> tile to TYX [T, Y, X]
+            print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}]")
+            return np.tile(mask[np.newaxis, :, :], (T, 1, 1))
+        elif mask.ndim == 3:
+            # Check if first dim matches T (TYX) or is likely Z dimension
+            if mask.shape[0] == T:
+                # Already TYX format - verify by checking if masks differ across frames
+                print(f"[ParticleTracking] Using TYX mask as-is: {mask.shape}")
+                return mask
+            else:
+                # Assume ZYX - take max projection and tile
+                print(f"[ParticleTracking] Converting ZYX mask {mask.shape} to TYX via max projection")
+                mask_2d = np.max(mask, axis=0)
+                return np.tile(mask_2d[np.newaxis, :, :], (T, 1, 1))
+        else:
+            # Unknown format - return as-is
+            print(f"[ParticleTracking] Warning: Unknown mask format {mask.shape}, using as-is")
+            return mask
 
     def run(self):
         # --- RANDOM MODE: Process frame-by-frame for random spot trajectories ---
@@ -3781,14 +3834,19 @@ class ParticleTracking:
             return [df_complete], self.image
         else:
             def process_time_point(i):
+                # Get per-frame masks from TYX arrays
+                mask_frame = self.masks_tyx[i] if self.masks_tyx is not None else None
+                mask_nuc_frame = self.masks_nuclei_tyx[i] if self.masks_nuclei_tyx is not None else None
+                mask_cyto_no_nuc_frame = self.masks_cytosol_no_nuclei_tyx[i] if self.masks_cytosol_no_nuclei_tyx is not None else None
+                
                 dataframe, imgs, _ = SpotDetection(
                     self.image[i],
                     channels_spots=self.channels_spots,
                     channels_cytosol=self.channels_cytosol,
                     channels_nucleus=self.channels_nucleus,
-                    masks_complete_cells=self.masks,
-                    masks_nuclei=self.masks_nuclei,
-                    masks_cytosol_no_nuclei=self.masks_cytosol_no_nuclei,
+                    masks_complete_cells=mask_frame,
+                    masks_nuclei=mask_nuc_frame,
+                    masks_cytosol_no_nuclei=mask_cyto_no_nuc_frame,
                     list_voxels=self.list_voxels,
                     show_plot=False,
                     save_files=False,
