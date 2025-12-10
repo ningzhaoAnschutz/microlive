@@ -562,122 +562,159 @@ class Metadata:
             setattr(self, key, value)
 
     def write_metadata(self):
-        number_spaces_pound_sign = 60  
+        line_width = 70
+        separator = '=' * line_width
+        sub_separator = '-' * line_width
+        
         try:
             with open(self.file_path, 'w') as fd:
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nAUTHOR INFORMATION')
-                try:
-                    fd.write('\n    Author: ' + str(getpass.getuser()))
-                    fd.write('\n    Hostname: ' + str(socket.gethostname()) + '\n')
-                except Exception as e:
-                    logging.warning(f"Could not get user/hostname: {e}")
-                    pass
-                fd.write('\n    Created: ' + datetime.datetime.today().strftime('%d %b %Y'))
-                fd.write('\n    Time: ' + str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute))
-                fd.write('\n    Operating System: ' + sys.platform + '\n')
-                fd.write('#' * number_spaces_pound_sign)
+                # Helper functions
+                def write_section(title):
+                    fd.write(f'\n{separator}\n')
+                    fd.write(f'{title.upper()}\n')
+                    fd.write(f'{separator}\n')
                 
-                # Helper to safely write attributes
-                def write_attr(label, attr_name):
+                def write_subsection(title):
+                    fd.write(f'\n{sub_separator}\n')
+                    fd.write(f'{title}\n')
+                    fd.write(f'{sub_separator}\n')
+                
+                def write_attr(label, attr_name, indent=4):
                     val = getattr(self, attr_name, 'N/A')
-                    fd.write(f'\n    {label}: {val}')
-
-                # General Parameters
-                fd.write('\nGENERAL INFORMATION')
-                write_attr('data_folder_path', 'data_folder_path')
-                fd.write('\n    list_images length: ' + str(len(self.list_images) if self.list_images else 0))
-                write_attr('list_names', 'list_names')
-                write_attr('list_time_intervals', 'list_time_intervals')
-                fd.write('\n')
-                fd.write('#' * number_spaces_pound_sign)
+                    fd.write(f'{" " * indent}{label:.<40} {val}\n')
                 
-                fd.write('\nSELECTED IMAGE')
+                def write_value(label, value, indent=4):
+                    fd.write(f'{" " * indent}{label:.<40} {value}\n')
+                
+                # Header
+                fd.write(separator + '\n')
+                fd.write('MICROLIVE METADATA FILE\n')
+                fd.write(separator + '\n\n')
+                
+                # Author Information
+                write_section('Author Information')
+                try:
+                    write_value('Author', str(getpass.getuser()))
+                    write_value('Hostname', str(socket.gethostname()))
+                except Exception:
+                    pass
+                write_value('Created', datetime.datetime.today().strftime('%d %b %Y'))
+                write_value('Time', datetime.datetime.now().strftime('%H:%M'))
+                write_value('Operating System', sys.platform)
+                
+                # General Information
+                write_section('General Information')
+                write_attr('Data Folder Path', 'data_folder_path')
+                write_value('Number of Images', len(self.list_images) if self.list_images else 0)
+                write_attr('Image Names', 'list_names')
+                write_attr('Time Intervals', 'list_time_intervals')
+                
+                # Selected Image
+                write_section('Selected Image')
                 if self.list_names and self.selected_image_index < len(self.list_names):
-                     fd.write('\n    selected_image_name: ' + str(self.list_names[self.selected_image_index]))
-                write_attr('time_interval_value', 'time_interval_value')
-                write_attr('voxel_yx_nm', 'voxel_yx_nm')
-                write_attr('voxel_z_nm', 'voxel_z_nm')
-                write_attr('channel_names', 'channel_names')
-                write_attr('number_color_channels', 'number_color_channels')
-                write_attr('bit_depth', 'bit_depth')
-                write_attr('selected_image_index', 'selected_image_index')
-                
+                    write_value('Image Name', str(self.list_names[self.selected_image_index]))
+                write_attr('Time Interval (s)', 'time_interval_value')
+                write_attr('Voxel Size YX (nm)', 'voxel_yx_nm')
+                write_attr('Voxel Size Z (nm)', 'voxel_z_nm')
+                write_attr('Channel Names', 'channel_names')
+                write_attr('Number of Channels', 'number_color_channels')
+                write_attr('Bit Depth', 'bit_depth')
+                write_attr('Selected Image Index', 'selected_image_index')
                 if self.image_stack is not None:
-                    fd.write('\n    image_stack shape: ' + str(self.image_stack.shape))
+                    write_value('Image Dimensions (T,Z,Y,X,C)', str(self.image_stack.shape))
                 else:
-                    fd.write('\n    image_stack shape: None')
-                fd.write('\n')
+                    write_value('Image Dimensions', 'None')
                 
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nSEGMENTATION MODE')
-                write_attr('segmentation_mode', 'segmentation_mode')
-                fd.write('\n')
+                # Segmentation / Masks
+                write_section('Segmentation / Masks')
                 
-                # Photobleaching Parameters
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nPHOTOBLEACHING')
-                write_attr('photobleaching_calculated', 'photobleaching_calculated')
-                write_attr('photobleaching_mode', 'photobleaching_mode')
-                write_attr('photobleaching_radius', 'photobleaching_radius')
-                fd.write('\n')
+                # Active mask source
+                active_source = getattr(self, '_active_mask_source', 'none')
+                write_value('Active Mask Source', active_source)
+                
+                write_subsection('Watershed / Manual Segmentation')
+                segmentation_mode = getattr(self, 'segmentation_mode', None)
+                has_segmentation_mask = self.segmentation_mask is not None
+                write_value('Segmentation Mode', segmentation_mode if segmentation_mode else 'None')
+                write_value('Mask Available', 'Yes' if has_segmentation_mask else 'No')
+                
+                write_subsection('Cellpose Segmentation')
+                has_cellpose_cyto = self.cellpose_masks_cyto is not None
+                has_cellpose_nuc = self.cellpose_masks_nuc is not None
+                
+                if has_cellpose_cyto:
+                    n_cells_cyto = int(self.cellpose_masks_cyto.max())
+                    write_value('Cytosol Segmented', f'Yes ({n_cells_cyto} cells)')
+                else:
+                    write_value('Cytosol Segmented', 'No')
+                
+                if has_cellpose_nuc:
+                    n_cells_nuc = int(self.cellpose_masks_nuc.max())
+                    write_value('Nucleus Segmented', f'Yes ({n_cells_nuc} cells)')
+                else:
+                    write_value('Nucleus Segmented', 'No')
+                
+                # Photobleaching
+                write_section('Photobleaching')
+                write_attr('Correction Applied', 'photobleaching_calculated')
+                write_attr('Mode', 'photobleaching_mode')
+                write_attr('Radius (px)', 'photobleaching_radius')
                 
                 # Tracking Parameters
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nTRACKING PARAMETERS')
-                write_attr('channels_spots', 'channels_spots')
-                write_attr('channels_cytosol', 'channels_cytosol')
-                write_attr('channels_nucleus', 'channels_nucleus')
-                write_attr('min_length_trajectory', 'min_length_trajectory')
-                write_attr('yx_spot_size_in_px', 'yx_spot_size_in_px')
-                write_attr('z_spot_size_in_px', 'z_spot_size_in_px')
-                write_attr('cluster_radius_nm', 'cluster_radius_nm')
-                write_attr('maximum_spots_cluster', 'maximum_spots_cluster')
-                write_attr('separate_clusters_and_spots', 'separate_clusters_and_spots')
-                write_attr('maximum_range_search_pixels', 'maximum_range_search_pixels')
-                write_attr('memory', 'memory')
-                write_attr('max_spots_for_threshold', 'max_spots_for_threshold')
-                write_attr('threshold_spot_detection', 'threshold_spot_detection')
-                write_attr('user_selected_threshold', 'user_selected_threshold')
-                write_attr('use_fixed_size_for_intensity_calculation', 'use_fixed_size_for_intensity_calculation')
-                write_attr('link_using_3d_coordinates', 'link_using_3d_coordinates')
-                write_attr('multi_tau', 'multi_tau')
-                fd.write('\n    -------------------')
+                write_section('Tracking Parameters')
                 
+                write_subsection('Spot Detection')
+                write_attr('Threshold', 'user_selected_threshold')
+                write_attr('YX Spot Size (px)', 'yx_spot_size_in_px')
+                write_attr('Z Spot Size (px)', 'z_spot_size_in_px')
+                write_attr('Cluster Radius (nm)', 'cluster_radius_nm')
+                write_attr('Max Spots per Cluster', 'maximum_spots_cluster')
+                write_attr('Separate Clusters and Spots', 'separate_clusters_and_spots')
+                
+                write_subsection('Trajectory Linking')
+                write_attr('Min Trajectory Length', 'min_length_trajectory')
+                write_attr('Max Search Range (px)', 'maximum_range_search_pixels')
+                write_attr('Memory (frames)', 'memory')
+                write_attr('Link Using 3D Coordinates', 'link_using_3d_coordinates')
+                
+                write_subsection('Channels')
+                write_attr('Spot Detection Channel', 'channels_spots')
+                write_attr('Cytosol Channel', 'channels_cytosol')
+                write_attr('Nucleus Channel', 'channels_nucleus')
+                
+                write_subsection('Options')
+                write_attr('Use Fixed Spot Size for Intensity', 'use_fixed_size_for_intensity_calculation')
                 if self.use_maximum_projection:
-                    fd.write('\n    Using maximum projection (2D image) for tracking. Trackpy is used.')
+                    write_value('Projection Mode', '2D Maximum Projection (Trackpy)')
                 else:
-                    fd.write('\n    Using 3D image for tracking. Big-FISH and Trackpy are used. ')
-                
-                # Logic check for image source
+                    write_value('Projection Mode', '3D (Big-FISH + Trackpy)')
                 combo_val = getattr(self, 'image_source_combo', '')
-                using_corrected = "True" if "Corrected" in str(combo_val) else "False"
-                fd.write('\n    Using photobleaching corrected image for tracking: ' + using_corrected)
-                fd.write('\n')
+                using_corrected = 'Yes' if 'Corrected' in str(combo_val) else 'No'
+                write_value('Using Photobleaching Corrected Image', using_corrected)
                 
                 # Correlation Parameters
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nCORRELATION PARAMETERS')
-                write_attr('correlation_fit_type', 'correlation_fit_type')
-                write_attr('correct_baseline', 'correct_baseline')
-                write_attr('de_correlation_threshold', 'de_correlation_threshold')
-                write_attr('min_percentage_data_in_trajectory', 'min_percentage_data_in_trajectory')
-                write_attr('index_max_lag_for_fit', 'index_max_lag_for_fit')
-                fd.write('\n')
+                write_section('Correlation Parameters')
+                write_attr('Fit Type', 'correlation_fit_type')
+                write_attr('Baseline Correction', 'correct_baseline')
+                write_attr('Decorrelation Threshold', 'de_correlation_threshold')
+                write_attr('Min Data in Trajectory (%)', 'min_percentage_data_in_trajectory')
+                write_attr('Max Lag Index for Fit', 'index_max_lag_for_fit')
+                write_attr('Multi-Tau', 'multi_tau')
                 
-                # Colocalization / ML PARAMETERS
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nCOLOCALIZATION / ML PARAMETERS')
-                write_attr('colocalization method', 'colocalization_method')
-                write_attr('colocalization threshold value', 'colocalization_threshold_value')
-                write_attr('ml_threshold_input', 'ml_threshold_input')
-                fd.write('\n')
+                # Colocalization / ML
+                write_section('Colocalization Parameters')
+                write_attr('Method', 'colocalization_method')
+                write_attr('Threshold Value', 'colocalization_threshold_value')
+                write_attr('ML Threshold', 'ml_threshold_input')
                 
-                # Reproducibility / Environment
-                fd.write('#' * number_spaces_pound_sign)
-                fd.write('\nREPRODUCIBILITY / ENVIRONMENT')
-                fd.write('\n    Python version: ' + str(sys.version))
-                fd.write('\n' + ('#' * number_spaces_pound_sign) + '\n')
+                # Reproducibility
+                write_section('Environment')
+                write_value('Python Version', sys.version.split()[0])
+                
+                # Footer
+                fd.write(f'\n{separator}\n')
+                fd.write('END OF METADATA\n')
+                fd.write(separator + '\n')
 
         except Exception as e:
             print(f"Error writing metadata: {e}")
@@ -6356,6 +6393,9 @@ class GUI(QMainWindow):
                     out_path = results_folder / default_filename
                     self._export_mask_as_tiff(out_path)
 
+                elif label_text == "Export Cellpose Masks":
+                    self._export_cellpose_masks(results_folder)
+
                 elif label_text == "Export Photobleaching Image":
                     default_filename = self.get_default_export_filename(prefix="photobleaching", extension="png")
                     out_path = results_folder / default_filename
@@ -6528,6 +6568,24 @@ class GUI(QMainWindow):
             tifffile.imwrite(str(file_path), mask_to_save, photometric='minisblack')
         except Exception as e:
             print(f"Failed to export mask: {e}")
+
+    def _export_cellpose_masks(self, results_folder):
+        """Export Cellpose masks to the results folder (for batch export)."""
+        try:
+            if self.cellpose_masks_cyto is not None:
+                cyto_filename = self.get_default_export_filename(prefix="cellpose_cytosol", extension="tif")
+                cyto_path = results_folder / cyto_filename
+                mask_cyto = self.cellpose_masks_cyto.astype(np.uint8)
+                tifffile.imwrite(str(cyto_path), mask_cyto, photometric='minisblack')
+            
+            if self.cellpose_masks_nuc is not None:
+                nuc_filename = self.get_default_export_filename(prefix="cellpose_nucleus", extension="tif")
+                nuc_path = results_folder / nuc_filename
+                mask_nuc = self.cellpose_masks_nuc.astype(np.uint8)
+                tifffile.imwrite(str(nuc_path), mask_nuc, photometric='minisblack')
+        except Exception as e:
+            print(f"Failed to export Cellpose masks: {e}")
+
 
     def _export_photobleaching_image(self, file_path):
         try:
@@ -7033,6 +7091,68 @@ class GUI(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")
 
+    def export_cellpose_masks_as_tiff(self):
+        """
+        Export Cellpose masks (cytosol and nucleus) as separate labeled TIFF files.
+        Each file contains the original label values (0=background, 1-N=cell IDs).
+        """
+        # Check if any Cellpose masks are available
+        has_cyto = self.cellpose_masks_cyto is not None
+        has_nuc = self.cellpose_masks_nuc is not None
+        
+        if not has_cyto and not has_nuc:
+            QMessageBox.warning(self, "No Cellpose Masks", 
+                                "No Cellpose masks available to export.\nRun Cellpose segmentation first.")
+            return
+        
+        # Ask user for base filename
+        default_filename = self.get_default_export_filename(prefix="cellpose_masks", extension="tif")
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Cellpose Masks (base filename)",
+            default_filename,
+            "TIFF Files (*.tif);;All Files (*)",
+            options=options
+        )
+        
+        if not file_path:
+            return
+        
+        # Remove extension to create base path
+        base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
+        
+        exported_files = []
+        try:
+            # Export cytosol mask if available
+            if has_cyto:
+                cyto_path = f"{base_path}_cytosol.tif"
+                # Save as uint8 (supports 0-255 labels)
+                mask_cyto = self.cellpose_masks_cyto.astype(np.uint8)
+                tifffile.imwrite(cyto_path, mask_cyto, photometric='minisblack')
+                exported_files.append(f"Cytosol: {cyto_path}")
+            
+            # Export nucleus mask if available
+            if has_nuc:
+                nuc_path = f"{base_path}_nucleus.tif"
+                # Save as uint8 (supports 0-255 labels)
+                mask_nuc = self.cellpose_masks_nuc.astype(np.uint8)
+                tifffile.imwrite(nuc_path, mask_nuc, photometric='minisblack')
+                exported_files.append(f"Nucleus: {nuc_path}")
+            
+            # Show success message
+            n_cyto = int(self.cellpose_masks_cyto.max()) if has_cyto else 0
+            n_nuc = int(self.cellpose_masks_nuc.max()) if has_nuc else 0
+            msg = f"Cellpose masks exported successfully!\n\n"
+            msg += f"Cells detected: {max(n_cyto, n_nuc)}\n"
+            msg += f"Label range: 0 (background) to {max(n_cyto, n_nuc)} (cells)\n\n"
+            msg += "Files:\n" + "\n".join(exported_files)
+            QMessageBox.information(self, "Export Success", msg)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")
+
+
     def export_intensity_image(self):
         """
         Export the current Intensity tab figure as a high-resolution PNG.
@@ -7265,6 +7385,7 @@ class GUI(QMainWindow):
             ("Export Displayed Image", "display"),
             ("Export Segmentation Image", "segmentation_img"),
             ("Export Mask as TIF", "segmentation_mask"),
+            ("Export Cellpose Masks", "cellpose_masks"),
             ("Export Photobleaching Image", "photobleaching"),
             ("Export Tracking Data", "tracking_data"),
             ("Export Tracking Image", "tracking_image"),
