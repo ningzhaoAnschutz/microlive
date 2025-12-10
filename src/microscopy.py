@@ -3126,10 +3126,14 @@ class SpotDetection():
                 df_detected_spots = pd.DataFrame(clusters_and_spots, columns=['z', 'y', 'x', 'cluster_size'])
                 df_detected_spots['image_id'] = self.image_counter
                 df_detected_spots['spot_type'] = i
-                # remove spots that are not inside the mask
-                mask_selected = (self.list_masks_complete_cells[0] >0).astype(int)
-                df_in_mask = Utilities().spots_in_mask(df_detected_spots, mask_selected)
-                df_detected_spots = df_in_mask[df_in_mask['In Mask'] == True]
+                # remove spots that are not inside ANY mask - combine all masks
+                if self.list_masks_complete_cells is not None and len(self.list_masks_complete_cells) > 0:
+                    # Combine all masks into one binary mask
+                    combined_mask = np.zeros_like(self.list_masks_complete_cells[0], dtype=int)
+                    for cell_mask in self.list_masks_complete_cells:
+                        combined_mask = np.maximum(combined_mask, (cell_mask > 0).astype(int))
+                    df_in_mask = Utilities().spots_in_mask(df_detected_spots, combined_mask)
+                    df_detected_spots = df_in_mask[df_in_mask['In Mask'] == True]
             # reset counter for image and cell number
             reset_cell_counter = True
             list_images.append(image_filtered)
@@ -3197,7 +3201,8 @@ class ParticleTracking:
     '''
     def __init__(self, image, channels_spots, list_voxels, channels_cytosol, channels_nucleus,
                  remove_clusters=False, maximum_spots_cluster=None, min_length_trajectory=10,
-                 threshold_for_spot_detection=100, masks=None, memory=0, yx_spot_size_in_px=5, z_spot_size_in_px=2,
+                 threshold_for_spot_detection=100, masks=None, masks_nuclei=None, masks_cytosol_no_nuclei=None,
+                 memory=0, yx_spot_size_in_px=5, z_spot_size_in_px=2,
                  cluster_radius_nm=None, link_particles=True, use_trackpy=False,
                  use_fixed_size_for_intensity_calculation=True, number_cores=None,
                  use_maximum_projection=False, separate_clusters_and_spots=False,
@@ -3215,6 +3220,8 @@ class ParticleTracking:
         else:
             self.channels_spots = channels_spots
         self.masks = masks if masks is not None else np.ones(image[0].shape[:3], dtype=bool)
+        self.masks_nuclei = masks_nuclei
+        self.masks_cytosol_no_nuclei = masks_cytosol_no_nuclei
         self.channels_cytosol = channels_cytosol
         self.channels_nucleus = channels_nucleus
         self.threshold_for_spot_detection = threshold_for_spot_detection
@@ -3365,8 +3372,8 @@ class ParticleTracking:
                     clusters_and_spots=clusters_array,
                     image=image_proj[t],      # t-th frame; shape [Y, X, C]
                     masks_complete_cells=mask_proj,
-                    masks_nuclei=None,
-                    masks_cytosol_no_nuclei=None,
+                    masks_nuclei=self.masks_nuclei,
+                    masks_cytosol_no_nuclei=self.masks_cytosol_no_nuclei,
                     channels_cytosol=self.channels_cytosol,
                     channels_nucleus=self.channels_nucleus,
                     yx_spot_size_in_px=self.yx_spot_size_in_px,
@@ -3398,6 +3405,8 @@ class ParticleTracking:
                     channels_cytosol=self.channels_cytosol,
                     channels_nucleus=self.channels_nucleus,
                     masks_complete_cells=self.masks,
+                    masks_nuclei=self.masks_nuclei,
+                    masks_cytosol_no_nuclei=self.masks_cytosol_no_nuclei,
                     list_voxels=self.list_voxels,
                     show_plot=False,
                     save_files=False,
@@ -4036,7 +4045,8 @@ class DataProcessing():
                 selected_masks_complete_cells = None
             # case where cyto is passed but not nucleus
             elif not (self.channels_cytosol in (None, [None])) and (self.channels_nucleus in  (None, [None])):
-                slected_masks_cytosol_no_nuclei,_,_ = mask_selector( self.masks_complete_cells[id_cell],calculate_centroid=False) 
+                # When no nucleus, the complete cell mask is used for filtering spots in cytosol
+                slected_masks_cytosol_no_nuclei = self.masks_complete_cells[id_cell]
                 cyto_area, _, _  = mask_selector(self.masks_complete_cells[id_cell],calculate_centroid=False) # if not nucleus channel is passed the cytosol is consider the complete cell.
                 selected_masks_complete_cells = self.masks_complete_cells[id_cell]
             else:

@@ -840,6 +840,43 @@ class GUI(QMainWindow):
                 return self.cellpose_masks_nuc
         return self.segmentation_mask
 
+    def _get_tracking_masks(self):
+        """
+        Prepares masks for tracking based on available segmentation data.
+        
+        Returns
+        -------
+        tuple: (masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei)
+            - masks_complete_cells: Labeled cytosol masks (or nuclei if no cytosol)
+            - masks_nuclei: Labeled nucleus masks (or None)
+            - masks_cytosol_no_nuclei: Cytosol with overlapping nucleus regions removed (or None)
+        """
+        if self._active_mask_source == 'cellpose':
+            masks_cyto = self.cellpose_masks_cyto  # labeled [Y,X] or None
+            masks_nuc = self.cellpose_masks_nuc    # labeled [Y,X] or None
+            
+            if masks_cyto is not None and masks_nuc is not None:
+                # Both exist: compute cytosol-only (cytosol minus overlapping nucleus)
+                # Only remove nucleus pixels that are INSIDE the cytosol
+                masks_cytosol_no_nuclei = masks_cyto.copy()
+                # Zero out pixels where nucleus exists AND cytosol exists
+                overlap_mask = (masks_nuc > 0) & (masks_cyto > 0)
+                masks_cytosol_no_nuclei[overlap_mask] = 0
+                return masks_cyto, masks_nuc, masks_cytosol_no_nuclei
+            elif masks_cyto is not None:
+                # Only cytosol - cytosol is the "complete cell", no nucleus to subtract
+                return masks_cyto, None, None
+            elif masks_nuc is not None:
+                # Only nuclei - nuclei serve as the "complete cell"
+                return masks_nuc, masks_nuc, None
+        
+        # Fallback: segmentation mask (binary)
+        if self.segmentation_mask is not None:
+            return self.segmentation_mask, None, None
+        
+        # No masks at all
+        return None, None, None
+
 # =============================================================================
 # =============================================================================
 # STARTING THE GUI 
@@ -2810,6 +2847,8 @@ class GUI(QMainWindow):
             
             self.cellpose_masks_cyto = masks_cyto
             self._active_mask_source = 'cellpose'
+            # Clear watershed mask since we're using Cellpose now
+            self.segmentation_mask = None
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -2846,6 +2885,8 @@ class GUI(QMainWindow):
             
             self.cellpose_masks_nuc = masks_nuc
             self._active_mask_source = 'cellpose'
+            # Clear watershed mask since we're using Cellpose now
+            self.segmentation_mask = None
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -2859,6 +2900,9 @@ class GUI(QMainWindow):
              )
         
         self.plot_cellpose_results()
+        # Reset dependent tabs since masks changed
+        self.reset_photobleaching_tab()
+        self.reset_tracking_tab()
 
     def clear_cellpose_masks(self):
         self.cellpose_masks_cyto = None
@@ -3081,8 +3125,15 @@ class GUI(QMainWindow):
             segmentation_mask = watershed_segmentation.apply_watershed()
             self.segmentation_mask = segmentation_mask
             self._active_mask_source = 'segmentation'
+            # Clear Cellpose masks since we're using watershed now
+            self.cellpose_masks_cyto = None
+            self.cellpose_masks_nuc = None
             self.plot_segmentation()
             self.segmentation_mode = "watershed"
+            # Reset dependent tabs since masks changed
+            self.reset_cellpose_tab()
+            self.reset_photobleaching_tab()
+            self.reset_tracking_tab()
         else:
             print("No image loaded")
 
@@ -3517,12 +3568,29 @@ class GUI(QMainWindow):
             SCALE_SPOTS = 1
         return SCALE_SPOTS
     
-    def track_particles(self, corrected_image, mask, parameters, use_maximum_projection):
+    def track_particles(self, corrected_image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei, parameters, use_maximum_projection):
         """
-        Run particle tracking on `corrected_image` + `mask` with the given
-        parameters dict and voxel size. Pops up a warning on subnet‐oversize
-        and returns an empty list in that case.
-        Returns: list of trajectory DataFrames.
+        Run particle tracking on `corrected_image` with the given masks and parameters.
+        Pops up a warning on subnet-oversize and returns an empty list in that case.
+        
+        Parameters
+        ----------
+        corrected_image : ndarray
+            Image to track particles in.
+        masks_complete_cells : ndarray
+            Labeled mask for complete cells (or binary segmentation mask).
+        masks_nuclei : ndarray or None
+            Labeled mask for nuclei.
+        masks_cytosol_no_nuclei : ndarray or None
+            Labeled mask for cytosol regions (with nucleus removed).
+        parameters : dict
+            Tracking parameters.
+        use_maximum_projection : bool
+            Whether to use maximum projection.
+            
+        Returns
+        -------
+        list of DataFrames: Trajectory data per channel.
         """
         channels_spots      = parameters['channels_spots']
         channels_cytosol    = parameters['channels_cytosol']
@@ -3544,7 +3612,9 @@ class GUI(QMainWindow):
             df_list, _ = mi.ParticleTracking(
                 image=corrected_image,
                 channels_spots=channels_spots,
-                masks=mask,
+                masks=masks_complete_cells,
+                masks_nuclei=masks_nuclei,
+                masks_cytosol_no_nuclei=masks_cytosol_no_nuclei,
                 list_voxels=list_voxels,
                 memory=memory,
                 channels_cytosol=channels_cytosol,
@@ -3593,10 +3663,12 @@ class GUI(QMainWindow):
             return
         image_to_use = self.get_current_image_source()
         image_channel = image_to_use[self.current_frame, :, :, :, self.current_channel]
-        mask_GUI = np.where(self.segmentation_mask > 0, 1, 0) if self.segmentation_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
+        mask_GUI = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
         # Compute maximum projection (across Z)
         max_proj = np.max(image_channel, axis=0) * mask_GUI
         intensity_values = max_proj.flatten()
+        # Filter out zeros (background/masked pixels)
+        intensity_values = intensity_values[intensity_values > 0]
         if len(intensity_values) == 0:
             return
         lower_limit = 0
@@ -3638,7 +3710,7 @@ class GUI(QMainWindow):
         self.ax_threshold_hist.clear()
         image_to_use = self.get_current_image_source()
         image_channel = image_to_use[self.current_frame, :, :, :, self.current_channel]
-        mask_GUI = np.where(self.segmentation_mask > 0, 1, 0) if self.segmentation_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
+        mask_GUI = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
         max_proj = np.max(image_channel, axis=0) * mask_GUI
         intensity_values = max_proj.flatten()
         intensity_values = intensity_values[intensity_values > 0]
@@ -3756,15 +3828,19 @@ class GUI(QMainWindow):
         image_to_use = self.get_current_image_source()
         # Compute threshold (user-selected or 99th percentile)
         threshold_value = self.user_selected_threshold if getattr(self, 'user_selected_threshold', None) is not None else np.percentile(image_to_use[:, :, :, :, self.current_channel].ravel(), 99)
-        # Prepare mask
-        mask = (self.segmentation_mask > 0).astype(int) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
+        # Prepare masks for tracking (supports both Cellpose and Segmentation)
+        masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks()
+        if masks_complete is None:
+            masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
         self.tracking_channel = self.current_channel
         self._sync_tracking_channel()
         # Run spot detection (no linking)
         list_dataframes_trajectories, _ = mi.ParticleTracking(
             image=image_to_use,
             channels_spots=[self.current_channel],
-            masks=mask,
+            masks=masks_complete,
+            masks_nuclei=masks_nuc,
+            masks_cytosol_no_nuclei=masks_cyto_no_nuc,
             list_voxels=[self.voxel_z_nm, self.voxel_yx_nm],
             memory=self.memory,
             channels_cytosol=self.channels_cytosol,
@@ -3794,7 +3870,9 @@ class GUI(QMainWindow):
             random_tracking = mi.ParticleTracking(
                 image=image_to_use,
                 channels_spots=[self.current_channel],
-                masks=mask,
+                masks=masks_complete,
+                masks_nuclei=masks_nuc,
+                masks_cytosol_no_nuclei=masks_cyto_no_nuc,
                 list_voxels=[self.voxel_z_nm, self.voxel_yx_nm],
                 memory=self.memory,
                 channels_cytosol=self.channels_cytosol,
@@ -3898,7 +3976,7 @@ class GUI(QMainWindow):
         image_channel = image_to_use[self.current_frame, :, :, :, ch]
         max_proj = np.max(image_channel, axis=0)
         if self.tracking_remove_background_checkbox.isChecked():
-            mask = np.where(self.segmentation_mask > 0, 1, 0) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
+            mask = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
             max_proj = max_proj * mask
         min_p = self.min_percentile_spinbox_tracking.value() if hasattr(self, 'min_percentile_spinbox_tracking') else self.tracking_min_percentile
         max_p = self.max_percentile_spinbox_tracking.value() if hasattr(self, 'max_percentile_spinbox_tracking') else 99.95
@@ -4045,7 +4123,7 @@ class GUI(QMainWindow):
         self.figure_tracking.tight_layout()
         self.canvas_tracking.draw_idle()
 
-    def detect_spots(self, image, threshold, list_voxels, mask):
+    def detect_spots(self, image, threshold, list_voxels, masks_complete_cells, masks_nuclei=None, masks_cytosol_no_nuclei=None):
         z_sp_sz = self.z_spot_size_in_px if self.z_spot_size_in_px is not None else 1
         yx_sp_sz = self.yx_spot_size_in_px if self.yx_spot_size_in_px is not None else 5
         dataframe = mi.SpotDetection(
@@ -4053,7 +4131,9 @@ class GUI(QMainWindow):
                 channels_spots=0,
                 channels_cytosol=self.channels_cytosol,
                 channels_nucleus=self.channels_nucleus,
-                masks_complete_cells=mask,
+                masks_complete_cells=masks_complete_cells,
+                masks_nuclei=masks_nuclei,
+                masks_cytosol_no_nuclei=masks_cytosol_no_nuclei,
                 list_voxels=list_voxels,
                 yx_spot_size_in_px=yx_sp_sz,
                 z_spot_size_in_px=z_sp_sz,
@@ -4076,8 +4156,11 @@ class GUI(QMainWindow):
             self.voxel_z_nm = 0.1 
         list_voxels = [self.voxel_z_nm, self.voxel_yx_nm]
         threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else np.percentile(image_channel, 99)
-        mask = (self.segmentation_mask > 0).astype(int) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
-        spots = self.detect_spots(image_channel, threshold, list_voxels, mask)
+        # Get masks for tracking (supports both Cellpose and Segmentation)
+        masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks()
+        if masks_complete is None:
+            masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
+        spots = self.detect_spots(image_channel, threshold, list_voxels, masks_complete, masks_nuc, masks_cyto_no_nuc)
         if spots is not None and not spots.empty:
             spots['frame'] = self.current_frame
             self.detected_spots_frame = spots
@@ -4097,7 +4180,10 @@ class GUI(QMainWindow):
         self.df_tracking = pd.DataFrame()
         self.detected_spots_frame = None
         self.plot_tracking()
-        mask = (self.segmentation_mask > 0).astype(int) if self.segmentation_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
+        # Get masks for tracking (supports both Cellpose and Segmentation)
+        masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks()
+        if masks_complete is None:
+            masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
         image_to_use = self.get_current_image_source()
         if self.use_maximum_projection:
             image_to_use = np.max(image_to_use, axis=1, keepdims=True)
@@ -4142,7 +4228,7 @@ class GUI(QMainWindow):
             'link_using_3d_coordinates': self.link_using_3d_coordinates,
         }
         try:
-            results = self.track_particles(image_to_use, mask, parameters, self.use_maximum_projection)
+            results = self.track_particles(image_to_use, masks_complete, masks_nuc, masks_cyto_no_nuc, parameters, self.use_maximum_projection)
             self.on_tracking_finished_with_progress(results, progress)
             #return
         except Exception as e:
@@ -4154,7 +4240,9 @@ class GUI(QMainWindow):
             random_tracking = mi.ParticleTracking(
                 image=image_to_use,
                 channels_spots=[self.current_channel],
-                masks=mask,
+                masks=masks_complete,
+                masks_nuclei=masks_nuc,
+                masks_cytosol_no_nuclei=masks_cyto_no_nuc,
                 list_voxels=list_voxels,
                 memory=self.memory,
                 channels_cytosol=self.channels_cytosol,
@@ -7311,6 +7399,18 @@ class GUI(QMainWindow):
             self.time_slider_tracking.setValue(0)
         if hasattr(self, 'tracking_show_masks_checkbox'):
             self.tracking_show_masks_checkbox.setChecked(False)
+        # Reset threshold slider and histogram
+        if hasattr(self, 'threshold_slider'):
+            self.threshold_slider.setValue(0)
+            self.threshold_slider.setMinimum(0)
+            self.threshold_slider.setMaximum(10000)
+        self.user_selected_threshold = None
+        # Clear threshold histogram
+        if hasattr(self, 'ax_threshold_hist'):
+            self.ax_threshold_hist.clear()
+            self.ax_threshold_hist.set_facecolor('black')
+            self.ax_threshold_hist.axis('off')
+            self.canvas_threshold_hist.draw_idle()
 
     def reset_distribution_tab(self):
         self.figure_distribution.clear()
