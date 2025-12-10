@@ -1663,6 +1663,17 @@ class GUI(QMainWindow):
             self.time_slider_cellpose.setValue(0)
             self.cellpose_current_frame = 0
         
+        # Reset TYX mask spinbox and validate against image timepoints
+        if hasattr(self, 'max_timepoints_spinbox'):
+            self.max_timepoints_spinbox.setMaximum(T)
+            # Set default to min(5, T) for meaningful TYX sampling
+            self.max_timepoints_spinbox.setValue(min(5, T))
+        if hasattr(self, 'chk_calculate_masks_over_time'):
+            self.chk_calculate_masks_over_time.setChecked(False)
+        if hasattr(self, 'minimal_frames_spinbox'):
+            self.minimal_frames_spinbox.setMaximum(T)
+            self.minimal_frames_spinbox.setValue(min(2, T))  # Reset to default, capped at T
+        
         # Enable display controls
         self.set_display_controls_enabled(True)
         self.playing = False
@@ -1985,6 +1996,14 @@ class GUI(QMainWindow):
             self.time_slider_tracking_vis.blockSignals(True)
             self.time_slider_tracking_vis.setValue(value)
             self.time_slider_tracking_vis.blockSignals(False)
+        # Sync Cellpose time slider and update TYX masks
+        if hasattr(self, 'time_slider_cellpose'):
+            if self.time_slider_cellpose.value() != value:
+                self.time_slider_cellpose.blockSignals(True)
+                self.time_slider_cellpose.setValue(value)
+                self.time_slider_cellpose.blockSignals(False)
+            # Always update Cellpose frame to sync TYX masks
+            self.update_cellpose_frame(value)
         self.detected_spots_frame = None
         self.plot_image()
         self.plot_tracking()
@@ -2664,6 +2683,12 @@ class GUI(QMainWindow):
             and not self.df_tracking.empty):
             self.display_tracking_visualization()
         elif current_tab == self.tabs.indexOf(self.cellpose_tab):
+            # Sync TYX masks if active before plotting
+            if getattr(self, 'use_tyx_masks', False):
+                if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+                if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
             self.plot_cellpose_results()
 
     def setup_cellpose_tab(self):
@@ -2788,6 +2813,48 @@ class GUI(QMainWindow):
         nuc_group.setLayout(nuc_layout)
         right_layout.addWidget(nuc_group)
 
+        # Time-Varying Masks Group (TYX)
+        tyx_group = QGroupBox("Time-Varying Masks (TYX)")
+        tyx_layout = QFormLayout()
+        
+        self.chk_calculate_masks_over_time = QCheckBox("Calculate Masks Over Time")
+        self.chk_calculate_masks_over_time.setChecked(False)
+        self.chk_calculate_masks_over_time.setToolTip(
+            "When enabled, Cellpose will calculate masks at multiple timepoints "
+            "and track cell IDs across time using IoU-based linking."
+        )
+        tyx_layout.addRow(self.chk_calculate_masks_over_time)
+        
+        self.max_timepoints_spinbox = QSpinBox()
+        self.max_timepoints_spinbox.setRange(1, 1000)
+        self.max_timepoints_spinbox.setValue(5)  # Default 5 timepoints for meaningful TYX
+        self.max_timepoints_spinbox.setToolTip(
+            "Maximum number of timepoints to sample for mask calculation. "
+            "Intermediate frames use nearest sampled mask."
+        )
+        tyx_layout.addRow("Max Timepoints:", self.max_timepoints_spinbox)
+        
+        self.linking_memory_spinbox = QSpinBox()
+        self.linking_memory_spinbox.setRange(0, 100)
+        self.linking_memory_spinbox.setValue(1)
+        self.linking_memory_spinbox.setToolTip(
+            "Number of frames a cell can disappear before being assigned a new ID. "
+            "Helps track cells that temporarily leave the field of view."
+        )
+        tyx_layout.addRow("Linking Memory:", self.linking_memory_spinbox)
+        
+        self.minimal_frames_spinbox = QSpinBox()
+        self.minimal_frames_spinbox.setRange(1, 1000)
+        self.minimal_frames_spinbox.setValue(2)  # Default: cells must exist for at least 2 frames
+        self.minimal_frames_spinbox.setToolTip(
+            "Minimum number of frames a cell must exist to be kept. "
+            "Cells appearing for fewer frames are removed as artifacts."
+        )
+        tyx_layout.addRow("Minimal Frames:", self.minimal_frames_spinbox)
+        
+        tyx_group.setLayout(tyx_layout)
+        right_layout.addWidget(tyx_group)
+
         # Improve Segmentation Group
         improve_group = QGroupBox("Improve Segmentation")
         improve_layout = QFormLayout()
@@ -2819,6 +2886,10 @@ class GUI(QMainWindow):
         self.cellpose_masks_nuc = None
         self.cellpose_current_channel = 0
         self.cellpose_current_frame = 0
+        # TYX mask state variables
+        self.cellpose_masks_cyto_tyx = None  # [T, Y, X] labeled masks
+        self.cellpose_masks_nuc_tyx = None   # [T, Y, X] labeled masks
+        self.use_tyx_masks = False           # Flag: are TYX masks active?
 
     def create_cellpose_channel_buttons(self):
         # Clear existing buttons
@@ -2836,6 +2907,12 @@ class GUI(QMainWindow):
 
     def update_cellpose_frame(self, value):
         self.cellpose_current_frame = value
+        # Sync YX masks from TYX when TYX masks are active
+        if getattr(self, 'use_tyx_masks', False):
+            if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[value]
+            if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[value]
         self.plot_cellpose_results()
 
     def update_cellpose_channel(self, channel_index):
@@ -2849,48 +2926,98 @@ class GUI(QMainWindow):
         try:
             # Get parameters
             channel = self.cellpose_cyto_channel_input.value()
-            diameter = self.cellpose_cyto_diameter_input.value()
-            flow_threshold = self.cellpose_cyto_flow_input.value()
+            diameter = int(self.cellpose_cyto_diameter_input.value())
             model_name = self.cellpose_cyto_model_input.currentText()
             
-            # Prepare image
-            if self.image_stack.ndim == 5:
-                img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
-            else:
-                img = self.image_stack
+            # Check if TYX masks are requested
+            if (self.chk_calculate_masks_over_time.isChecked() and 
+                self.image_stack.ndim == 5 and 
+                self.image_stack.shape[0] > 1):
                 
-            # Run Cellpose for Cytosol
-            # We use the existing CellSegmentation class but only for cytosol
-            # Note: We use a temporary instance to get the mask
-            segmenter = mi.CellSegmentation(
-                img,
-                channels_cytosol=[channel],
-                channels_nucleus=None,
-                diameter_cytosol=diameter,
-                selection_metric='max_cells_and_area' if self.chk_optimize_cyto.isChecked() else None,
-                show_plot=False,
-                model_cyto_segmentation=model_name
-            )
-            # We need to manually inject the flow threshold if possible, or rely on defaults/constructor
-            # The current CellSegmentation constructor doesn't take flow_threshold directly, 
-            # but we can use the backend Cellpose class directly if needed, or stick to CellSegmentation.
-            # For consistency with existing code, let's use CellSegmentation.
+                max_tp = min(self.max_timepoints_spinbox.value(), self.image_stack.shape[0])
+                linking_memory = self.linking_memory_spinbox.value()
+                
+                # Create progress dialog
+                progress = QProgressDialog("Calculating TYX cytosol masks...", "Cancel", 0, max_tp, self)
+                progress.setWindowTitle("Cellpose Segmentation")
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setMinimumDuration(0)
+                progress.show()
+                QApplication.processEvents()
+                
+                # Progress callback for CellposeTimeSeries
+                def progress_callback(msg):
+                    # Extract frame number from message like "Calculating cytosol masks: frame 3/10 (2/5)"
+                    if progress.wasCanceled():
+                        return  # User cancelled
+                    try:
+                        parts = msg.split("(")[1].split(")")[0].split("/")
+                        current = int(parts[0])
+                        progress.setValue(current)
+                        progress.setLabelText(msg)
+                    except:
+                        progress.setLabelText(msg)
+                    QApplication.processEvents()
+                
+                tyx_generator = mi.CellposeTimeSeries(
+                    image=self.image_stack,
+                    channels_cytosol=channel,
+                    channels_nucleus=None,
+                    diameter_cytosol=diameter,
+                    diameter_nucleus=60,
+                    max_timepoints=max_tp,
+                    linking_memory=linking_memory,
+                    model_type_cyto=model_name,
+                    progress_callback=progress_callback
+                )
+                
+                masks_cyto_tyx, _ = tyx_generator.calculate_tyx_masks()
+                progress.close()
+                
+                if masks_cyto_tyx is not None:
+                    # Filter short-lived masks (artifacts) and reindex IDs
+                    min_frames = self.minimal_frames_spinbox.value()
+                    masks_cyto_tyx = mi.CellposeTimeSeries.filter_short_lived_masks(masks_cyto_tyx, min_frames)
+                    
+                    self.cellpose_masks_cyto_tyx = masks_cyto_tyx
+                    # Also set the current frame's YX mask for compatibility
+                    self.cellpose_masks_cyto = masks_cyto_tyx[self.cellpose_current_frame]
+                    self.use_tyx_masks = True
+                else:
+                    self.use_tyx_masks = False
+                    
+                self.statusBar().showMessage(f"TYX cytosol masks calculated: {max_tp} timepoints")
+            else:
+                # Standard YX mask (existing behavior)
+                if self.image_stack.ndim == 5:
+                    img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
+                else:
+                    img = self.image_stack
+                    
+                segmenter = mi.CellSegmentation(
+                    img,
+                    channels_cytosol=[channel],
+                    channels_nucleus=None,
+                    diameter_cytosol=diameter,
+                    selection_metric='max_cells_and_area' if self.chk_optimize_cyto.isChecked() else None,
+                    show_plot=False,
+                    model_cyto_segmentation=model_name
+                )
+                
+                masks_cyto, _, _ = segmenter.calculate_masks()
+                
+                self.cellpose_masks_cyto = masks_cyto
+                self.cellpose_masks_cyto_tyx = None
+                self.use_tyx_masks = False
             
-            # NOTE: CellSegmentation.calculate_masks() handles the logic. 
-            # To support custom flow threshold, we might need to modify CellSegmentation or accept the default.
-            # The user requested to change flow threshold. 
-            # The CellSegmentation class uses 'optimization_segmentation_method' or defaults.
-            # Let's assume for now we use the standard parameters exposed by CellSegmentation.
-            
-            masks_cyto, _, _ = segmenter.calculate_masks()
-            
-            self.cellpose_masks_cyto = masks_cyto
             self._active_mask_source = 'cellpose'
             # Clear watershed mask since we're using Cellpose now
             self.segmentation_mask = None
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Cytosol segmentation failed: {str(e)}")
 
     def run_cellpose_nuc(self):
@@ -2900,35 +3027,97 @@ class GUI(QMainWindow):
         try:
             # Get parameters
             channel = self.cellpose_nuc_channel_input.value()
-            diameter = self.cellpose_nuc_diameter_input.value()
+            diameter = int(self.cellpose_nuc_diameter_input.value())
             model_name = self.cellpose_nuc_model_input.currentText()
             
-            # Prepare image
-            if self.image_stack.ndim == 5:
-                img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
-            else:
-                img = self.image_stack
+            # Check if TYX masks are requested
+            if (self.chk_calculate_masks_over_time.isChecked() and 
+                self.image_stack.ndim == 5 and 
+                self.image_stack.shape[0] > 1):
                 
-            # Run Cellpose for Nucleus
-            segmenter = mi.CellSegmentation(
-                img,
-                channels_cytosol=None,
-                channels_nucleus=[channel],
-                diameter_nucleus=diameter,
-                selection_metric='max_cells_and_area' if self.chk_optimize_nuc.isChecked() else None,
-                show_plot=False,
-                model_nuc_segmentation=model_name
-            )
+                max_tp = min(self.max_timepoints_spinbox.value(), self.image_stack.shape[0])
+                linking_memory = self.linking_memory_spinbox.value()
+                
+                # Create progress dialog
+                progress = QProgressDialog("Calculating TYX nucleus masks...", "Cancel", 0, max_tp, self)
+                progress.setWindowTitle("Cellpose Segmentation")
+                progress.setWindowModality(Qt.WindowModal)
+                progress.setMinimumDuration(0)
+                progress.show()
+                QApplication.processEvents()
+                
+                # Progress callback for CellposeTimeSeries
+                def progress_callback(msg):
+                    if progress.wasCanceled():
+                        return
+                    try:
+                        parts = msg.split("(")[1].split(")")[0].split("/")
+                        current = int(parts[0])
+                        progress.setValue(current)
+                        progress.setLabelText(msg)
+                    except:
+                        progress.setLabelText(msg)
+                    QApplication.processEvents()
+                
+                tyx_generator = mi.CellposeTimeSeries(
+                    image=self.image_stack,
+                    channels_cytosol=None,
+                    channels_nucleus=channel,
+                    diameter_cytosol=150,
+                    diameter_nucleus=diameter,
+                    max_timepoints=max_tp,
+                    linking_memory=linking_memory,
+                    model_type_nuc=model_name,
+                    progress_callback=progress_callback
+                )
+                
+                _, masks_nuc_tyx = tyx_generator.calculate_tyx_masks()
+                progress.close()
+                
+                if masks_nuc_tyx is not None:
+                    # Filter short-lived masks (artifacts) and reindex IDs
+                    min_frames = self.minimal_frames_spinbox.value()
+                    masks_nuc_tyx = mi.CellposeTimeSeries.filter_short_lived_masks(masks_nuc_tyx, min_frames)
+                    
+                    self.cellpose_masks_nuc_tyx = masks_nuc_tyx
+                    # Also set the current frame's YX mask for compatibility
+                    self.cellpose_masks_nuc = masks_nuc_tyx[self.cellpose_current_frame]
+                    self.use_tyx_masks = True
+                else:
+                    self.use_tyx_masks = False
+                    
+                self.statusBar().showMessage(f"TYX nucleus masks calculated: {max_tp} timepoints")
+            else:
+                # Standard YX mask (existing behavior)
+                if self.image_stack.ndim == 5:
+                    img = self.image_stack[self.cellpose_current_frame, :, :, :, :]
+                else:
+                    img = self.image_stack
+                    
+                segmenter = mi.CellSegmentation(
+                    img,
+                    channels_cytosol=None,
+                    channels_nucleus=[channel],
+                    diameter_nucleus=diameter,
+                    selection_metric='max_cells_and_area' if self.chk_optimize_nuc.isChecked() else None,
+                    show_plot=False,
+                    model_nuc_segmentation=model_name
+                )
+                
+                _, masks_nuc, _ = segmenter.calculate_masks()
+                
+                self.cellpose_masks_nuc = masks_nuc
+                self.cellpose_masks_nuc_tyx = None
+                self.use_tyx_masks = False
             
-            _, masks_nuc, _ = segmenter.calculate_masks()
-            
-            self.cellpose_masks_nuc = masks_nuc
             self._active_mask_source = 'cellpose'
             # Clear watershed mask since we're using Cellpose now
             self.segmentation_mask = None
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Nucleus segmentation failed: {str(e)}")
 
     def synchronize_and_plot_cellpose(self):
@@ -2946,25 +3135,73 @@ class GUI(QMainWindow):
     def clear_cellpose_masks(self):
         self.cellpose_masks_cyto = None
         self.cellpose_masks_nuc = None
+        # Clear TYX masks too
+        self.cellpose_masks_cyto_tyx = None
+        self.cellpose_masks_nuc_tyx = None
+        self.use_tyx_masks = False
         self.plot_cellpose_results()
 
     def on_remove_border_cells_changed(self, state):
-        """Handle checkbox state change for removing border-touching cells."""
+        """Handle checkbox state change for removing border-touching cells.
+        
+        For TYX masks: If a cell touches the border in ANY frame, it is removed
+        from ALL frames to ensure consistent tracking.
+        """
         if state == Qt.Checked:
-            # Collect border-touching labels from BOTH masks (they share IDs after sync)
+            # Collect border-touching labels across ALL timepoints
             border_labels = set()
             
-            if self.cellpose_masks_cyto is not None:
-                border_labels.update(self.get_border_touching_labels(self.cellpose_masks_cyto))
-            if self.cellpose_masks_nuc is not None:
-                border_labels.update(self.get_border_touching_labels(self.cellpose_masks_nuc))
-            
-            # Remove those labels from BOTH masks
-            if self.cellpose_masks_cyto is not None:
-                self.cellpose_masks_cyto = self.remove_labels_and_reindex(self.cellpose_masks_cyto, border_labels)
-            if self.cellpose_masks_nuc is not None:
-                self.cellpose_masks_nuc = self.remove_labels_and_reindex(self.cellpose_masks_nuc, border_labels)
+            # Check TYX masks first (if they exist)
+            if getattr(self, 'use_tyx_masks', False):
+                # Scan all timepoints in TYX arrays for border-touching cells
+                if self.cellpose_masks_cyto_tyx is not None:
+                    for t in range(self.cellpose_masks_cyto_tyx.shape[0]):
+                        border_labels.update(self.get_border_touching_labels(self.cellpose_masks_cyto_tyx[t]))
+                if self.cellpose_masks_nuc_tyx is not None:
+                    for t in range(self.cellpose_masks_nuc_tyx.shape[0]):
+                        border_labels.update(self.get_border_touching_labels(self.cellpose_masks_nuc_tyx[t]))
+                
+                # Remove labels from ALL timepoints in TYX arrays
+                if self.cellpose_masks_cyto_tyx is not None and border_labels:
+                    self.cellpose_masks_cyto_tyx = self._remove_labels_from_tyx(self.cellpose_masks_cyto_tyx, border_labels)
+                    # Update current frame YX mask
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.cellpose_current_frame]
+                if self.cellpose_masks_nuc_tyx is not None and border_labels:
+                    self.cellpose_masks_nuc_tyx = self._remove_labels_from_tyx(self.cellpose_masks_nuc_tyx, border_labels)
+                    # Update current frame YX mask
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.cellpose_current_frame]
+            else:
+                # Standard YX mask handling (non-TYX mode)
+                if self.cellpose_masks_cyto is not None:
+                    border_labels.update(self.get_border_touching_labels(self.cellpose_masks_cyto))
+                if self.cellpose_masks_nuc is not None:
+                    border_labels.update(self.get_border_touching_labels(self.cellpose_masks_nuc))
+                
+                # Remove those labels from BOTH masks
+                if self.cellpose_masks_cyto is not None:
+                    self.cellpose_masks_cyto = self.remove_labels_and_reindex(self.cellpose_masks_cyto, border_labels)
+                if self.cellpose_masks_nuc is not None:
+                    self.cellpose_masks_nuc = self.remove_labels_and_reindex(self.cellpose_masks_nuc, border_labels)
         self.plot_cellpose_results()
+    
+    def _remove_labels_from_tyx(self, masks_tyx, labels_to_remove):
+        """Remove specified labels from TYX mask array and reindex IDs."""
+        if masks_tyx is None or not labels_to_remove:
+            return masks_tyx
+        
+        # Find all remaining IDs
+        all_ids = set(np.unique(masks_tyx))
+        all_ids.discard(0)
+        remaining_ids = all_ids - labels_to_remove
+        
+        # Create new TYX array with reindexed IDs
+        new_masks = np.zeros_like(masks_tyx)
+        new_id = 1
+        for old_id in sorted(remaining_ids):
+            new_masks[masks_tyx == old_id] = new_id
+            new_id += 1
+        
+        return new_masks
 
     def on_remove_unpaired_cells_changed(self, state):
         """Handle checkbox state change for removing unpaired cells."""
@@ -6042,6 +6279,8 @@ class GUI(QMainWindow):
         fig.clear()
         frame_idx = int(self.current_frame)
         img_src = self.get_current_image_source()
+        if img_src is None:
+            return  # No image loaded yet
         proj = np.max(img_src[frame_idx], axis=0) if img_src.ndim == 5 else (img_src[frame_idx] if img_src.ndim == 4 else img_src)
         # Apply background removal if requested (use segmentation mask)
         frame_img = proj[np.newaxis, ...] if proj.ndim == 2 else proj.transpose(2, 0, 1)
@@ -7096,13 +7335,15 @@ class GUI(QMainWindow):
     def export_cellpose_masks_as_tiff(self):
         """
         Export Cellpose masks (cytosol and nucleus) as separate labeled TIFF files.
-        Each file contains the original label values (0=background, 1-N=cell IDs).
+        Supports both 2D YX masks and 3D TYX time-varying masks.
         """
-        # Check if any Cellpose masks are available
+        # Check for TYX masks first, then YX masks
+        has_cyto_tyx = self.cellpose_masks_cyto_tyx is not None
+        has_nuc_tyx = self.cellpose_masks_nuc_tyx is not None
         has_cyto = self.cellpose_masks_cyto is not None
         has_nuc = self.cellpose_masks_nuc is not None
         
-        if not has_cyto and not has_nuc:
+        if not has_cyto and not has_nuc and not has_cyto_tyx and not has_nuc_tyx:
             QMessageBox.warning(self, "No Cellpose Masks", 
                                 "No Cellpose masks available to export.\nRun Cellpose segmentation first.")
             return
@@ -7126,18 +7367,29 @@ class GUI(QMainWindow):
         
         exported_files = []
         try:
-            # Export cytosol mask if available
-            if has_cyto:
+            # Export TYX cytosol mask if available (priority over YX)
+            if has_cyto_tyx:
+                cyto_path = f"{base_path}_cytosol_TYX.tif"
+                # Save as uint16 for TYX (supports larger cell counts over time)
+                mask_cyto = np.asarray(self.cellpose_masks_cyto_tyx).astype(np.uint16)
+                tifffile.imwrite(cyto_path, mask_cyto, photometric='minisblack', 
+                                metadata={'axes': 'TYX'})
+                exported_files.append(f"Cytosol TYX: {cyto_path} (shape: {mask_cyto.shape})")
+            elif has_cyto:
                 cyto_path = f"{base_path}_cytosol.tif"
-                # Save as uint8 (supports 0-255 labels)
                 mask_cyto = self.cellpose_masks_cyto.astype(np.uint8)
                 tifffile.imwrite(cyto_path, mask_cyto, photometric='minisblack')
                 exported_files.append(f"Cytosol: {cyto_path}")
             
-            # Export nucleus mask if available
-            if has_nuc:
+            # Export TYX nucleus mask if available (priority over YX)
+            if has_nuc_tyx:
+                nuc_path = f"{base_path}_nucleus_TYX.tif"
+                mask_nuc = np.asarray(self.cellpose_masks_nuc_tyx).astype(np.uint16)
+                tifffile.imwrite(nuc_path, mask_nuc, photometric='minisblack',
+                                metadata={'axes': 'TYX'})
+                exported_files.append(f"Nucleus TYX: {nuc_path} (shape: {mask_nuc.shape})")
+            elif has_nuc:
                 nuc_path = f"{base_path}_nucleus.tif"
-                # Save as uint8 (supports 0-255 labels)
                 mask_nuc = self.cellpose_masks_nuc.astype(np.uint8)
                 tifffile.imwrite(nuc_path, mask_nuc, photometric='minisblack')
                 exported_files.append(f"Nucleus: {nuc_path}")
@@ -7145,9 +7397,13 @@ class GUI(QMainWindow):
             # Show success message
             n_cyto = int(self.cellpose_masks_cyto.max()) if has_cyto else 0
             n_nuc = int(self.cellpose_masks_nuc.max()) if has_nuc else 0
+            
             msg = f"Cellpose masks exported successfully!\n\n"
-            msg += f"Cells detected: {max(n_cyto, n_nuc)}\n"
-            msg += f"Label range: 0 (background) to {max(n_cyto, n_nuc)} (cells)\n\n"
+            if has_cyto_tyx or has_nuc_tyx:
+                msg += f"Format: 3D Time-Varying [T, Y, X]\n"
+            else:
+                msg += f"Format: 2D [Y, X]\n"
+            msg += f"Max cells per frame: {max(n_cyto, n_nuc)}\n\n"
             msg += "Files:\n" + "\n".join(exported_files)
             QMessageBox.information(self, "Export Success", msg)
             
@@ -7611,9 +7867,13 @@ class GUI(QMainWindow):
 
     def reset_cellpose_tab(self):
         """Reset Cellpose tab state, masks, and UI controls to defaults."""
-        # Clear masks
+        # Clear masks (YX)
         self.cellpose_masks_cyto = None
         self.cellpose_masks_nuc = None
+        # Clear TYX masks
+        self.cellpose_masks_cyto_tyx = None
+        self.cellpose_masks_nuc_tyx = None
+        self.use_tyx_masks = False
         
         # Reset frame/channel indices
         if hasattr(self, 'cellpose_current_frame'):

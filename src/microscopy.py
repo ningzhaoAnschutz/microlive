@@ -58,7 +58,7 @@ from skimage.feature import peak_local_max, blob_log
 ### Scipy imports
 from scipy import signal, ndimage
 from scipy.ndimage import gaussian_filter, binary_dilation, gaussian_filter1d
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, linear_sum_assignment
 #import scipy.stats as stats
 from scipy.spatial.distance import cdist
 from scipy.stats import linregress, pearsonr
@@ -374,6 +374,11 @@ class Photobleaching:
         self.plot_name = plot_name
         self.radius = radius
         if mask_YX is not None:
+            # Handle both 2D (YX) and 3D (TYX) masks
+            if mask_YX.ndim == 3:
+                # TYX mask - convert to 2D by taking max across time
+                # This creates a union of all cells across all timepoints
+                mask_YX = np.max(mask_YX, axis=0)
             self.mask_YX = (mask_YX > 0)
             self.user_provided_mask = True
         else:
@@ -1522,6 +1527,383 @@ class Cellpose():
         selected_masks = Utilities().remove_artifacts_from_mask_image(selected_masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
         return selected_masks
     
+
+class CellposeTimeSeries:
+    """
+    Generate Cellpose masks across multiple time points with consistent cell ID tracking.
+    
+    Uses IoU-based overlap linking with Hungarian algorithm to maintain cell IDs across time.
+    Supports temporal downsampling with nearest-mask assignment for non-sampled frames.
+    
+    Parameters
+    ----------
+    image : ndarray
+        5D image array with shape [T, Z, Y, X, C].
+    channels_cytosol : int or None
+        Channel index for cytosol segmentation.
+    channels_nucleus : int or None
+        Channel index for nucleus segmentation.
+    diameter_cytosol : int
+        Expected cell diameter for cytosol segmentation.
+    diameter_nucleus : int
+        Expected nucleus diameter.
+    max_timepoints : int
+        Maximum number of timepoints to sample. If less than T, temporal downsampling is applied.
+    linking_memory : int
+        Number of frames a cell can disappear before getting a new ID. Default is 5.
+    min_iou_threshold : float
+        Minimum IoU for cell linking. Default is 0.3.
+    model_type_cyto : str
+        Cellpose model for cytosol. Default 'cyto3'.
+    model_type_nuc : str
+        Cellpose model for nucleus. Default 'nuclei'.
+    use_memmap : bool
+        If True, use memory-mapped arrays for large TYX masks. Default False.
+    """
+    
+    def __init__(
+        self,
+        image: np.ndarray,
+        channels_cytosol: int = None,
+        channels_nucleus: int = None,
+        diameter_cytosol: int = 120,
+        diameter_nucleus: int = 60,
+        max_timepoints: int = 10,
+        linking_memory: int = 5,
+        min_iou_threshold: float = 0.3,
+        model_type_cyto: str = 'cyto3',
+        model_type_nuc: str = 'nuclei',
+        use_memmap: bool = False,
+        progress_callback=None
+    ):
+        if image.ndim != 5:
+            raise ValueError("Image must be 5D with shape [T, Z, Y, X, C]")
+        
+        self.image = image
+        self.T, self.Z, self.Y, self.X, self.C = image.shape
+        self.channels_cytosol = channels_cytosol
+        self.channels_nucleus = channels_nucleus
+        self.diameter_cytosol = diameter_cytosol
+        self.diameter_nucleus = diameter_nucleus
+        self.max_timepoints = min(max_timepoints, self.T)
+        self.linking_memory = linking_memory
+        self.min_iou_threshold = min_iou_threshold
+        self.model_type_cyto = model_type_cyto
+        self.model_type_nuc = model_type_nuc
+        self.use_memmap = use_memmap
+        self.progress_callback = progress_callback
+    
+    def calculate_tyx_masks(self):
+        """
+        Calculate TYX masks with consistent cell IDs across time.
+        
+        Returns
+        -------
+        masks_cyto_tyx : ndarray or None
+            3D array [T, Y, X] with labeled cytosol masks, or None if no cytosol channel.
+        masks_nuc_tyx : ndarray or None
+            3D array [T, Y, X] with labeled nucleus masks, or None if no nucleus channel.
+        """
+        # Determine which timepoints to sample
+        if self.max_timepoints >= self.T:
+            sampled_indices = list(range(self.T))
+        else:
+            sampled_indices = np.linspace(0, self.T - 1, self.max_timepoints, dtype=int).tolist()
+        
+        masks_cyto_tyx = None
+        masks_nuc_tyx = None
+        
+        # Calculate cytosol masks
+        if self.channels_cytosol is not None:
+            sampled_masks = self._calculate_masks_at_timepoints(
+                sampled_indices, 
+                self.channels_cytosol, 
+                self.diameter_cytosol, 
+                self.model_type_cyto,
+                "cytosol"
+            )
+            linked_masks = self._link_cells_across_time(sampled_masks)
+            masks_cyto_tyx = self._expand_to_full_time(linked_masks, sampled_indices)
+        
+        # Calculate nucleus masks
+        if self.channels_nucleus is not None:
+            sampled_masks = self._calculate_masks_at_timepoints(
+                sampled_indices, 
+                self.channels_nucleus, 
+                self.diameter_nucleus, 
+                self.model_type_nuc,
+                "nucleus"
+            )
+            linked_masks = self._link_cells_across_time(sampled_masks)
+            masks_nuc_tyx = self._expand_to_full_time(linked_masks, sampled_indices)
+        
+        return masks_cyto_tyx, masks_nuc_tyx
+    
+    def _calculate_masks_at_timepoints(self, indices, channel, diameter, model_type, label):
+        """Calculate Cellpose masks at specified timepoints."""
+        masks_list = []
+        total = len(indices)
+        
+        for i, t in enumerate(indices):
+            if self.progress_callback:
+                self.progress_callback(f"Calculating {label} masks: frame {t+1}/{self.T} ({i+1}/{total})")
+            
+            # Get ZYXC image for this timepoint
+            image_t = self.image[t]  # [Z, Y, X, C]
+            
+            # Use CellSegmentation which properly handles ZYXC images
+            # NOTE: Optimization disabled for TYX mode (selection_metric=None) for speed
+            if label == "cytosol":
+                segmenter = CellSegmentation(
+                    image_t,
+                    channels_cytosol=[channel],
+                    channels_nucleus=None,
+                    diameter_cytosol=diameter,
+                    selection_metric=None,  # No optimization for TYX (faster)
+                    show_plot=False,
+                    model_cyto_segmentation=model_type
+                )
+                mask, _, _ = segmenter.calculate_masks()
+            else:  # nucleus
+                segmenter = CellSegmentation(
+                    image_t,
+                    channels_cytosol=None,
+                    channels_nucleus=[channel],
+                    diameter_nucleus=diameter,
+                    selection_metric=None,  # No optimization for TYX (faster)
+                    show_plot=False,
+                    model_nuc_segmentation=model_type
+                )
+                _, mask, _ = segmenter.calculate_masks()
+            
+            if mask is None:
+                mask = np.zeros((self.Y, self.X), dtype=np.uint16)
+            masks_list.append(mask)
+        
+        return masks_list
+    
+    def _calculate_iou(self, mask1, id1, mask2, id2):
+        """Calculate IoU between two cell regions."""
+        region1 = (mask1 == id1)
+        region2 = (mask2 == id2)
+        intersection = np.sum(region1 & region2)
+        union = np.sum(region1 | region2)
+        return intersection / union if union > 0 else 0
+    
+    def _link_cells_across_time(self, masks_list):
+        """
+        Link cells across time using IoU-based overlap and Hungarian algorithm.
+        
+        Parameters
+        ----------
+        masks_list : list of ndarray
+            List of 2D labeled mask arrays, one per sampled timepoint.
+        
+        Returns
+        -------
+        linked_masks : list of ndarray
+            List of masks with consistent cell IDs across time.
+        """
+        if len(masks_list) == 0:
+            return []
+        
+        linked_masks = [masks_list[0].copy()]
+        next_new_id = int(np.max(masks_list[0])) + 1
+        
+        # Track disappeared cells for memory-based re-linking
+        # Format: {original_id: (last_seen_frame_idx, frames_since_seen)}
+        disappeared_cells = {}
+        
+        for t in range(1, len(masks_list)):
+            prev_mask = linked_masks[-1]
+            curr_mask = masks_list[t].copy()
+            
+            prev_ids = [i for i in np.unique(prev_mask) if i > 0]
+            curr_ids = [i for i in np.unique(curr_mask) if i > 0]
+            
+            # Include disappeared cells that are still within memory
+            active_prev_ids = prev_ids.copy()
+            for old_id, (last_mask_idx, frames_gone) in list(disappeared_cells.items()):
+                if frames_gone < self.linking_memory and old_id not in active_prev_ids:
+                    active_prev_ids.append(old_id)
+            
+            if len(active_prev_ids) == 0 or len(curr_ids) == 0:
+                # No cells to link - just assign new IDs
+                new_mask = np.zeros_like(curr_mask)
+                for cid in curr_ids:
+                    new_mask[curr_mask == cid] = next_new_id
+                    next_new_id += 1
+                linked_masks.append(new_mask)
+                
+                # Update disappeared cells
+                for pid in prev_ids:
+                    if pid not in disappeared_cells:
+                        disappeared_cells[pid] = (t-1, 1)
+                    else:
+                        disappeared_cells[pid] = (disappeared_cells[pid][0], disappeared_cells[pid][1] + 1)
+                continue
+            
+            # Build IoU cost matrix
+            cost_matrix = np.zeros((len(active_prev_ids), len(curr_ids)))
+            
+            for i, pid in enumerate(active_prev_ids):
+                # Get the mask to compare against (either current prev or last seen)
+                if pid in prev_ids:
+                    ref_mask = prev_mask
+                else:
+                    # Use the mask from when cell was last seen
+                    last_idx = disappeared_cells[pid][0]
+                    ref_mask = linked_masks[last_idx]
+                
+                for j, cid in enumerate(curr_ids):
+                    iou = self._calculate_iou(ref_mask, pid, curr_mask, cid)
+                    # Cost = negative IoU (we want to maximize IoU)
+                    cost_matrix[i, j] = -iou
+            
+            # Hungarian algorithm for optimal assignment
+            row_ind, col_ind = linear_sum_assignment(cost_matrix)
+            
+            # Create new mask with linked IDs
+            new_mask = np.zeros_like(curr_mask)
+            assigned_curr_ids = set()
+            
+            for r, c in zip(row_ind, col_ind):
+                pid = active_prev_ids[r]
+                cid = curr_ids[c]
+                iou = -cost_matrix[r, c]
+                
+                if iou >= self.min_iou_threshold:
+                    # Link: assign previous ID to current cell
+                    new_mask[curr_mask == cid] = pid
+                    assigned_curr_ids.add(cid)
+                    # Remove from disappeared if it reappeared
+                    if pid in disappeared_cells:
+                        del disappeared_cells[pid]
+            
+            # Assign new IDs to unassigned cells (new cells or failed links)
+            for cid in curr_ids:
+                if cid not in assigned_curr_ids:
+                    new_mask[curr_mask == cid] = next_new_id
+                    next_new_id += 1
+            
+            # Update disappeared cells tracking
+            matched_prev_ids = set()
+            for r, c in zip(row_ind, col_ind):
+                if -cost_matrix[r, c] >= self.min_iou_threshold:
+                    matched_prev_ids.add(active_prev_ids[r])
+            
+            for pid in prev_ids:
+                if pid not in matched_prev_ids:
+                    if pid not in disappeared_cells:
+                        disappeared_cells[pid] = (t-1, 1)
+                    else:
+                        disappeared_cells[pid] = (disappeared_cells[pid][0], disappeared_cells[pid][1] + 1)
+            
+            # Remove cells that exceeded memory
+            to_remove = [pid for pid, (_, frames) in disappeared_cells.items() 
+                        if frames >= self.linking_memory]
+            for pid in to_remove:
+                del disappeared_cells[pid]
+            
+            linked_masks.append(new_mask)
+        
+        return linked_masks
+    
+    def _expand_to_full_time(self, sampled_masks, sampled_indices):
+        """
+        Expand sampled masks to full time range using nearest-mask assignment.
+        
+        Parameters
+        ----------
+        sampled_masks : list of ndarray
+            Masks at sampled timepoints.
+        sampled_indices : list of int
+            Indices of sampled timepoints.
+        
+        Returns
+        -------
+        full_masks : ndarray
+            3D array [T, Y, X] with masks for all timepoints.
+        """
+        if len(sampled_masks) == 0:
+            return None
+        
+        # Create output array
+        if self.use_memmap:
+            import tempfile
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+            full_masks = np.memmap(
+                tmp_file.name, 
+                dtype=np.uint16, 
+                mode='w+', 
+                shape=(self.T, self.Y, self.X)
+            )
+        else:
+            full_masks = np.zeros((self.T, self.Y, self.X), dtype=np.uint16)
+        
+        # Assign nearest sampled mask to each timepoint
+        sampled_indices = np.array(sampled_indices)
+        
+        for t in range(self.T):
+            # Find nearest sampled index
+            distances = np.abs(sampled_indices - t)
+            nearest_idx = np.argmin(distances)
+            full_masks[t] = sampled_masks[nearest_idx]
+        
+        return full_masks
+    
+    @staticmethod
+    def filter_short_lived_masks(masks_tyx, min_frames=2):
+        """
+        Remove masks that exist for fewer than min_frames and reindex IDs.
+        
+        Parameters
+        ----------
+        masks_tyx : ndarray
+            3D array [T, Y, X] with labeled masks.
+        min_frames : int
+            Minimum number of frames a cell must exist to be kept.
+        
+        Returns
+        -------
+        filtered_masks : ndarray
+            3D array [T, Y, X] with short-lived masks removed and IDs reindexed.
+        """
+        if masks_tyx is None or min_frames < 1:
+            return masks_tyx
+        
+        T = masks_tyx.shape[0]
+        min_frames = min(min_frames, T)  # Cap at total frames
+        
+        # Count frames each cell ID appears in
+        all_ids = np.unique(masks_tyx)
+        all_ids = all_ids[all_ids > 0]  # Exclude background
+        
+        id_frame_counts = {}
+        for cell_id in all_ids:
+            # Count how many frames this ID appears in
+            frames_present = np.sum(np.any(masks_tyx == cell_id, axis=(1, 2)))
+            id_frame_counts[cell_id] = frames_present
+        
+        # Identify IDs to keep
+        ids_to_keep = {cid for cid, count in id_frame_counts.items() if count >= min_frames}
+        
+        # Create filtered mask
+        filtered_masks = np.zeros_like(masks_tyx)
+        
+        # Reindex: map old IDs to new continuous IDs
+        new_id = 1
+        id_mapping = {}
+        for old_id in sorted(ids_to_keep):
+            id_mapping[old_id] = new_id
+            new_id += 1
+        
+        # Apply filtering and reindexing
+        for old_id, new_id in id_mapping.items():
+            filtered_masks[masks_tyx == old_id] = new_id
+        
+        return filtered_masks
+
 
 class CellSegmentationWatershed:
     """
