@@ -7324,6 +7324,28 @@ class GUI(QMainWindow):
                     out_path = results_folder / default_filename
                     self._export_tracking_image(out_path)
 
+                elif label_text == "Export MSD Data":
+                    if hasattr(self, 'msd_per_trajectory') and self.msd_per_trajectory is not None:
+                        default_filename = self.get_default_export_filename(prefix="msd_dataframe", extension="csv")
+                        out_path = results_folder / default_filename
+                        try:
+                            self.msd_per_trajectory.to_csv(out_path, index=False)
+                        except Exception as e:
+                            print(f"Error exporting MSD data: {e}")
+                    else:
+                        print("No MSD data to export. Run MSD calculation first.")
+
+                elif label_text == "Export MSD Image":
+                    if hasattr(self, 'figure_msd') and self.msd_data is not None:
+                        default_filename = self.get_default_export_filename(prefix="msd_plot", extension="png")
+                        out_path = results_folder / default_filename
+                        try:
+                            self.figure_msd.savefig(out_path, dpi=300, bbox_inches='tight', facecolor='black')
+                        except Exception as e:
+                            print(f"Error exporting MSD image: {e}")
+                    else:
+                        print("No MSD plot to export. Run MSD calculation first.")
+
                 elif label_text == "Export Distributions Image":
                     default_filename = self.get_default_export_filename(prefix="distribution", extension="png")
                     out_path = results_folder / default_filename
@@ -8330,6 +8352,8 @@ class GUI(QMainWindow):
             ("Export Photobleaching Image", "photobleaching"),
             ("Export Tracking Data", "tracking_data"),
             ("Export Tracking Image", "tracking_image"),
+            ("Export MSD Data", "msd_data"),
+            ("Export MSD Image", "msd_image"),
             ("Export Distributions Image", "distribution"),
             ("Export Time Course Image", "time_course"),
             ("Export Correlation Image", "correlation"),
