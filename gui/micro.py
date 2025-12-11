@@ -3048,6 +3048,10 @@ class GUI(QMainWindow):
                     QApplication.processEvents()
                 
                 image_to_use = self.get_current_image_source()
+                
+                # Check if optimization is requested
+                selection_metric = 'max_cells_and_area' if self.chk_optimize_cyto.isChecked() else None
+                
                 tyx_generator = mi.CellposeTimeSeries(
                     image=image_to_use,
                     channels_cytosol=channel,
@@ -3057,7 +3061,8 @@ class GUI(QMainWindow):
                     max_timepoints=max_tp,
                     linking_memory=linking_memory,
                     model_type_cyto=model_name,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    selection_metric_cyto=selection_metric
                 )
                 
                 masks_cyto_tyx, _ = tyx_generator.calculate_tyx_masks()
@@ -3150,6 +3155,10 @@ class GUI(QMainWindow):
                     QApplication.processEvents()
                 
                 image_to_use = self.get_current_image_source()
+                
+                # Check if optimization is requested
+                selection_metric = 'max_cells_and_area' if self.chk_optimize_nuc.isChecked() else None
+                
                 tyx_generator = mi.CellposeTimeSeries(
                     image=image_to_use,
                     channels_cytosol=None,
@@ -3159,7 +3168,8 @@ class GUI(QMainWindow):
                     max_timepoints=max_tp,
                     linking_memory=linking_memory,
                     model_type_nuc=model_name,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    selection_metric_nuc=selection_metric
                 )
                 
                 _, masks_nuc_tyx = tyx_generator.calculate_tyx_masks()
@@ -3296,43 +3306,103 @@ class GUI(QMainWindow):
         return new_masks
 
     def on_remove_unpaired_cells_changed(self, state):
-        """Handle checkbox state change for removing unpaired cells."""
+        """Handle checkbox state change for removing unpaired cells.
+        
+        For TYX masks: Finds unpaired IDs across ALL frames and removes them
+        from ALL frames to ensure consistent tracking.
+        """
         if state == Qt.Checked:
-            # Only works if both cytosol and nucleus have been segmented
-            if self.cellpose_masks_cyto is None or self.cellpose_masks_nuc is None:
-                QMessageBox.warning(self, "Warning", 
-                    "Please segment both cytosol and nucleus first.")
-                self.chk_remove_unpaired_cells.blockSignals(True)
-                self.chk_remove_unpaired_cells.setChecked(False)
-                self.chk_remove_unpaired_cells.blockSignals(False)
-                return
-            
-            # Find IDs present in both masks
-            cyto_ids = set(np.unique(self.cellpose_masks_cyto))
-            nuc_ids = set(np.unique(self.cellpose_masks_nuc))
-            cyto_ids.discard(0)
-            nuc_ids.discard(0)
-            
-            # Paired IDs are those present in both masks
-            paired_ids = cyto_ids & nuc_ids
-            
-            # Remove unpaired cytosols (IDs only in cyto, not in nuc)
-            unpaired_cyto_ids = cyto_ids - paired_ids
-            if unpaired_cyto_ids:
-                self.cellpose_masks_cyto = self.remove_labels_and_reindex(
-                    self.cellpose_masks_cyto, unpaired_cyto_ids)
-            
-            # Remove unpaired nuclei (IDs only in nuc, not in cyto)
-            unpaired_nuc_ids = nuc_ids - paired_ids
-            if unpaired_nuc_ids:
-                self.cellpose_masks_nuc = self.remove_labels_and_reindex(
-                    self.cellpose_masks_nuc, unpaired_nuc_ids)
-            
-            # Re-synchronize to ensure IDs match after reindexing
-            if self.cellpose_masks_cyto is not None and self.cellpose_masks_nuc is not None:
-                self.cellpose_masks_cyto, self.cellpose_masks_nuc = mi.CellSegmentation.synchronize_masks(
-                    self.cellpose_masks_cyto, self.cellpose_masks_nuc
-                )
+            # Check if we're in TYX mode
+            if getattr(self, 'use_tyx_masks', False):
+                # TYX mode: handle 3D mask arrays
+                if self.cellpose_masks_cyto_tyx is None or self.cellpose_masks_nuc_tyx is None:
+                    QMessageBox.warning(self, "Warning", 
+                        "Please segment both cytosol and nucleus over time first.")
+                    self.chk_remove_unpaired_cells.blockSignals(True)
+                    self.chk_remove_unpaired_cells.setChecked(False)
+                    self.chk_remove_unpaired_cells.blockSignals(False)
+                    return
+                
+                # Find all IDs present across ALL timepoints
+                cyto_ids_all = set(np.unique(self.cellpose_masks_cyto_tyx))
+                nuc_ids_all = set(np.unique(self.cellpose_masks_nuc_tyx))
+                cyto_ids_all.discard(0)
+                nuc_ids_all.discard(0)
+                
+                # Paired IDs are those present in BOTH mask types (across all time)
+                paired_ids = cyto_ids_all & nuc_ids_all
+                
+                # Remove unpaired cytosols from ALL frames
+                unpaired_cyto_ids = cyto_ids_all - paired_ids
+                if unpaired_cyto_ids:
+                    self.cellpose_masks_cyto_tyx = self._remove_labels_from_tyx(
+                        self.cellpose_masks_cyto_tyx, unpaired_cyto_ids)
+                
+                # Remove unpaired nuclei from ALL frames
+                unpaired_nuc_ids = nuc_ids_all - paired_ids
+                if unpaired_nuc_ids:
+                    self.cellpose_masks_nuc_tyx = self._remove_labels_from_tyx(
+                        self.cellpose_masks_nuc_tyx, unpaired_nuc_ids)
+                
+                # Re-synchronize mask IDs across all timepoints
+                # Get final IDs after removal
+                final_cyto_ids = set(np.unique(self.cellpose_masks_cyto_tyx))
+                final_nuc_ids = set(np.unique(self.cellpose_masks_nuc_tyx))
+                final_cyto_ids.discard(0)
+                final_nuc_ids.discard(0)
+                
+                # Synchronize: ensure same IDs in both masks
+                common_ids = final_cyto_ids & final_nuc_ids
+                ids_to_remove_cyto = final_cyto_ids - common_ids
+                ids_to_remove_nuc = final_nuc_ids - common_ids
+                
+                if ids_to_remove_cyto:
+                    self.cellpose_masks_cyto_tyx = self._remove_labels_from_tyx(
+                        self.cellpose_masks_cyto_tyx, ids_to_remove_cyto)
+                if ids_to_remove_nuc:
+                    self.cellpose_masks_nuc_tyx = self._remove_labels_from_tyx(
+                        self.cellpose_masks_nuc_tyx, ids_to_remove_nuc)
+                
+                # Update current frame YX masks
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.cellpose_current_frame]
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.cellpose_current_frame]
+                
+            else:
+                # Standard YX mask handling (non-TYX mode)
+                if self.cellpose_masks_cyto is None or self.cellpose_masks_nuc is None:
+                    QMessageBox.warning(self, "Warning", 
+                        "Please segment both cytosol and nucleus first.")
+                    self.chk_remove_unpaired_cells.blockSignals(True)
+                    self.chk_remove_unpaired_cells.setChecked(False)
+                    self.chk_remove_unpaired_cells.blockSignals(False)
+                    return
+                
+                # Find IDs present in both masks
+                cyto_ids = set(np.unique(self.cellpose_masks_cyto))
+                nuc_ids = set(np.unique(self.cellpose_masks_nuc))
+                cyto_ids.discard(0)
+                nuc_ids.discard(0)
+                
+                # Paired IDs are those present in both masks
+                paired_ids = cyto_ids & nuc_ids
+                
+                # Remove unpaired cytosols (IDs only in cyto, not in nuc)
+                unpaired_cyto_ids = cyto_ids - paired_ids
+                if unpaired_cyto_ids:
+                    self.cellpose_masks_cyto = self.remove_labels_and_reindex(
+                        self.cellpose_masks_cyto, unpaired_cyto_ids)
+                
+                # Remove unpaired nuclei (IDs only in nuc, not in cyto)
+                unpaired_nuc_ids = nuc_ids - paired_ids
+                if unpaired_nuc_ids:
+                    self.cellpose_masks_nuc = self.remove_labels_and_reindex(
+                        self.cellpose_masks_nuc, unpaired_nuc_ids)
+                
+                # Re-synchronize to ensure IDs match after reindexing
+                if self.cellpose_masks_cyto is not None and self.cellpose_masks_nuc is not None:
+                    self.cellpose_masks_cyto, self.cellpose_masks_nuc = mi.CellSegmentation.synchronize_masks(
+                        self.cellpose_masks_cyto, self.cellpose_masks_nuc
+                    )
         
         self.plot_cellpose_results()
 
@@ -5506,51 +5576,94 @@ class GUI(QMainWindow):
             ax.text(0.5, 0.5, f"No data for {field_name}.", horizontalalignment='center', verticalalignment='center', fontsize=12, color='white', transform=ax.transAxes)
             self.canvas_distribution.draw()
             return
-        data = self.df_tracking[field_name].dropna().values
-        if len(data) == 0:
-            ax = self.figure_distribution.add_subplot(111)
-            ax.set_facecolor('black')
-            ax.axis('off')
-            ax.text(0.5, 0.5, f"No data points found for {field_name}.", horizontalalignment='center', verticalalignment='center', fontsize=12, color='white', transform=ax.transAxes)
-            self.canvas_distribution.draw()
-            return
-        mean_val = np.mean(data)
-        median_val = np.median(data)
-        lower_limit = np.nanpercentile(data, min_percentile)
-        upper_limit = np.nanpercentile(data, max_percentile)
-        data_for_hist = data[(data >= lower_limit) & (data <= upper_limit)]
-        color = 'cyan'
+        
+        # Get unique cell IDs
+        if 'cell_id' in self.df_tracking.columns:
+            cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+        else:
+            cell_ids = [0]  # Fallback if no cell_id column
+        
+        # Color palette for cells (bright colors for dark background)
+        cell_colors = ['cyan', 'magenta', 'lime', 'orange', 'yellow', 'red', 
+                       'deepskyblue', 'hotpink', 'chartreuse', 'coral', 
+                       'gold', 'tomato', 'aqua', 'violet', 'springgreen']
+        
         self.figure_distribution.clear()
         ax = self.figure_distribution.add_subplot(111)
         ax.set_facecolor('black')
-        ax.hist(
-            data_for_hist,
-            bins=60,
-            histtype='stepfilled',
-            alpha=0.8,
-            color=color,
-            edgecolor='black',
-            linewidth=1,
-            label=f"{field_name}"
-        )
-        ax.set_xlabel(selected_field, color='white')
-        ax.set_ylabel('Count', color='white')
+        self.figure_distribution.patch.set_facecolor('black')
+        
+        # Calculate global percentile limits for consistent binning
+        all_data = self.df_tracking[field_name].dropna().values
+        if len(all_data) == 0:
+            ax.axis('off')
+            ax.text(0.5, 0.5, f"No data points found for {field_name}.", 
+                    horizontalalignment='center', verticalalignment='center', 
+                    fontsize=12, color='white', transform=ax.transAxes)
+            self.canvas_distribution.draw()
+            return
+        
+        lower_limit = np.nanpercentile(all_data, min_percentile)
+        upper_limit = np.nanpercentile(all_data, max_percentile)
+        
+        # Calculate alpha based on number of cells (more cells = more transparency)
+        n_cells = len(cell_ids)
+        alpha = max(0.3, min(0.7, 1.0 / (n_cells ** 0.5)))  # Adaptive alpha
+        
+        # Plot histogram for each cell
+        stats_text = ""
+        for idx, cell_id in enumerate(cell_ids):
+            cell_data = self.df_tracking[self.df_tracking['cell_id'] == cell_id][field_name].dropna().values
+            if len(cell_data) == 0:
+                continue
+            
+            # Filter by percentile limits
+            cell_data_filtered = cell_data[(cell_data >= lower_limit) & (cell_data <= upper_limit)]
+            if len(cell_data_filtered) == 0:
+                continue
+            
+            color = cell_colors[idx % len(cell_colors)]
+            
+            ax.hist(
+                cell_data_filtered,
+                bins=40,
+                histtype='stepfilled',
+                alpha=alpha,
+                color=color,
+                edgecolor=color,
+                linewidth=1,
+                label=f"Cell {int(cell_id)} (n={len(cell_data_filtered)})"
+            )
+            
+            # Add stats for each cell
+            mean_val = np.mean(cell_data)
+            median_val = np.median(cell_data)
+            stats_text += f"Cell {int(cell_id)}: µ={mean_val:.1f}, M={median_val:.1f}\n"
+        
+        # Styling
+        ax.set_xlabel(selected_field, color='white', fontsize=11)
+        ax.set_ylabel('Count', color='white', fontsize=11)
         ax.tick_params(colors='white', which='both')
-        ax.spines['bottom'].set_color('white')
-        ax.spines['top'].set_color('white')
-        ax.spines['left'].set_color('white')
-        ax.spines['right'].set_color('white')
-        ax.xaxis.label.set_color('white')
-        ax.yaxis.label.set_color('white')
-        ax.title.set_color('white')
-        ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-        ax.legend(loc='upper right', bbox_to_anchor=(1, 1), fontsize=10)
-        text_str = f"Mean={mean_val:.2f}"
-        text_str += f"\nMedian={median_val:.2f}"
-        props = dict(boxstyle='round', facecolor='white', alpha=0.8)
-        ax.text(0.02, 0.98, text_str, transform=ax.transAxes, verticalalignment='top', horizontalalignment='left', color='black', bbox=props, fontsize=10)
+        for spine in ax.spines.values():
+            spine.set_color('white')
+        ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.3, alpha=0.5)
+        ax.set_title(f"{selected_field} Distribution by Cell", fontsize=12, color='white')
+        
+        # Legend
+        if n_cells <= 10:
+            ax.legend(loc='upper right', fontsize=8, facecolor='black', 
+                     edgecolor='white', labelcolor='white', framealpha=0.8)
+        
+        # Stats box
+        if stats_text:
+            props = dict(boxstyle='round', facecolor='black', edgecolor='white', alpha=0.8)
+            ax.text(0.02, 0.98, stats_text.strip(), transform=ax.transAxes, 
+                   verticalalignment='top', horizontalalignment='left', 
+                   color='white', bbox=props, fontsize=8, family='monospace')
+        
         self.figure_distribution.tight_layout()
         self.canvas_distribution.draw()
+
 
     def setup_distributions_tab(self):
         """
@@ -9003,75 +9116,8 @@ class GUI(QMainWindow):
 # =============================================================================
 
     def plot_distribution(self):
-        if self.df_tracking.empty:
-            self.figure_distribution.clear()
-            ax = self.figure_distribution.add_subplot(111)
-            ax.set_facecolor('black')
-            ax.axis('off')
-            ax.text(
-                0.5, 0.5, 'No intensity data available.',
-                horizontalalignment='center', verticalalignment='center',
-                fontsize=12, color='white', transform=ax.transAxes
-            )
-            self.canvas_distribution.draw()
-            return
-        selected_field = self.intensity_field_combo.currentText()
-        selected_channel = self.intensity_channel_combo.currentData()
-        min_percentile = self.intensity_min_percentile_spin.value()
-        max_percentile = self.intensity_max_percentile_spin.value()
-        field_name = "cluster_size" if selected_field == "cluster_size" else f'{selected_field}_ch_{selected_channel}'
-        if field_name not in self.df_tracking.columns:
-            self.figure_distribution.clear()
-            ax = self.figure_distribution.add_subplot(111)
-            ax.set_facecolor('black')
-            ax.axis('off')
-            ax.text(
-                0.5, 0.5, f"No data for {field_name}.",
-                horizontalalignment='center', verticalalignment='center',
-                fontsize=12, color='white', transform=ax.transAxes
-            )
-            self.canvas_distribution.draw()
-            return
-        data = self.df_tracking[field_name].dropna().values
-        if len(data) == 0:
-            self.figure_distribution.clear()
-            ax = self.figure_distribution.add_subplot(111)
-            ax.set_facecolor('black')
-            ax.axis('off')
-            ax.text(
-                0.5, 0.5, f"No data points found for {field_name}.",
-                horizontalalignment='center', verticalalignment='center',
-                fontsize=12, color='white', transform=ax.transAxes
-            )
-            self.canvas_distribution.draw()
-            return
-        median_val = np.nanmedian(data)
-        lower_limit = np.nanpercentile(data, min_percentile)
-        upper_limit = np.nanpercentile(data, max_percentile)
-        data_for_hist = data[(data >= lower_limit) & (data <= upper_limit)]
-        self.figure_distribution.clear()
-        ax = self.figure_distribution.add_subplot(111)
-        ax.set_facecolor('black')
-        color = 'cyan'
-        ax.hist(data_for_hist, bins=60, alpha=0.8, color=color)
-        ax.set_xlabel(selected_field, color='white')
-        ax.set_ylabel('Count', color='white')
-        ax.tick_params(axis='x', colors='white')
-        ax.tick_params(axis='y', colors='white')
-        ax.spines['bottom'].set_color('white')
-        ax.spines['top'].set_color('white')
-        ax.spines['left'].set_color('white')
-        ax.spines['right'].set_color('white')
-        ax.xaxis.label.set_color('white')
-        ax.yaxis.label.set_color('white')
-        ax.title.set_color('white')
-        ax.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
-        ax.set_title(f"{selected_field} vs Time (Channel {selected_channel})", fontsize=10, color='white')
-        text_str = f"Median={median_val:.2f}"
-        props = dict(boxstyle='round', facecolor='white', alpha=0.8)
-        ax.text(0.02, 0.98, text_str, transform=ax.transAxes, verticalalignment='top', horizontalalignment='left', color='black', bbox=props, fontsize=10)
-        self.figure_distribution.tight_layout()
-        self.canvas_distribution.draw()
+        """Delegate to plot_intensity_histogram for per-cell overlay histograms."""
+        self.plot_intensity_histogram()
 
     
     def display_crops_plot(self):
@@ -9311,90 +9357,121 @@ class GUI(QMainWindow):
             if ch_idx == 2: return 'yellow'
             # fallback
             return 'cyan'
+        
+        # Color palette for cells (bright colors for dark background)
+        cell_colors = ['cyan', 'magenta', 'lime', 'orange', 'yellow', 'red', 
+                       'deepskyblue', 'hotpink', 'chartreuse', 'coral', 
+                       'gold', 'tomato', 'aqua', 'violet', 'springgreen']
 
-        # Helper to plot one channel's data
+        # Helper to plot one channel's data with per-cell coloring
         # Returns (min_val, max_val) for y-axis scaling
         def plot_channel_data(ch_idx, color_override=None):
             field_name = f"{data_type}_ch_{ch_idx}"
             if field_name not in self.df_tracking.columns:
                 return None, None
 
-            intensity_array = mi.Utilities().df_trajectories_to_array(
-                dataframe=self.df_tracking,
-                selected_field=field_name,
-                fill_value=np.nan,
-                total_frames=total_frames
-            )
-
-            # Normalize if requested
-            if normalize:
-                # Min-Max normalization per trace or global?
-                # Usually for time course comparison, global min/max of the mean trace or per-trace?
-                # Let's normalize the mean trace to 0-1 for visualization, 
-                # OR normalize the entire array to [0,1] based on its global min/max.
-                # User request: "Allow the user to normalize this data"
-                # Let's normalize the mean curve to 0-1 range for clarity.
-                # Actually, standard is usually (val - min) / (max - min).
-                pass 
-
-            # Plot individual traces if option is enabled (only if not "All" or maybe yes?)
-            # If "All" is selected, individual traces might be too messy.
-            # Let's disable individual traces for "All" to avoid clutter, or respect the checkbox.
-            # The user didn't specify, but "All" usually implies comparing means.
-            # Let's respect the checkbox but maybe with low alpha.
+            # Get unique cell IDs
+            if 'cell_id' in self.df_tracking.columns:
+                cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+            else:
+                cell_ids = [0]
             
-            if self.show_traces_checkbox.isChecked() and channel_text != "All":
-                for idx in range(intensity_array.shape[0]):
-                    trace = intensity_array[idx, :]
-                    if np.all(np.isnan(trace)):
-                        continue
-                    # If normalizing, we'd need to normalize traces too? 
-                    # Let's keep raw traces for now unless normalization is simple.
-                    self.ax_time_course.plot(time_points, trace, '-', color='gray',
-                                            linewidth=1, alpha=0.5, label='_nolegend_')
-
-            # Calculate mean and std dev
-            mean_time_intensity = np.nanmean(intensity_array, axis=0)
-            std_time_intensity  = np.nanstd(intensity_array, axis=0)
-            mean_time_intensity = np.nan_to_num(mean_time_intensity)
-            std_time_intensity  = np.nan_to_num(std_time_intensity)
-
-            # Apply Moving Average
-            if window_size > 1:
-                mean_time_intensity = apply_moving_average(mean_time_intensity, window_size)
-                # Also smooth std dev? Or keep it raw? Usually smooth mean is enough.
-                # Let's smooth std dev too to match the curve smoothness visually
-                std_time_intensity = apply_moving_average(std_time_intensity, window_size)
-
-            if normalize:
-                # Normalize mean to 0-1
-                min_v = np.min(mean_time_intensity)
-                max_v = np.max(mean_time_intensity)
-                if max_v > min_v:
-                    mean_time_intensity = (mean_time_intensity - min_v) / (max_v - min_v)
-                    # Scale std dev proportionally? Or just show mean?
-                    # Std dev scaling: std = std / (max - min)
-                    std_time_intensity = std_time_intensity / (max_v - min_v)
-
-            color = color_override if color_override else 'cyan'
-            label_text = f"Ch {ch_idx}" if channel_text == "All" else "Mean"
+            n_cells = len(cell_ids)
+            all_y_mins = []
+            all_y_maxs = []
             
-            self.ax_time_course.plot(time_points, mean_time_intensity, 'o-',
-                                    color=color, linewidth=2, label=label_text, alpha=0.8, zorder=3)
+            # Calculate alpha based on number of cells
+            trace_alpha = max(0.2, min(0.5, 0.8 / (n_cells ** 0.5)))
+            mean_alpha = max(0.5, min(0.9, 1.0 / (n_cells ** 0.3)))
             
-            # Fill between for std dev (maybe skip for "All" to reduce clutter? or use low alpha)
-            self.ax_time_course.fill_between(time_points,
-                                            mean_time_intensity - std_time_intensity,
-                                            mean_time_intensity + std_time_intensity,
-                                            color=color, alpha=0.1, label='_nolegend_', zorder=1)
+            for cell_idx, cell_id in enumerate(cell_ids):
+                # Filter data for this cell
+                cell_df = self.df_tracking[self.df_tracking['cell_id'] == cell_id]
+                if cell_df.empty:
+                    continue
+                
+                # Get color for this cell
+                cell_color = cell_colors[cell_idx % len(cell_colors)] if n_cells > 1 else (color_override or 'cyan')
+                
+                intensity_array = mi.Utilities().df_trajectories_to_array(
+                    dataframe=cell_df,
+                    selected_field=field_name,
+                    fill_value=np.nan,
+                    total_frames=total_frames
+                )
+                
+                if intensity_array.size == 0 or np.all(np.isnan(intensity_array)):
+                    continue
+
+                # Plot individual traces if option is enabled
+                if self.show_traces_checkbox.isChecked() and channel_text != "All":
+                    for idx in range(intensity_array.shape[0]):
+                        trace = intensity_array[idx, :]
+                        if np.all(np.isnan(trace)):
+                            continue
+                        # Apply moving average to traces if requested
+                        if window_size > 1:
+                            trace = apply_moving_average(trace, window_size)
+                        # Normalize trace if requested
+                        if normalize:
+                            min_t = np.nanmin(trace)
+                            max_t = np.nanmax(trace)
+                            if max_t > min_t:
+                                trace = (trace - min_t) / (max_t - min_t)
+                        self.ax_time_course.plot(time_points, trace, '-', color=cell_color,
+                                                linewidth=0.8, alpha=trace_alpha, label='_nolegend_')
+
+                # Calculate mean and std dev for this cell
+                mean_time_intensity = np.nanmean(intensity_array, axis=0)
+                std_time_intensity  = np.nanstd(intensity_array, axis=0)
+                mean_time_intensity = np.nan_to_num(mean_time_intensity)
+                std_time_intensity  = np.nan_to_num(std_time_intensity)
+
+                # Apply Moving Average
+                if window_size > 1:
+                    mean_time_intensity = apply_moving_average(mean_time_intensity, window_size)
+                    std_time_intensity = apply_moving_average(std_time_intensity, window_size)
+
+                if normalize:
+                    min_v = np.min(mean_time_intensity)
+                    max_v = np.max(mean_time_intensity)
+                    if max_v > min_v:
+                        mean_time_intensity = (mean_time_intensity - min_v) / (max_v - min_v)
+                        std_time_intensity = std_time_intensity / (max_v - min_v)
+
+                # Label for legend
+                if n_cells > 1:
+                    label_text = f"Cell {int(cell_id)}"
+                    if channel_text == "All":
+                        label_text = f"C{int(cell_id)} Ch{ch_idx}"
+                else:
+                    label_text = f"Ch {ch_idx}" if channel_text == "All" else "Mean"
+                
+                self.ax_time_course.plot(time_points, mean_time_intensity, 'o-',
+                                        color=cell_color, linewidth=2, label=label_text, 
+                                        alpha=mean_alpha, zorder=3, markersize=3)
+                
+                # Fill between for std dev
+                fill_alpha = 0.1 if n_cells > 3 else 0.15
+                self.ax_time_course.fill_between(time_points,
+                                                mean_time_intensity - std_time_intensity,
+                                                mean_time_intensity + std_time_intensity,
+                                                color=cell_color, alpha=fill_alpha, 
+                                                label='_nolegend_', zorder=1)
+                
+                # Track y-range
+                if normalize:
+                    all_y_mins.append(0.0)
+                    all_y_maxs.append(1.0)
+                else:
+                    all_y_mins.append(np.nanpercentile(intensity_array, lower_percentile))
+                    all_y_maxs.append(np.nanpercentile(intensity_array, upper_percentile))
             
             # Return range for axis scaling
-            if normalize:
-                return 0.0, 1.0
+            if all_y_mins and all_y_maxs:
+                return min(all_y_mins), max(all_y_maxs)
             else:
-                lower_y = np.nanpercentile(intensity_array, lower_percentile)
-                upper_y = np.nanpercentile(intensity_array, upper_percentile)
-                return lower_y, upper_y
+                return None, None
 
         # --- Plotting Logic ---
         

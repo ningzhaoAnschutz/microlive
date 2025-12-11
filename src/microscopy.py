@@ -1576,7 +1576,9 @@ class CellposeTimeSeries:
         model_type_cyto: str = 'cyto3',
         model_type_nuc: str = 'nuclei',
         use_memmap: bool = False,
-        progress_callback=None
+        progress_callback=None,
+        selection_metric_cyto: str = None,
+        selection_metric_nuc: str = None
     ):
         if image.ndim != 5:
             raise ValueError("Image must be 5D with shape [T, Z, Y, X, C]")
@@ -1594,6 +1596,8 @@ class CellposeTimeSeries:
         self.model_type_nuc = model_type_nuc
         self.use_memmap = use_memmap
         self.progress_callback = progress_callback
+        self.selection_metric_cyto = selection_metric_cyto
+        self.selection_metric_nuc = selection_metric_nuc
     
     def calculate_tyx_masks(self):
         """
@@ -1654,14 +1658,14 @@ class CellposeTimeSeries:
             image_t = self.image[t]  # [Z, Y, X, C]
             
             # Use CellSegmentation which properly handles ZYXC images
-            # NOTE: Optimization disabled for TYX mode (selection_metric=None) for speed
+            # Use selection_metric if provided (for optimization)
             if label == "cytosol":
                 segmenter = CellSegmentation(
                     image_t,
                     channels_cytosol=[channel],
                     channels_nucleus=None,
                     diameter_cytosol=diameter,
-                    selection_metric=None,  # No optimization for TYX (faster)
+                    selection_metric=self.selection_metric_cyto,
                     show_plot=False,
                     model_cyto_segmentation=model_type
                 )
@@ -1672,7 +1676,7 @@ class CellposeTimeSeries:
                     channels_cytosol=None,
                     channels_nucleus=[channel],
                     diameter_nucleus=diameter,
-                    selection_metric=None,  # No optimization for TYX (faster)
+                    selection_metric=self.selection_metric_nuc,
                     show_plot=False,
                     model_nuc_segmentation=model_type
                 )
@@ -4623,12 +4627,23 @@ class DataProcessing():
             # case where nucleus and cyto are passed 
             if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])):
                 for k in range(self.number_color_channels ):
-                    nucleus_cytosol_intensity_ratio[k] = nuc_int[k]/ cyto_int[k]
-                    nucleus_pseudo_cytosol_intensity_ratio[k] = nuc_int[k]/ pseudo_cyto_int[k]
-            # case where nucleus is  passed but not cyto
+                    # Guard against division by zero
+                    if cyto_int[k] != 0 and cyto_int[k] is not None:
+                        nucleus_cytosol_intensity_ratio[k] = nuc_int[k] / cyto_int[k]
+                    else:
+                        nucleus_cytosol_intensity_ratio[k] = np.nan
+                    if pseudo_cyto_int[k] != 0:
+                        nucleus_pseudo_cytosol_intensity_ratio[k] = nuc_int[k] / pseudo_cyto_int[k]
+                    else:
+                        nucleus_pseudo_cytosol_intensity_ratio[k] = np.nan
+            # case where nucleus is passed but not cyto
             elif (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])):
                 for k in range(self.number_color_channels ):
-                    nucleus_pseudo_cytosol_intensity_ratio[k] = nuc_int[k]/ pseudo_cyto_int[k]
+                    # Guard against division by zero
+                    if pseudo_cyto_int[k] != 0:
+                        nucleus_pseudo_cytosol_intensity_ratio[k] = nuc_int[k] / pseudo_cyto_int[k]
+                    else:
+                        nucleus_pseudo_cytosol_intensity_ratio[k] = np.nan
             # case where nucleus and cyto are passed 
             if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])):
                 slected_masks_cytosol_no_nuclei = self.masks_cytosol_no_nuclei[id_cell]
