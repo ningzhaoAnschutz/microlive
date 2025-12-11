@@ -1010,6 +1010,8 @@ class GUI(QMainWindow):
         self.tabs.addTab(self.photobleaching_tab, "Photobleaching")
         self.tracking_tab = QWidget()
         self.tabs.addTab(self.tracking_tab, "Tracking")
+        self.msd_tab = QWidget()
+        self.tabs.addTab(self.msd_tab, "MSD")
         self.distribution_tab = QWidget()
         self.tabs.addTab(self.distribution_tab, "Distribution")
         self.time_course_tab = QWidget()
@@ -1033,6 +1035,7 @@ class GUI(QMainWindow):
         self.setup_cellpose_tab()
         self.setup_photobleaching_tab()
         self.setup_tracking_tab()
+        self.setup_msd_tab()
         self.setup_tracking_visualization_tab()
         self.setup_distributions_tab()
         self.setup_time_course_tab()
@@ -3554,12 +3557,14 @@ class GUI(QMainWindow):
 
     def run_watershed_segmentation(self):
         if self.image_stack is not None:
+            # Use registered image if available
+            image_to_use = self.get_current_image_source()
             ch = self.segmentation_current_channel
             if self.use_max_proj_for_segmentation and self.segmentation_maxproj is not None:
                 image_to_segment = self.segmentation_maxproj[..., ch]
             else:
                 fr = self.segmentation_current_frame
-                image_channel = self.image_stack[fr, :, :, :, ch]
+                image_channel = image_to_use[fr, :, :, :, ch]
                 image_to_segment = np.max(image_channel, axis=0)
             # Use default parameter values since GUI inputs are commented out
             footprint_size = 5
@@ -3611,7 +3616,9 @@ class GUI(QMainWindow):
     def compute_max_proj_segmentation(self):
         if self.image_stack is None:
             return
-        self.segmentation_maxproj = np.max(self.image_stack, axis=(0, 1))
+        # Use registered image if available
+        image_to_use = self.get_current_image_source()
+        self.segmentation_maxproj = np.max(image_to_use, axis=(0, 1))
         self.plot_segmentation()
 
     def plot_segmentation(self):
@@ -4331,6 +4338,7 @@ class GUI(QMainWindow):
         mode_label = QLabel("Mode:")
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["inside_cell", "outside_cell", "use_circular_region", "entire_image"])
+        self.mode_combo.setCurrentText("entire_image")  # Default to entire_image mode
         controls_layout.addWidget(mode_label)
         controls_layout.addWidget(self.mode_combo)
         radius_label = QLabel("Radius:")
@@ -6981,6 +6989,106 @@ class GUI(QMainWindow):
             self.time_slider_tracking_vis.setValue(0)
         self.canvas_tracking_vis.draw_idle()
 
+    def setup_msd_tab(self):
+        """
+        Set up the 'MSD' (Mean Squared Displacement) tab for diffusion analysis.
+        
+        Layout:
+        - Left panel: MSD plot canvas with log-log toggle and export buttons
+        - Right panel: Parameters (max_fit_points, 3D checkbox) and results display
+        """
+        msd_main_layout = QHBoxLayout(self.msd_tab)
+        
+        # Left panel: Plot and controls
+        msd_left_layout = QVBoxLayout()
+        msd_main_layout.addLayout(msd_left_layout)
+        
+        # MSD Plot Canvas
+        self.figure_msd, self.ax_msd = plt.subplots(figsize=(8, 6))
+        self.figure_msd.patch.set_facecolor('black')
+        self.canvas_msd = FigureCanvas(self.figure_msd)
+        msd_left_layout.addWidget(self.canvas_msd)
+        self.toolbar_msd = NavigationToolbar(self.canvas_msd, self.msd_tab)
+        msd_left_layout.addWidget(self.toolbar_msd)
+        
+        # Style the axes for dark theme
+        self.ax_msd.set_facecolor('black')
+        self.ax_msd.tick_params(colors='white', which='both')
+        for spine in self.ax_msd.spines.values():
+            spine.set_color('white')
+        self.ax_msd.xaxis.label.set_color('white')
+        self.ax_msd.yaxis.label.set_color('white')
+        self.ax_msd.title.set_color('white')
+        self.ax_msd.grid(True, which='both', color='gray', linestyle='--', linewidth=0.1)
+        
+        # Log-log scale checkbox
+        self.msd_loglog_checkbox = QCheckBox("Log-Log Scale")
+        self.msd_loglog_checkbox.setChecked(False)
+        self.msd_loglog_checkbox.stateChanged.connect(self.plot_msd)
+        msd_left_layout.addWidget(self.msd_loglog_checkbox)
+        
+        # Export buttons
+        export_layout = QHBoxLayout()
+        self.export_msd_dataframe_button = QPushButton("Export DataFrame")
+        self.export_msd_dataframe_button.clicked.connect(self.export_msd_dataframe)
+        export_layout.addWidget(self.export_msd_dataframe_button)
+        
+        self.export_msd_plot_button = QPushButton("Export Plot")
+        self.export_msd_plot_button.clicked.connect(self.export_msd_plot)
+        export_layout.addWidget(self.export_msd_plot_button)
+        msd_left_layout.addLayout(export_layout)
+        
+        # Right panel: Parameters and results
+        msd_right_layout = QVBoxLayout()
+        msd_main_layout.addLayout(msd_right_layout)
+        
+        # Parameters group
+        params_group = QGroupBox("MSD Parameters")
+        params_layout = QFormLayout()
+        
+        # Number of points to fit (defaults to half of lag points)
+        self.msd_fit_points_spinbox = QSpinBox()
+        self.msd_fit_points_spinbox.setRange(2, 1000)
+        self.msd_fit_points_spinbox.setValue(20)
+        params_layout.addRow("Fit Points:", self.msd_fit_points_spinbox)
+        
+        # Mode indicator (auto-detected)
+        self.msd_mode_label = QLabel("Mode: Auto-detect")
+        self.msd_mode_label.setStyleSheet("color: gray; font-style: italic;")
+        params_layout.addRow(self.msd_mode_label)
+        
+        params_group.setLayout(params_layout)
+        msd_right_layout.addWidget(params_group)
+        
+        # Calculate button
+        self.calculate_msd_button = QPushButton("Calculate MSD")
+        self.calculate_msd_button.clicked.connect(self.calculate_msd_from_gui)
+        self.calculate_msd_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
+        msd_right_layout.addWidget(self.calculate_msd_button)
+        
+        # Results group
+        results_group = QGroupBox("Results")
+        results_layout = QFormLayout()
+        
+        self.msd_diffusion_label = QLabel("D = --")
+        self.msd_diffusion_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        results_layout.addRow("Diffusion Coefficient:", self.msd_diffusion_label)
+        
+        self.msd_r_squared_label = QLabel("R² = --")
+        results_layout.addRow("R² (Linear Fit):", self.msd_r_squared_label)
+        
+        self.msd_n_particles_label = QLabel("N = --")
+        results_layout.addRow("Particles:", self.msd_n_particles_label)
+        
+        results_group.setLayout(results_layout)
+        msd_right_layout.addWidget(results_group)
+        
+        msd_right_layout.addStretch()
+        
+        # Initialize MSD data storage
+        self.msd_data = None
+        self.msd_per_trajectory = None
+
     
     def setup_tracking_visualization_tab(self):
         """Create and configure the 'Tracking Visualization' tab layout."""
@@ -8418,7 +8526,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'time_slider_tracking'):
             self.time_slider_tracking.setValue(0)
         if hasattr(self, 'tracking_show_masks_checkbox'):
-            self.tracking_show_masks_checkbox.setChecked(False)
+            self.tracking_show_masks_checkbox.setChecked(True)  # Keep masks visible by default
         # Reset threshold slider and histogram
         if hasattr(self, 'threshold_slider'):
             self.threshold_slider.setValue(0)
@@ -8431,6 +8539,247 @@ class GUI(QMainWindow):
             self.ax_threshold_hist.set_facecolor('black')
             self.ax_threshold_hist.axis('off')
             self.canvas_threshold_hist.draw_idle()
+
+    def reset_msd_tab(self):
+        """Reset the MSD tab to its initial state."""
+        if hasattr(self, 'figure_msd'):
+            self.figure_msd.clear()
+            self.ax_msd = self.figure_msd.add_subplot(111)
+            self.ax_msd.text(
+                0.5, 0.5, 'No MSD data available.\nRun tracking first, then click "Calculate MSD".',
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=12, color='gray'
+            )
+            self.ax_msd.axis('off')
+            self.canvas_msd.draw_idle()
+        
+        if hasattr(self, 'msd_diffusion_label'):
+            self.msd_diffusion_label.setText("D = --")
+        if hasattr(self, 'msd_r_squared_label'):
+            self.msd_r_squared_label.setText("R² = --")
+        if hasattr(self, 'msd_n_particles_label'):
+            self.msd_n_particles_label.setText("N = --")
+        
+        self.msd_data = None
+        self.msd_per_trajectory = None
+
+    def calculate_msd_from_gui(self):
+        """Calculate MSD using tracked particle data from the Tracking tab."""
+        from src.microscopy import ParticleMotion
+        
+        # Check if tracking data exists
+        if not hasattr(self, 'df_tracking') or self.df_tracking is None or self.df_tracking.empty:
+            QMessageBox.warning(self, "No Data", "No tracking data available. Please run tracking first.")
+            return
+        
+        try:
+            # Auto-detect 2D vs 3D based on tracking mode
+            # 2D if: (1) use_maximum_projection is True, OR (2) all Z values are constant
+            is_2d_projection = getattr(self, 'use_maximum_projection', False)
+            
+            # Check if Z values are constant (all same value = 2D tracking)
+            z_is_constant = False
+            if 'z' in self.df_tracking.columns:
+                z_unique = self.df_tracking['z'].nunique()
+                z_is_constant = (z_unique <= 1)
+            else:
+                z_is_constant = True  # No Z column means 2D
+            
+            # Determine if 3D: only if NOT using 2D projection AND Z values vary
+            is_3d = not is_2d_projection and not z_is_constant
+            
+            # Update the mode label to reflect auto-detected value
+            mode_text = "3D (D = slope/6)" if is_3d else "2D (D = slope/4)"
+            self.msd_mode_label.setText(f"Mode: {mode_text}")
+            self.msd_mode_label.setStyleSheet("color: lime; font-weight: bold;" if is_3d else "color: cyan; font-weight: bold;")
+            
+            max_fit_points = self.msd_fit_points_spinbox.value()
+            
+            # Get metadata - convert voxel_yx_nm (nanometers) to microns
+            if hasattr(self, 'voxel_yx_nm') and self.voxel_yx_nm is not None:
+                microns_per_pixel = self.voxel_yx_nm / 1000.0  # nm to µm
+            else:
+                microns_per_pixel = 1.0  # Fallback
+                print("Warning: voxel_yx_nm not set, using 1.0 µm/px")
+            
+            # Get time interval from metadata
+            if hasattr(self, 'time_interval_value') and self.time_interval_value is not None:
+                step_size_in_sec = float(self.time_interval_value)
+            else:
+                step_size_in_sec = 1.0  # Fallback
+                print("Warning: time_interval_value not set, using 1.0 s")
+            
+            # Create ParticleMotion instance
+            motion = ParticleMotion(
+                trackpy_dataframe=self.df_tracking.copy(),
+                microns_per_pixel=microns_per_pixel,
+                step_size_in_sec=step_size_in_sec,
+                max_lagtime=None,
+                show_plot=False,
+                remove_drift=False,
+                max_fit_points=max_fit_points,
+                is_3d=is_3d
+            )
+            
+            # Calculate MSD
+            D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df = motion.calculate_msd()
+            
+            # Store results
+            self.msd_data = {
+                'D_um2_s': D_um2_s,
+                'D_px2_s': D_px2_s,
+                'em_um2': em_um2,
+                'em_px2': em_px2,
+                'fit_times': fit_times,
+                'fit_line_msd': fit_line_msd,
+                'trackpy_df': trackpy_df,
+                'is_3d': is_3d
+            }
+            
+            # Calculate per-trajectory MSD for export
+            self._calculate_per_trajectory_msd(trackpy_df, microns_per_pixel, step_size_in_sec)
+            
+            # Calculate R² value
+            from scipy.stats import linregress
+            slope, intercept, r_value, p_value, std_err = linregress(fit_times, em_um2.values[:len(fit_times)])
+            
+            # Update result labels - use scientific notation for D
+            n_particles = trackpy_df['particle'].nunique()
+            self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
+            self.msd_r_squared_label.setText(f"R² = {r_value**2:.4f}")
+            self.msd_n_particles_label.setText(f"N = {n_particles}")
+            
+            # Plot results
+            self.plot_msd()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"MSD calculation failed:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _calculate_per_trajectory_msd(self, trackpy_df, microns_per_pixel, step_size_in_sec):
+        """Calculate MSD for each individual trajectory for export."""
+        import trackpy as tp
+        
+        particles = trackpy_df['particle'].unique()
+        msd_dict = {}
+        max_lag = 0
+        
+        for particle_id in particles:
+            traj = trackpy_df[trackpy_df['particle'] == particle_id]
+            if len(traj) < 2:
+                continue
+            try:
+                em = tp.emsd(traj, mpp=float(microns_per_pixel), fps=1.0/float(step_size_in_sec))
+                msd_dict[particle_id] = em
+                max_lag = max(max_lag, len(em))
+            except:
+                continue
+        
+        # Create DataFrame with time as first column and MSD per trajectory
+        if msd_dict:
+            # Get all unique lag times
+            all_times = set()
+            for em in msd_dict.values():
+                all_times.update(em.index.tolist())
+            all_times = sorted(all_times)
+            
+            # Build DataFrame
+            df_msd = pd.DataFrame({'time_lag_s': all_times})
+            for pid, em in msd_dict.items():
+                col_name = f'msd_traj_{pid}'
+                df_msd[col_name] = df_msd['time_lag_s'].map(lambda t: em.get(t, np.nan) if t in em.index else np.nan)
+            
+            self.msd_per_trajectory = df_msd
+
+    def plot_msd(self):
+        """Plot MSD vs lag time with optional log-log scale."""
+        if self.msd_data is None:
+            return
+        
+        em_um2 = self.msd_data['em_um2']
+        fit_times = self.msd_data['fit_times']
+        fit_line_msd = self.msd_data['fit_line_msd']
+        D_um2_s = self.msd_data['D_um2_s']
+        is_3d = self.msd_data['is_3d']
+        
+        self.figure_msd.clear()
+        self.ax_msd = self.figure_msd.add_subplot(111)
+        
+        # Apply dark mode styling
+        self.figure_msd.patch.set_facecolor('black')
+        self.ax_msd.set_facecolor('black')
+        self.ax_msd.tick_params(colors='white', which='both')
+        for spine in self.ax_msd.spines.values():
+            spine.set_color('white')
+        self.ax_msd.xaxis.label.set_color('white')
+        self.ax_msd.yaxis.label.set_color('white')
+        self.ax_msd.title.set_color('white')
+        
+        # Plot MSD data with bright colors for dark background
+        self.ax_msd.plot(em_um2.index, em_um2.values, 'o', alpha=0.6, color='cyan', label='MSD data')
+        
+        # Plot fitted region
+        self.ax_msd.plot(fit_times, em_um2.values[:len(fit_times)], 'o', markersize=8, color='orange', label='Fitted region')
+        
+        # Plot fit line
+        fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
+        self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd, '-', linewidth=2, color='lime', label=f'D = {D_um2_s:.2e} µm²/s')
+        
+        # Labels
+        dim_text = "3D" if is_3d else "2D"
+        self.ax_msd.set_xlabel('Time lag (s)')
+        self.ax_msd.set_ylabel(r'MSD [µm²]')
+        self.ax_msd.set_title(f'Mean Squared Displacement ({dim_text})')
+        self.ax_msd.legend(loc='upper left', facecolor='black', edgecolor='white', labelcolor='white')
+        self.ax_msd.grid(True, which='both', color='gray', linestyle='--', linewidth=0.3, alpha=0.5)
+        
+        # Apply log-log scale if checked
+        if self.msd_loglog_checkbox.isChecked():
+            self.ax_msd.set_xscale('log')
+            self.ax_msd.set_yscale('log')
+        
+        self.figure_msd.tight_layout()
+        self.canvas_msd.draw_idle()
+
+    def export_msd_dataframe(self):
+        """Export MSD vs lag time for all trajectories as CSV."""
+        if self.msd_per_trajectory is None:
+            QMessageBox.warning(self, "No Data", "No MSD data to export. Calculate MSD first.")
+            return
+        
+        # Generate filename
+        base_name = self.file_label.text().split('.')[0] if hasattr(self, 'file_label') else 'data'
+        base_name = re.sub(r'[^\w\-_\. ]', '_', base_name)
+        default_name = f"msd_dataframe_{base_name}.csv"
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export MSD DataFrame", default_name, "CSV Files (*.csv);;All Files (*)"
+        )
+        
+        if file_path:
+            self.msd_per_trajectory.to_csv(file_path, index=False)
+            QMessageBox.information(self, "Export Complete", f"MSD DataFrame exported to:\n{file_path}")
+
+    def export_msd_plot(self):
+        """Export MSD plot as PNG."""
+        if self.msd_data is None:
+            QMessageBox.warning(self, "No Data", "No MSD plot to export. Calculate MSD first.")
+            return
+        
+        # Generate filename
+        base_name = self.file_label.text().split('.')[0] if hasattr(self, 'file_label') else 'data'
+        base_name = re.sub(r'[^\w\-_\. ]', '_', base_name)
+        default_name = f"msd_plot_{base_name}.png"
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export MSD Plot", default_name, "PNG Files (*.png);;All Files (*)"
+        )
+        
+        if file_path:
+            self.figure_msd.savefig(file_path, dpi=300, bbox_inches='tight')
+            QMessageBox.information(self, "Export Complete", f"MSD plot exported to:\n{file_path}")
 
     def reset_distribution_tab(self):
         self.figure_distribution.clear()
@@ -8590,6 +8939,7 @@ class GUI(QMainWindow):
         self.reset_segmentation_tab()
         self.reset_photobleaching_tab()
         self.reset_tracking_tab()
+        self.reset_msd_tab()
         self.reset_distribution_tab()
         self.reset_time_course_tab()
         self.reset_correlation_tab()

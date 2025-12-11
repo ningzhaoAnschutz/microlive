@@ -4682,13 +4682,14 @@ class DataProcessing():
 
 class ParticleMotion:
 
-    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None,max_fit_points=20):
+    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False):
         self.microns_per_pixel = microns_per_pixel
         self.step_size_in_sec = step_size_in_sec
         self.show_plot = show_plot 
         self.remove_drift = remove_drift
         self.plot_name = plot_name
         self.max_fit_points = max_fit_points  # Maximum number of points to use for fitting the initial linear regime
+        self.is_3d = is_3d  # If True, use 3D MSD calculation (D = slope/6), else 2D (D = slope/4)
         if 'spot_type' in trackpy_dataframe.columns:
             if len(trackpy_dataframe['spot_type'].unique()) > 1:
                 self.trackpy_dataframe = trackpy_dataframe[trackpy_dataframe['spot_type'] == spot_type]
@@ -4696,7 +4697,11 @@ class ParticleMotion:
                 self.trackpy_dataframe = trackpy_dataframe
         else:
             self.trackpy_dataframe = trackpy_dataframe
-        self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y']].copy()
+        # Select columns based on 2D or 3D tracking
+        if self.is_3d and 'z' in self.trackpy_dataframe.columns:
+            self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y', 'z']].copy()
+        else:
+            self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y']].copy()
 
         # use self.max_lagtime = max_lagtime but test it is not longer than max_lagtime in the dataframe.
         if max_lagtime is None:
@@ -4742,8 +4747,11 @@ class ParticleMotion:
         fit_msd   = np.asarray(em_um2.values[:max_fit_points], dtype=float)  # µm²
 
         slope, intercept, r_value, p_value, std_err = linregress(fit_times, fit_msd)
-        # 2D diffusion: MSD = 4 D t
-        D_um2_s = slope / 4.0
+        # Diffusion coefficient: MSD = 2*n*D*t where n=2 for 2D, n=3 for 3D
+        if self.is_3d:
+            D_um2_s = slope / 6.0  # 3D diffusion: MSD = 6 D t
+        else:
+            D_um2_s = slope / 4.0  # 2D diffusion: MSD = 4 D t
         D_px2_s = D_um2_s / (self.microns_per_pixel ** 2)
         # Fit line for viz
         fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
