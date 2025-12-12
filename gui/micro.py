@@ -1760,6 +1760,19 @@ class GUI(QMainWindow):
             self.time_slider_reg.setMaximum(T - 1)
             self.time_slider_reg.setValue(0)
         
+        # Initialize all frame labels with correct values
+        frame_text = f"0/{T - 1}"
+        if hasattr(self, 'frame_label_display'):
+            self.frame_label_display.setText(frame_text)
+        if hasattr(self, 'frame_label_tracking'):
+            self.frame_label_tracking.setText(frame_text)
+        if hasattr(self, 'frame_label_tracking_vis'):
+            self.frame_label_tracking_vis.setText(frame_text)
+        if hasattr(self, 'frame_label_cellpose'):
+            self.frame_label_cellpose.setText(frame_text)
+        if hasattr(self, 'frame_label_reg'):
+            self.frame_label_reg.setText(frame_text)
+        
         # Reset registration state when loading new image
         self.reset_registration_state()
         # Display image in registration panel
@@ -1767,15 +1780,9 @@ class GUI(QMainWindow):
             self.plot_registration_panels()
 
         # Reset TYX mask spinbox and validate against image timepoints
-        if hasattr(self, 'max_timepoints_spinbox'):
-            self.max_timepoints_spinbox.setMaximum(T)
-            # Set default to min(5, T) for meaningful TYX sampling
-            self.max_timepoints_spinbox.setValue(min(5, T))
-        if hasattr(self, 'chk_calculate_masks_over_time'):
-            self.chk_calculate_masks_over_time.setChecked(False)
-        if hasattr(self, 'minimal_frames_spinbox'):
-            self.minimal_frames_spinbox.setMaximum(T)
-            self.minimal_frames_spinbox.setValue(min(2, T))  # Reset to default, capped at T
+        # Update Cellpose TYX sliders for new image
+        if hasattr(self, '_update_cellpose_sliders_for_image'):
+            self._update_cellpose_sliders_for_image(T)
         
         # Enable display controls
         self.set_display_controls_enabled(True)
@@ -2158,8 +2165,31 @@ class GUI(QMainWindow):
         self.current_channel = channel
         self.display_crops_plot()
 
+    def _update_all_frame_labels(self, value):
+        """Update all frame labels across all tabs with the current frame value."""
+        total_frames = getattr(self, 'total_frames', 1)
+        frame_text = f"{value}/{total_frames - 1}"
+        
+        for label_name in ['frame_label_display', 'frame_label_tracking', 
+                          'frame_label_tracking_vis', 'frame_label_cellpose', 
+                          'frame_label_reg']:
+            if hasattr(self, label_name):
+                getattr(self, label_name).setText(frame_text)
+
     def update_frame(self, value):
         self.current_frame = value
+        total_frames = getattr(self, 'total_frames', 1)
+        frame_text = f"{value}/{total_frames - 1}"
+        
+        # Update labels for tabs that share this handler (Import, Tracking, Visualization)
+        if hasattr(self, 'frame_label_display'):
+            self.frame_label_display.setText(frame_text)
+        if hasattr(self, 'frame_label_tracking'):
+            self.frame_label_tracking.setText(frame_text)
+        if hasattr(self, 'frame_label_tracking_vis'):
+            self.frame_label_tracking_vis.setText(frame_text)
+        
+        # Sync slider values across shared tabs
         if self.time_slider_display.value() != value:
             self.time_slider_display.blockSignals(True)
             self.time_slider_display.setValue(value)
@@ -2172,14 +2202,7 @@ class GUI(QMainWindow):
             self.time_slider_tracking_vis.blockSignals(True)
             self.time_slider_tracking_vis.setValue(value)
             self.time_slider_tracking_vis.blockSignals(False)
-        # Sync Cellpose time slider and update TYX masks
-        if hasattr(self, 'time_slider_cellpose'):
-            if self.time_slider_cellpose.value() != value:
-                self.time_slider_cellpose.blockSignals(True)
-                self.time_slider_cellpose.setValue(value)
-                self.time_slider_cellpose.blockSignals(False)
-            # Always update Cellpose frame to sync TYX masks
-            self.update_cellpose_frame(value)
+        
         self.detected_spots_frame = None
         self.plot_image()
         self.plot_tracking()
@@ -2645,6 +2668,11 @@ class GUI(QMainWindow):
         self.time_slider_display.setTickInterval(10)
         self.time_slider_display.valueChanged.connect(self.update_frame)
         controls_layout.addWidget(self.time_slider_display)
+        
+        self.frame_label_display = QLabel("0/0")
+        self.frame_label_display.setMinimumWidth(50)
+        controls_layout.addWidget(self.frame_label_display)
+        
         self.play_button_display = QPushButton("Play", self)
         self.play_button_display.clicked.connect(self.play_pause_display)
         controls_layout.addWidget(self.play_button_display)
@@ -2840,6 +2868,19 @@ class GUI(QMainWindow):
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
         self.cellpose_current_frame = self.current_frame  # Sync Cellpose frame
+        
+        # Update frame labels
+        total_frames = self.total_frames
+        frame_text = f"{self.current_frame}/{total_frames - 1}"
+        if hasattr(self, 'frame_label_display'):
+            self.frame_label_display.setText(frame_text)
+        if hasattr(self, 'frame_label_tracking'):
+            self.frame_label_tracking.setText(frame_text)
+        if hasattr(self, 'frame_label_tracking_vis'):
+            self.frame_label_tracking_vis.setText(frame_text)
+        if hasattr(self, 'frame_label_cellpose'):
+            self.frame_label_cellpose.setText(frame_text)
+        
         for slider in (self.time_slider_display, self.time_slider_tracking, 
                        getattr(self, 'time_slider_tracking_vis', None),
                        getattr(self, 'time_slider_cellpose', None)):
@@ -2875,6 +2916,10 @@ class GUI(QMainWindow):
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
+        # Update frame label
+        frame_text = f"{self.current_frame}/{self.total_frames - 1}"
+        if hasattr(self, 'frame_label_display'):
+            self.frame_label_display.setText(frame_text)
         if hasattr(self, 'time_slider_display'):
             self.time_slider_display.blockSignals(True)
             self.time_slider_display.setValue(self.current_frame)
@@ -2886,6 +2931,10 @@ class GUI(QMainWindow):
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.cellpose_current_frame = (getattr(self, 'cellpose_current_frame', 0) + 1) % self.total_frames
+        # Update frame label
+        frame_text = f"{self.cellpose_current_frame}/{self.total_frames - 1}"
+        if hasattr(self, 'frame_label_cellpose'):
+            self.frame_label_cellpose.setText(frame_text)
         if hasattr(self, 'time_slider_cellpose'):
             self.time_slider_cellpose.blockSignals(True)
             self.time_slider_cellpose.setValue(self.cellpose_current_frame)
@@ -2903,6 +2952,10 @@ class GUI(QMainWindow):
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
+        # Update frame label
+        frame_text = f"{self.current_frame}/{self.total_frames - 1}"
+        if hasattr(self, 'frame_label_tracking'):
+            self.frame_label_tracking.setText(frame_text)
         if hasattr(self, 'time_slider_tracking'):
             self.time_slider_tracking.blockSignals(True)
             self.time_slider_tracking.setValue(self.current_frame)
@@ -2920,6 +2973,10 @@ class GUI(QMainWindow):
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
+        # Update frame label
+        frame_text = f"{self.current_frame}/{self.total_frames - 1}"
+        if hasattr(self, 'frame_label_tracking_vis'):
+            self.frame_label_tracking_vis.setText(frame_text)
         if hasattr(self, 'time_slider_tracking_vis'):
             self.time_slider_tracking_vis.blockSignals(True)
             self.time_slider_tracking_vis.setValue(self.current_frame)
@@ -2955,6 +3012,10 @@ class GUI(QMainWindow):
         self.time_slider_cellpose = QSlider(Qt.Horizontal)
         self.time_slider_cellpose.valueChanged.connect(self.update_cellpose_frame)
         time_layout.addWidget(self.time_slider_cellpose)
+        
+        self.frame_label_cellpose = QLabel("0/0")
+        self.frame_label_cellpose.setMinimumWidth(50)
+        time_layout.addWidget(self.frame_label_cellpose)
         
         # Play Button
         self.play_button_cellpose = QPushButton("Play", self)
@@ -3050,45 +3111,58 @@ class GUI(QMainWindow):
         right_layout.addWidget(nuc_group)
 
         # Time-Varying Masks Group (TYX)
-        tyx_group = QGroupBox("Time-Varying Masks (TYX)")
-        tyx_layout = QFormLayout()
+        tyx_group = QGroupBox("Time-Varying Masks")
+        tyx_main_layout = QVBoxLayout()
         
-        self.chk_calculate_masks_over_time = QCheckBox("Calculate Masks Over Time")
-        self.chk_calculate_masks_over_time.setChecked(False)
-        self.chk_calculate_masks_over_time.setToolTip(
-            "When enabled, Cellpose will calculate masks at multiple timepoints "
-            "and track cell IDs across time using IoU-based linking."
+        # "Number of Frames to Calculate Masks" slider with label on top
+        num_frames_layout = QVBoxLayout()
+        num_frames_label = QLabel("Number of Frames to Calculate Masks:")
+        num_frames_layout.addWidget(num_frames_label)
+        
+        num_frames_slider_layout = QHBoxLayout()
+        self.num_masks_slider = QSlider(Qt.Horizontal)
+        self.num_masks_slider.setRange(1, 100)  # Will be updated when image loads
+        self.num_masks_slider.setValue(1)
+        self.num_masks_slider.setTickPosition(QSlider.TicksBelow)
+        self.num_masks_slider.setTickInterval(10)
+        self.num_masks_slider.setToolTip(
+            "Number of frames to calculate masks. Default=1 calculates a single mask. "
+            "Values >1 enable time-varying mask calculation (TYX mode)."
         )
-        tyx_layout.addRow(self.chk_calculate_masks_over_time)
+        self.num_masks_slider.valueChanged.connect(self._on_num_masks_slider_changed)
+        num_frames_slider_layout.addWidget(self.num_masks_slider)
         
-        self.max_timepoints_spinbox = QSpinBox()
-        self.max_timepoints_spinbox.setRange(1, 1000)
-        self.max_timepoints_spinbox.setValue(5)  # Default 5 timepoints for meaningful TYX
-        self.max_timepoints_spinbox.setToolTip(
-            "Maximum number of timepoints to sample for mask calculation. "
-            "Intermediate frames use nearest sampled mask."
-        )
-        tyx_layout.addRow("Max Timepoints:", self.max_timepoints_spinbox)
+        self.num_masks_value_label = QLabel("1")
+        self.num_masks_value_label.setMinimumWidth(30)
+        num_frames_slider_layout.addWidget(self.num_masks_value_label)
+        num_frames_layout.addLayout(num_frames_slider_layout)
+        tyx_main_layout.addLayout(num_frames_layout)
         
-        self.linking_memory_spinbox = QSpinBox()
-        self.linking_memory_spinbox.setRange(0, 100)
-        self.linking_memory_spinbox.setValue(1)
-        self.linking_memory_spinbox.setToolTip(
-            "Number of frames a cell can disappear before being assigned a new ID. "
-            "Helps track cells that temporarily leave the field of view."
-        )
-        tyx_layout.addRow("Linking Memory:", self.linking_memory_spinbox)
+        # "Minimal Frames to Detect a Cell" slider with label on top
+        min_frames_layout = QVBoxLayout()
+        min_frames_label = QLabel("Minimal Frames to Detect a Cell:")
+        min_frames_layout.addWidget(min_frames_label)
         
-        self.minimal_frames_spinbox = QSpinBox()
-        self.minimal_frames_spinbox.setRange(1, 1000)
-        self.minimal_frames_spinbox.setValue(2)  # Default: cells must exist for at least 2 frames
-        self.minimal_frames_spinbox.setToolTip(
+        min_frames_slider_layout = QHBoxLayout()
+        self.min_frames_slider = QSlider(Qt.Horizontal)
+        self.min_frames_slider.setRange(1, 100)  # Will be updated based on num_masks_slider
+        self.min_frames_slider.setValue(1)
+        self.min_frames_slider.setTickPosition(QSlider.TicksBelow)
+        self.min_frames_slider.setTickInterval(10)
+        self.min_frames_slider.setToolTip(
             "Minimum number of frames a cell must exist to be kept. "
             "Cells appearing for fewer frames are removed as artifacts."
         )
-        tyx_layout.addRow("Minimal Frames:", self.minimal_frames_spinbox)
+        self.min_frames_slider.valueChanged.connect(self._on_min_frames_slider_changed)
+        min_frames_slider_layout.addWidget(self.min_frames_slider)
         
-        tyx_group.setLayout(tyx_layout)
+        self.min_frames_value_label = QLabel("1")
+        self.min_frames_value_label.setMinimumWidth(30)
+        min_frames_slider_layout.addWidget(self.min_frames_value_label)
+        min_frames_layout.addLayout(min_frames_slider_layout)
+        tyx_main_layout.addLayout(min_frames_layout)
+        
+        tyx_group.setLayout(tyx_main_layout)
         right_layout.addWidget(tyx_group)
 
         # Improve Segmentation Group
@@ -3143,6 +3217,37 @@ class GUI(QMainWindow):
         self.cellpose_masks_nuc_tyx = None   # [T, Y, X] labeled masks
         self.use_tyx_masks = False           # Flag: are TYX masks active?
 
+    def _on_num_masks_slider_changed(self, value):
+        """Update the value label and adjust min_frames_slider max range."""
+        self.num_masks_value_label.setText(str(value))
+        # Ensure min_frames slider doesn't exceed num_masks slider
+        if hasattr(self, 'min_frames_slider'):
+            self.min_frames_slider.setMaximum(value)
+            if self.min_frames_slider.value() > value:
+                self.min_frames_slider.setValue(value)
+    
+    def _on_min_frames_slider_changed(self, value):
+        """Update the value label for min_frames slider."""
+        self.min_frames_value_label.setText(str(value))
+    
+    def _update_cellpose_sliders_for_image(self, total_frames):
+        """Update Cellpose TYX sliders when a new image is loaded."""
+        if hasattr(self, 'num_masks_slider'):
+            # Reset to 1 and update max range
+            self.num_masks_slider.blockSignals(True)
+            self.num_masks_slider.setMaximum(max(1, total_frames))
+            self.num_masks_slider.setValue(1)
+            self.num_masks_slider.blockSignals(False)
+            self.num_masks_value_label.setText("1")
+        
+        if hasattr(self, 'min_frames_slider'):
+            # Reset to 1 and update max range
+            self.min_frames_slider.blockSignals(True)
+            self.min_frames_slider.setMaximum(max(1, total_frames))
+            self.min_frames_slider.setValue(1)
+            self.min_frames_slider.blockSignals(False)
+            self.min_frames_value_label.setText("1")
+
     def create_cellpose_channel_buttons(self):
         # Clear existing buttons
         for btn in self.cellpose_channel_buttons:
@@ -3159,6 +3264,10 @@ class GUI(QMainWindow):
 
     def update_cellpose_frame(self, value):
         self.cellpose_current_frame = value
+        # Update Cellpose label only
+        total_frames = getattr(self, 'total_frames', 1)
+        if hasattr(self, 'frame_label_cellpose'):
+            self.frame_label_cellpose.setText(f"{value}/{total_frames - 1}")
         # Sync YX masks from TYX when TYX masks are active
         if getattr(self, 'use_tyx_masks', False):
             if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
@@ -3181,13 +3290,14 @@ class GUI(QMainWindow):
             diameter = int(self.cellpose_cyto_diameter_input.value())
             model_name = self.cellpose_cyto_model_input.currentText()
             
-            # Check if TYX masks are requested
-            if (self.chk_calculate_masks_over_time.isChecked() and 
+            # Check if TYX masks are requested (slider > 1 means TYX mode)
+            num_masks = self.num_masks_slider.value()
+            if (num_masks > 1 and 
                 self.image_stack.ndim == 5 and 
                 self.image_stack.shape[0] > 1):
                 
-                max_tp = min(self.max_timepoints_spinbox.value(), self.image_stack.shape[0])
-                linking_memory = self.linking_memory_spinbox.value()
+                max_tp = min(num_masks, self.image_stack.shape[0])
+                linking_memory = 1  # Hardcoded to 1
                 
                 # Create progress dialog
                 progress = QProgressDialog("Calculating TYX cytosol masks...", "Cancel", 0, max_tp, self)
@@ -3234,7 +3344,7 @@ class GUI(QMainWindow):
                 
                 if masks_cyto_tyx is not None:
                     # Filter short-lived masks (artifacts) and reindex IDs
-                    min_frames = self.minimal_frames_spinbox.value()
+                    min_frames = self.min_frames_slider.value()
                     masks_cyto_tyx = mi.CellposeTimeSeries.filter_short_lived_masks(masks_cyto_tyx, min_frames)
                     
                     self.cellpose_masks_cyto_tyx = masks_cyto_tyx
@@ -3289,13 +3399,14 @@ class GUI(QMainWindow):
             diameter = int(self.cellpose_nuc_diameter_input.value())
             model_name = self.cellpose_nuc_model_input.currentText()
             
-            # Check if TYX masks are requested
-            if (self.chk_calculate_masks_over_time.isChecked() and 
+            # Check if TYX masks are requested (slider > 1 means TYX mode)
+            num_masks = self.num_masks_slider.value()
+            if (num_masks > 1 and 
                 self.image_stack.ndim == 5 and 
                 self.image_stack.shape[0] > 1):
                 
-                max_tp = min(self.max_timepoints_spinbox.value(), self.image_stack.shape[0])
-                linking_memory = self.linking_memory_spinbox.value()
+                max_tp = min(num_masks, self.image_stack.shape[0])
+                linking_memory = 1  # Hardcoded to 1
                 
                 # Create progress dialog
                 progress = QProgressDialog("Calculating TYX nucleus masks...", "Cancel", 0, max_tp, self)
@@ -3343,7 +3454,7 @@ class GUI(QMainWindow):
                 
                 if masks_nuc_tyx is not None:
                     # Filter short-lived masks (artifacts) and reindex IDs
-                    min_frames = self.minimal_frames_spinbox.value()
+                    min_frames = self.min_frames_slider.value()
                     masks_nuc_tyx = mi.CellposeTimeSeries.filter_short_lived_masks(masks_nuc_tyx, min_frames)
                     
                     self.cellpose_masks_nuc_tyx = masks_nuc_tyx
@@ -3999,6 +4110,11 @@ class GUI(QMainWindow):
         self.time_slider_reg.setMaximum(0)
         self.time_slider_reg.valueChanged.connect(self.on_registration_time_changed)
         time_layout.addWidget(self.time_slider_reg)
+        
+        self.frame_label_reg = QLabel("0/0")
+        self.frame_label_reg.setMinimumWidth(50)
+        time_layout.addWidget(self.frame_label_reg)
+        
         self.play_button_reg = QPushButton("▶")
         self.play_button_reg.setFixedWidth(40)
         self.play_button_reg.clicked.connect(self.toggle_playback_registration)
@@ -4048,6 +4164,10 @@ class GUI(QMainWindow):
     def on_registration_time_changed(self, value):
         """Update display when time slider changes in registration tab."""
         self.current_frame = value
+        # Update Registration label only
+        total_frames = getattr(self, 'total_frames', 1)
+        if hasattr(self, 'frame_label_reg'):
+            self.frame_label_reg.setText(f"{value}/{total_frames - 1}")
         self.plot_registration_panels()
     
     def toggle_playback_registration(self):
@@ -5459,7 +5579,7 @@ class GUI(QMainWindow):
                             remove_drift=False
                         )
                         D_um2_s, D_px2_s, _, _, _, _ ,_= pm.calculate_msd()
-                        self.msd_label.setText(f"Mean Square Displacement: {D_um2_s:.4f} μm²/s " + f" | {D_px2_s:.4f} px²/s")
+                        self.msd_label.setText(f"D = {D_um2_s:.2e} μm²/s | {D_px2_s:.2e} px²/s")
                     except Exception as msd_err:
                         print(f"MSD calculation skipped: {msd_err}")
                         self.msd_label.setText("MSD: See MSD tab for per-cell calculation")
@@ -5573,6 +5693,11 @@ class GUI(QMainWindow):
         self.time_slider_tracking.setTickInterval(10)
         self.time_slider_tracking.valueChanged.connect(self.update_frame)
         controls_layout.addWidget(self.time_slider_tracking)
+        
+        self.frame_label_tracking = QLabel("0/0")
+        self.frame_label_tracking.setMinimumWidth(50)
+        controls_layout.addWidget(self.frame_label_tracking)
+        
         self.play_button_tracking = QPushButton("Play", self)
         self.play_button_tracking.clicked.connect(self.play_pause_tracking)
         controls_layout.addWidget(self.play_button_tracking)
@@ -7528,6 +7653,11 @@ class GUI(QMainWindow):
         self.time_slider_tracking_vis.setTickInterval(10)
         self.time_slider_tracking_vis.valueChanged.connect(self.update_frame)
         controls_layout.addWidget(self.time_slider_tracking_vis)
+        
+        self.frame_label_tracking_vis = QLabel("0/0")
+        self.frame_label_tracking_vis.setMinimumWidth(50)
+        controls_layout.addWidget(self.frame_label_tracking_vis)
+        
         self.play_button_tracking_vis = QPushButton("Play", self)
         self.play_button_tracking_vis.clicked.connect(self.play_pause_tracking_vis)
         controls_layout.addWidget(self.play_button_tracking_vis)

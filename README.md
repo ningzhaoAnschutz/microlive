@@ -26,10 +26,26 @@
 - **File Management**: Tree view interface for managing multiple datasets simultaneously
 - **Metadata Preservation**: Comprehensive metadata handling and export
 
+### Image Registration
+
+- **Drift Correction**: Correct for sample drift and translation across time-lapse acquisitions
+- **ROI-based Alignment**: Select reference region for enhanced registration accuracy
+- **Multiple Algorithms**: Support for phase correlation and intensity-based registration methods
+- **Before/After Comparison**: Side-by-side visualization of original and registered images
+
 ### Segmentation
 
-- **Manual and Automated**: Draw polygonal ROIs or apply watershed segmentation with an adjustable threshold factor for cell boundaries
+- **Manual ROI Drawing**: Draw polygonal regions of interest for cell boundaries
+- **Watershed Segmentation**: Automated segmentation with adjustable threshold factor
 - **Mask Overlay and Export**: Display segmented regions as overlays and export binary mask images (TIFF format)
+
+### Cellpose Segmentation
+
+- **Deep Learning Segmentation**: GPU-accelerated cell segmentation using Cellpose models (cyto3, nuclei)
+- **Dual Mask Support**: Simultaneous cytoplasm and nucleus segmentation with automatic pairing
+- **Time-varying Masks (TYX)**: Generate masks across multiple timepoints for dynamic cell tracking
+- **Parameter Optimization**: Automated grid search for optimal diameter and flow threshold parameters
+- **Border Cell Removal**: Option to exclude cells touching image boundaries
 
 ### Particle Tracking
 
@@ -39,11 +55,20 @@
 - **Quality Control**: Random spot generation for validation and trajectory length filtering
 - **Real-time Visualization**: Live tracking overlays with customizable display options
 
+### Mean Squared Displacement (MSD) Analysis
+
+- **Diffusion Coefficient Calculation**: Compute ensemble-averaged MSD and extract diffusion coefficients (D)
+- **Per-cell Analysis**: Calculate and compare D values across individual cells
+- **2D and 3D Modes**: Support for both planar and volumetric diffusion analysis
+- **Linear Fitting**: Adjustable number of fit points for slope calculation
+- **Log-log Plotting**: Optional logarithmic scale for anomalous diffusion detection
+- **Data Export**: Export MSD curves and D values as CSV
+
 ### Colocalization Analysis
 
 - **Machine Learning-Assisted Analysis**: Machine learning model for automated colocalization classification between channels
 - **Intensity-Based Methods**: Signal-to-noise ratio thresholds for spot colocalization
-- **Manual Verification**: Grid-based interface for expert validation of automated results
+- **Manual Verification**: Grid-based interface for expert validation of automated results (Coloc Edit)
 - **Threshold Control**: Adjustable ML confidence or SNR thresholds
 - **Comprehensive Export**: Visualization matrices and quantitative data export
 
@@ -58,9 +83,16 @@
 
 - **Multi-channel Display**: Individual channel selection with ImageJ-style colormaps
 - **Channel Merging**: Combine up to 3 channels with color mapping (green, magenta, yellow)
-- **Interactive Navigation**: Frame-by-frame and Z-plane navigation with play controls
+- **Interactive Navigation**: Frame-by-frame and Z-plane navigation with independent play controls per tab
 - **Background Removal**: Segmentation-based background removal and overlay options
+- **Trajectory Visualization**: Display particle trajectories with customizable colors and trail lengths
 - **Export Options**: High-resolution images, videos (MP4/GIF), and interactive plots
+
+### Cell Crops
+
+- **Individual Cell Export**: Extract and export cropped images of individual cells
+- **Multi-channel Support**: Crop all channels simultaneously
+- **Batch Processing**: Export crops for all detected cells in a single operation
 
 ### Data Export and Documentation
 
@@ -68,6 +100,28 @@
 - **Batch Export**: Select and export multiple analysis results simultaneously
 - **Metadata Logging**: Complete parameter documentation for reproducibility
 - **User Annotations**: Custom comments and observations integrated with exports
+
+---
+
+## GUI Tabs Overview
+
+| Tab | Description |
+|-----|-------------|
+| Import | Load images, manage files, adjust display settings |
+| Registration | Correct drift and align time-lapse images |
+| Segmentation | Manual ROI drawing and watershed segmentation |
+| Cellpose | Deep learning-based cell and nucleus segmentation |
+| Photobleaching | Correct for fluorescence decay over time |
+| Tracking | Detect spots, link trajectories, analyze clusters |
+| MSD | Calculate diffusion coefficients from trajectories |
+| Distribution | Histogram analysis of particle properties |
+| Time Course | Temporal analysis of spot intensities |
+| Correlation | Auto- and cross-correlation analysis |
+| Coloc | Automated colocalization analysis |
+| Coloc Edit | Manual verification of colocalization results |
+| Visualization | Trajectory display and video export |
+| Crops | Export individual cell images |
+| Export | Batch export of all analysis results |
 
 ---
 
@@ -185,7 +239,7 @@ microlive/
 │   └── converter.ipynb           # Format conversion notebook
 ├── modeling/                     # Machine learning models
 │   └── machine_learning/         # ML-based analysis tools
-├── micro_env.yml                 # Conda environment file
+├── micro_gpu.yml                 # Conda environment file (GPU)
 ├── requirements.txt              # Python dependencies
 ├── LICENSE                       # GPL v3 License
 └── README.md                     # This file
@@ -198,19 +252,20 @@ microlive/
 ### Basic Particle Tracking
 
 1. **Load Data**: Open your microscopy file (.lif or .tif)
-2. **Segmentation**: Define cell boundaries (manual or automated)
-3. **Detection**: Set threshold and spot parameters
+2. **Segmentation**: Define cell boundaries using Cellpose or manual segmentation
+3. **Detection**: Set threshold and spot parameters in the Tracking tab
 4. **Tracking**: Link particles across time frames
-5. **Export**: Save tracking data and visualizations
+5. **MSD Analysis**: Calculate diffusion coefficients in the MSD tab
+6. **Export**: Save tracking data and visualizations
 
 <img src="docs/tracking_video_fast.gif" alt="Tracking" width="400" />
 
 ### Colocalization Analysis
 
 1. **Complete Tracking**: Perform particle tracking on reference channel
-2. **Select Channels**: Choose reference and target channels
+2. **Select Channels**: Choose reference and target channels in Coloc tab
 3. **Run Analysis**: Execute ML-based or intensity-based colocalization
-4. **Manual Verification**: Review and refine results manually
+4. **Manual Verification**: Review and refine results in Coloc Edit tab
 5. **Export Results**: Save quantitative data and visualization matrices
 
 <img src="docs/tracking_visualization_fast.gif" alt="Tracking Visualization" width="600" />
