@@ -834,8 +834,25 @@ class GUI(QMainWindow):
         self.display_sigma = 0.7
         self.low_display_sigma = 0.15
         self.correlation_fit_type = 'linear'
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.next_frame)
+        # Independent timers and state for each tab's playback
+        self.timer_display = QTimer()
+        self.timer_display.timeout.connect(self.next_frame_display)
+        self.playing_display = False
+        
+        self.timer_cellpose = QTimer()
+        self.timer_cellpose.timeout.connect(self.next_frame_cellpose)
+        self.playing_cellpose = False
+        
+        self.timer_tracking = QTimer()
+        self.timer_tracking.timeout.connect(self.next_frame_tracking)
+        self.playing_tracking = False
+        
+        self.timer_tracking_vis = QTimer()
+        self.timer_tracking_vis.timeout.connect(self.next_frame_tracking_vis)
+        self.playing_tracking_vis = False
+        
+        # Legacy compatibility (some code may reference these)
+        self.timer = self.timer_display
         self.playing = False
         self.photobleaching_calculated = False
         self.df_tracking = pd.DataFrame()
@@ -1037,11 +1054,11 @@ class GUI(QMainWindow):
         self.correlation_tab = QWidget()
         self.tabs.addTab(self.correlation_tab, "Correlation")
         self.colocalization_tab = QWidget()
-        self.tabs.addTab(self.colocalization_tab, "Colocalization")
+        self.tabs.addTab(self.colocalization_tab, "Coloc")
         self.colocalization_manual_tab = QWidget()
-        self.tabs.addTab(self.colocalization_manual_tab, "Colocalization Manual")
+        self.tabs.addTab(self.colocalization_manual_tab, "Coloc Edit")
         self.tracking_visualization_tab = QWidget()
-        self.tabs.addTab(self.tracking_visualization_tab, "Tracking Visualization")
+        self.tabs.addTab(self.tracking_visualization_tab, "Visualization")
         self.crops_tab = QWidget()
         self.tabs.addTab(self.crops_tab, "Crops")
         self.export_tab = QWidget()
@@ -1821,8 +1838,7 @@ class GUI(QMainWindow):
             self.update_tracking_sliders()
         
         # Stop playback if running
-        if self.playing:
-            self.play_pause()
+        self.stop_all_playback()
         
         # Plot first frame
         self.plot_image()
@@ -2032,23 +2048,97 @@ class GUI(QMainWindow):
         self._setup_image_ui(T, C)
 
     def play_pause(self):
-        if self.playing:
-            self.timer.stop()
-            self.playing = False
+        """Legacy compatibility - redirects to display play/pause."""
+        self.play_pause_display()
+    
+    def stop_all_playback(self):
+        """Stop playback on all tabs. Called when switching tabs."""
+        # Stop display timer
+        if hasattr(self, 'timer_display'):
+            self.timer_display.stop()
+        self.playing_display = False
+        if hasattr(self, 'play_button_display'):
             self.play_button_display.setText("Play")
+        
+        # Stop cellpose timer
+        if hasattr(self, 'timer_cellpose'):
+            self.timer_cellpose.stop()
+        self.playing_cellpose = False
+        if hasattr(self, 'play_button_cellpose'):
+            self.play_button_cellpose.setText("Play")
+        
+        # Stop tracking timer
+        if hasattr(self, 'timer_tracking'):
+            self.timer_tracking.stop()
+        self.playing_tracking = False
+        if hasattr(self, 'play_button_tracking'):
             self.play_button_tracking.setText("Play")
+        
+        # Stop tracking vis timer
+        if hasattr(self, 'timer_tracking_vis'):
+            self.timer_tracking_vis.stop()
+        self.playing_tracking_vis = False
+        if hasattr(self, 'play_button_tracking_vis'):
             self.play_button_tracking_vis.setText("Play")
-            if hasattr(self, 'play_button_cellpose'):
-                self.play_button_cellpose.setText("Play")
+        
+        # Stop registration timer
+        if hasattr(self, 'reg_timer'):
+            self.reg_timer.stop()
+        self.reg_playing = False
+        if hasattr(self, 'play_button_reg'):
+            self.play_button_reg.setText("▶")
+        
+        # Legacy compatibility
+        self.playing = False
+    
+    def play_pause_display(self):
+        """Toggle play/pause for Import (Display) tab."""
+        if self.playing_display:
+            self.timer_display.stop()
+            self.playing_display = False
+            self.play_button_display.setText("Play")
         else:
             interval = 16 if sys.platform.startswith('win') else 100
-            self.timer.start(interval)
-            self.playing = True
+            self.timer_display.start(interval)
+            self.playing_display = True
             self.play_button_display.setText("Pause")
+        self.playing = self.playing_display  # Legacy compatibility
+    
+    def play_pause_cellpose(self):
+        """Toggle play/pause for Cellpose tab."""
+        if self.playing_cellpose:
+            self.timer_cellpose.stop()
+            self.playing_cellpose = False
+            self.play_button_cellpose.setText("Play")
+        else:
+            interval = 16 if sys.platform.startswith('win') else 100
+            self.timer_cellpose.start(interval)
+            self.playing_cellpose = True
+            self.play_button_cellpose.setText("Pause")
+    
+    def play_pause_tracking(self):
+        """Toggle play/pause for Tracking tab."""
+        if self.playing_tracking:
+            self.timer_tracking.stop()
+            self.playing_tracking = False
+            self.play_button_tracking.setText("Play")
+        else:
+            interval = 16 if sys.platform.startswith('win') else 100
+            self.timer_tracking.start(interval)
+            self.playing_tracking = True
             self.play_button_tracking.setText("Pause")
+    
+    def play_pause_tracking_vis(self):
+        """Toggle play/pause for Tracking Visualization tab."""
+        if self.playing_tracking_vis:
+            self.timer_tracking_vis.stop()
+            self.playing_tracking_vis = False
+            self.play_button_tracking_vis.setText("Play")
+        else:
+            interval = 16 if sys.platform.startswith('win') else 100
+            self.timer_tracking_vis.start(interval)
+            self.playing_tracking_vis = True
             self.play_button_tracking_vis.setText("Pause")
-            if hasattr(self, 'play_button_cellpose'):
-                self.play_button_cellpose.setText("Pause")
 
     def update_channel(self, channel):
         self.current_channel = channel
@@ -2298,8 +2388,7 @@ class GUI(QMainWindow):
                 self.time_slider_tracking_vis.setValue(0)
             
             # Stop any playing timers
-            if hasattr(self, 'playing') and self.playing:
-                self.play_pause()
+            self.stop_all_playback()
             
             # Reset current indices
             self.current_frame = 0
@@ -2557,7 +2646,7 @@ class GUI(QMainWindow):
         self.time_slider_display.valueChanged.connect(self.update_frame)
         controls_layout.addWidget(self.time_slider_display)
         self.play_button_display = QPushButton("Play", self)
-        self.play_button_display.clicked.connect(self.play_pause)
+        self.play_button_display.clicked.connect(self.play_pause_display)
         controls_layout.addWidget(self.play_button_display)
         display_left_layout.addLayout(controls_layout)
         # Right side
@@ -2780,6 +2869,63 @@ class GUI(QMainWindow):
                 if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
                     self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
             self.plot_cellpose_results()
+    
+    def next_frame_display(self):
+        """Advance to next frame for Import (Display) tab only."""
+        if getattr(self, 'total_frames', 0) == 0:
+            return
+        self.current_frame = (self.current_frame + 1) % self.total_frames
+        if hasattr(self, 'time_slider_display'):
+            self.time_slider_display.blockSignals(True)
+            self.time_slider_display.setValue(self.current_frame)
+            self.time_slider_display.blockSignals(False)
+        self.plot_image()
+    
+    def next_frame_cellpose(self):
+        """Advance to next frame for Cellpose tab only."""
+        if getattr(self, 'total_frames', 0) == 0:
+            return
+        self.cellpose_current_frame = (getattr(self, 'cellpose_current_frame', 0) + 1) % self.total_frames
+        if hasattr(self, 'time_slider_cellpose'):
+            self.time_slider_cellpose.blockSignals(True)
+            self.time_slider_cellpose.setValue(self.cellpose_current_frame)
+            self.time_slider_cellpose.blockSignals(False)
+        # Sync TYX masks if active before plotting
+        if getattr(self, 'use_tyx_masks', False):
+            if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.cellpose_current_frame]
+            if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.cellpose_current_frame]
+        self.plot_cellpose_results()
+    
+    def next_frame_tracking(self):
+        """Advance to next frame for Tracking tab only."""
+        if getattr(self, 'total_frames', 0) == 0:
+            return
+        self.current_frame = (self.current_frame + 1) % self.total_frames
+        if hasattr(self, 'time_slider_tracking'):
+            self.time_slider_tracking.blockSignals(True)
+            self.time_slider_tracking.setValue(self.current_frame)
+            self.time_slider_tracking.blockSignals(False)
+        # Sync TYX masks if active before plotting tracking
+        if getattr(self, 'use_tyx_masks', False):
+            if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+            if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
+        self.plot_tracking()
+    
+    def next_frame_tracking_vis(self):
+        """Advance to next frame for Tracking Visualization tab only."""
+        if getattr(self, 'total_frames', 0) == 0:
+            return
+        self.current_frame = (self.current_frame + 1) % self.total_frames
+        if hasattr(self, 'time_slider_tracking_vis'):
+            self.time_slider_tracking_vis.blockSignals(True)
+            self.time_slider_tracking_vis.setValue(self.current_frame)
+            self.time_slider_tracking_vis.blockSignals(False)
+        if getattr(self, 'has_tracked', False) and not self.df_tracking.empty:
+            self.display_tracking_visualization()
 
     def setup_cellpose_tab(self):
         """
@@ -2812,7 +2958,7 @@ class GUI(QMainWindow):
         
         # Play Button
         self.play_button_cellpose = QPushButton("Play", self)
-        self.play_button_cellpose.clicked.connect(self.play_pause)
+        self.play_button_cellpose.clicked.connect(self.play_pause_cellpose)
         time_layout.addWidget(self.play_button_cellpose)
         
         nav_layout.addLayout(time_layout)
@@ -5428,7 +5574,7 @@ class GUI(QMainWindow):
         self.time_slider_tracking.valueChanged.connect(self.update_frame)
         controls_layout.addWidget(self.time_slider_tracking)
         self.play_button_tracking = QPushButton("Play", self)
-        self.play_button_tracking.clicked.connect(self.play_pause)
+        self.play_button_tracking.clicked.connect(self.play_pause_tracking)
         controls_layout.addWidget(self.play_button_tracking)
         # Export buttons
         export_buttons_layout = QHBoxLayout()
@@ -7383,7 +7529,7 @@ class GUI(QMainWindow):
         self.time_slider_tracking_vis.valueChanged.connect(self.update_frame)
         controls_layout.addWidget(self.time_slider_tracking_vis)
         self.play_button_tracking_vis = QPushButton("Play", self)
-        self.play_button_tracking_vis.clicked.connect(self.play_pause)
+        self.play_button_tracking_vis.clicked.connect(self.play_pause_tracking_vis)
         controls_layout.addWidget(self.play_button_tracking_vis)
         # Export buttons (Image & Video)
         export_buttons_layout = QHBoxLayout()
@@ -9888,23 +10034,36 @@ class GUI(QMainWindow):
     
     
     def on_tab_change(self, index):
-        if index == 0:
+        # Stop any running playback when switching tabs
+        self.stop_all_playback()
+        
+        # Tab index mapping (must match order in initUI):
+        # 0=Import, 1=Registration, 2=Segmentation, 3=Cellpose, 4=Photobleaching, 
+        # 5=Tracking, 6=MSD, 7=Distribution, 8=Time Course, 9=Correlation,
+        # 10=Colocalization, 11=Colocalization Manual, 12=Tracking Visualization,
+        # 13=Crops, 14=Export
+        if index == 0:  # Import
             self.plot_image()
-        elif index == 1:
+        elif index == 1:  # Registration
+            self.plot_registration_panels()
+        elif index == 2:  # Segmentation
             self.plot_segmentation()
-        elif index == 2:
+        elif index == 3:  # Cellpose
             self.plot_cellpose_results()
-        elif index == 3:
+        elif index == 4:  # Photobleaching
             self.plot_photobleaching()
-        elif index == 4:
+        elif index == 5:  # Tracking
             self.plot_tracking()
-        elif index == 5:
+            self.update_threshold_histogram()
+        elif index == 6:  # MSD
+            pass  # MSD tab handles its own plotting
+        elif index == 7:  # Distribution
             self.plot_distribution()
-        elif index == 6:
-            pass
-        elif index == 7:
+        elif index == 8:  # Time Course
+            pass  # Time Course tab handles its own plotting
+        elif index == 9:  # Correlation
             self.display_correlation_plot()
-        elif index == 8:
+        elif index == 10:  # Colocalization
             self.display_colocalization_plot()
             if hasattr(self, 'canvas_colocalization'):
                 if hasattr(self, 'cid_zoom_coloc'):
@@ -9913,12 +10072,12 @@ class GUI(QMainWindow):
                     except Exception:
                         pass
                 self.cid_zoom_coloc = self.canvas_colocalization.mpl_connect('motion_notify_event', self.on_colocalization_hover)
-        elif index == 9:
+        elif index == 11:  # Colocalization Manual
             self.display_colocalization_manual()
-        elif index == 10:
+        elif index == 12:  # Tracking Visualization
             if not (getattr(self, 'has_tracked', False)) or self.df_tracking.empty:
                 QMessageBox.warning(self, "No Data", "Please perform particle tracking first.")
-                self.tabs.setCurrentIndex(4)
+                self.tabs.setCurrentIndex(5)  # Go to Tracking tab
                 return
             self.tracked_particles_list.clear()
             for pid in sorted(self.df_tracking['particle'].unique()):
@@ -9929,9 +10088,9 @@ class GUI(QMainWindow):
             if self.tracked_particles_list.count() > 0 and self.tracked_particles_list.currentRow() < 0:
                 self.tracked_particles_list.setCurrentRow(0)
             self.display_tracking_visualization()
-        elif index == 11:
+        elif index == 13:  # Crops
             pass
-        elif index == 12:
+        elif index == 14:  # Export
             if hasattr(self, 'manual_checkboxes'):
                 self.extract_manual_colocalization_data(save_df=False)
 

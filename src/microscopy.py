@@ -3725,12 +3725,36 @@ class ParticleTracking:
         if mask is None:
             return None
         
+        # Log original mask info for debugging
+        print(f"[ParticleTracking._normalize_mask_to_tyx] Input mask shape: {mask.shape}, ndim: {mask.ndim}, T={T}")
+        
         if mask.ndim == 2:
             # YX [Y, X] -> tile to TYX [T, Y, X]
             print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}] (static mask across all frames)")
             return np.tile(mask[np.newaxis, :, :], (T, 1, 1))
         elif mask.ndim == 3:
-            # Check if first dim matches T (TYX)
+            # Handle edge case: 3D mask with unusual dimensions that suggest incorrect indexing
+            # e.g., (1, 512, 3) or (512, 512, 3) where 3 is channels, not X dimension
+            if mask.shape[2] <= 10 and mask.shape[0] > mask.shape[2] and mask.shape[1] > mask.shape[2]:
+                # This looks like [Y, X, C] or [T, Y, C] where C was kept by mistake
+                # Try to squeeze or reduce to 2D
+                print(f"[WARNING] 3D mask {mask.shape} appears to have small third dimension (likely channels). Attempting to fix.")
+                if mask.shape[2] == 1:
+                    # Just squeeze the last dimension
+                    mask_2d = mask[:, :, 0]
+                else:
+                    # Take max across what looks like a channel dimension
+                    mask_2d = np.max(mask, axis=-1)
+                print(f"[ParticleTracking] Reduced to 2D mask {mask_2d.shape}, expanding to TYX [{T}, {mask_2d.shape[0]}, {mask_2d.shape[1]}]")
+                return np.tile(mask_2d[np.newaxis, :, :], (T, 1, 1))
+            
+            # Handle edge case: (1, Y, X) where first dimension is singleton
+            if mask.shape[0] == 1 and mask.shape[1] > 10 and mask.shape[2] > 10:
+                # Single frame mask, tile to T frames
+                print(f"[ParticleTracking] Expanding single-frame 3D mask {mask.shape} to TYX [{T}, {mask.shape[1]}, {mask.shape[2]}]")
+                return np.tile(mask, (T, 1, 1))
+            
+            # Standard TYX case: Check if first dim matches T
             if mask.shape[0] == T:
                 # TYX format - verify masks actually vary across time
                 unique_per_frame = np.array([len(np.unique(mask[t])) for t in range(min(T, 5))])
@@ -4280,17 +4304,47 @@ class DataProcessing():
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
         self.image = image
+        
+        # Helper to ensure masks are 2D [Y, X] before separation
+        def _ensure_2d_mask(mask, name="mask"):
+            if mask is None:
+                return None
+            if mask.ndim == 2:
+                return mask
+            elif mask.ndim == 3:
+                # Check for channel-like third dimension (small value like 1-10)
+                if mask.shape[2] <= 10 and mask.shape[0] > mask.shape[2] and mask.shape[1] > mask.shape[2]:
+                    print(f"[DataProcessing] {name} has shape {mask.shape} - squeezing channel dimension")
+                    if mask.shape[2] == 1:
+                        return mask[:, :, 0]
+                    else:
+                        return np.max(mask, axis=-1)
+                # Check for T=1 case: (1, Y, X)
+                elif mask.shape[0] == 1:
+                    print(f"[DataProcessing] {name} has shape {mask.shape} - squeezing first dimension")  
+                    return mask[0]
+                else:
+                    # Take first frame if T > 1 (shouldn't happen in DataProcessing but handle gracefully)
+                    print(f"[WARNING] {name} has unexpected 3D shape {mask.shape}, using first slice")
+                    return mask[0]
+            else:
+                print(f"[WARNING] {name} has unexpected ndim={mask.ndim}, shape={mask.shape}")
+                return mask
+        
         if isinstance(masks_complete_cells, list) or (masks_complete_cells is None):
             self.masks_complete_cells=masks_complete_cells
         else:
+            masks_complete_cells = _ensure_2d_mask(masks_complete_cells, "masks_complete_cells")
             self.masks_complete_cells=Utilities().separate_masks(masks_complete_cells)
         if isinstance(masks_nuclei, list) or (masks_nuclei is None):
             self.masks_nuclei=masks_nuclei
         else:
+            masks_nuclei = _ensure_2d_mask(masks_nuclei, "masks_nuclei")
             self.masks_nuclei=Utilities().separate_masks(masks_nuclei)  
         if isinstance(masks_cytosol_no_nuclei, list) or (masks_cytosol_no_nuclei is None):
             self.masks_cytosol_no_nuclei=masks_cytosol_no_nuclei
         else:
+            masks_cytosol_no_nuclei = _ensure_2d_mask(masks_cytosol_no_nuclei, "masks_cytosol_no_nuclei")
             self.masks_cytosol_no_nuclei= Utilities().separate_masks(masks_cytosol_no_nuclei)
         self.dataframe=dataframe
         self.spot_type = spot_type
@@ -4665,10 +4719,13 @@ class DataProcessing():
                 tested_mask_for_border =  self.masks_nuclei[id_cell]
                 nuc_int = np.zeros( (self.number_color_channels ))
                 for k in range(self.number_color_channels ):
+                    # Image is 4D [Z, Y, X, C] - need to max-project Z and select channel k
                     if self.use_maximum_projection:
-                        temp_img = self.image[:,:,k]
+                        # When use_max_proj is True, image may already be [1, Y, X, C] or [Z, Y, X, C]
+                        # Max-project Z axis first, then select channel to get [Y, X]
+                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
                     else:
-                        temp_img = np.max (self.image[:,:,:,k ],axis=0)
+                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
                     temp_masked_img = temp_img * self.masks_nuclei[id_cell]
                     temp_masked_img_pseudo_cytosol_mask = temp_img * pseudo_cytosol_mask
                     nuc_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5)
@@ -4686,10 +4743,13 @@ class DataProcessing():
                 complete_cell_int = np.zeros( (self.number_color_channels ))
                 cyto_int = np.zeros( (self.number_color_channels ))
                 for k in range(self.number_color_channels ):
+                    # Image is 4D [Z, Y, X, C] - need to max-project Z and select channel k
                     if self.use_maximum_projection:
-                        temp_img = self.image[:,:,k]
+                        # When use_max_proj is True, image may already be [1, Y, X, C] or [Z, Y, X, C]
+                        # Max-project Z axis first, then select channel to get [Y, X]
+                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
                     else:
-                        temp_img = np.max (self.image[:,:,:,k ],axis=0)
+                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
                     # calculating cytosol intensity for complete cell mask
                     temp_masked_img = temp_img * self.masks_complete_cells[id_cell]
                     complete_cell_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5) 
