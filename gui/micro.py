@@ -13,6 +13,7 @@ import logging
 import re
 import cv2
 import json
+
 import warnings
 import pandas as pd
 import numpy as np
@@ -46,6 +47,9 @@ from PyQt5.QtCore import (
     pyqtSlot,
     qInstallMessageHandler,
 )
+from skimage.segmentation import find_boundaries
+from scipy.ndimage import center_of_mass
+import matplotlib.colors as mcolors
 from PyQt5.QtGui import (
     QFont,
     QIcon,
@@ -103,6 +107,8 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass
+from scipy.stats import linregress
+import trackpy as tp
 from trackpy.linking.utils import SubnetOversizeException
 vispy_logging = None
 try:
@@ -871,8 +877,16 @@ class GUI(QMainWindow):
         """
         Returns the currently active binary mask for background removal.
         Uses last generated mask (from Segmentation or Cellpose tab).
+        When TYX mode is active, returns the mask for the current frame.
         """
         if self._active_mask_source == 'cellpose':
+            # Check for TYX masks first - return current frame's mask
+            if getattr(self, 'use_tyx_masks', False):
+                if hasattr(self, 'cellpose_masks_cyto_tyx') and self.cellpose_masks_cyto_tyx is not None:
+                    return (self.cellpose_masks_cyto_tyx[self.current_frame] > 0).astype(np.uint8)
+                elif hasattr(self, 'cellpose_masks_nuc_tyx') and self.cellpose_masks_nuc_tyx is not None:
+                    return (self.cellpose_masks_nuc_tyx[self.current_frame] > 0).astype(np.uint8)
+            # Fallback to YX masks
             if self.cellpose_masks_cyto is not None:
                 return (self.cellpose_masks_cyto > 0).astype(np.uint8)
             elif self.cellpose_masks_nuc is not None:
@@ -884,8 +898,16 @@ class GUI(QMainWindow):
         """
         Returns the labeled mask with cell IDs (for per-cell analysis).
         Returns None if no mask is set.
+        When TYX mode is active, returns the labeled mask for the current frame.
         """
         if self._active_mask_source == 'cellpose':
+            # Check for TYX masks first - return current frame's labeled mask
+            if getattr(self, 'use_tyx_masks', False):
+                if hasattr(self, 'cellpose_masks_cyto_tyx') and self.cellpose_masks_cyto_tyx is not None:
+                    return self.cellpose_masks_cyto_tyx[self.current_frame]
+                elif hasattr(self, 'cellpose_masks_nuc_tyx') and self.cellpose_masks_nuc_tyx is not None:
+                    return self.cellpose_masks_nuc_tyx[self.current_frame]
+            # Fallback to YX masks
             if self.cellpose_masks_cyto is not None:
                 return self.cellpose_masks_cyto
             elif self.cellpose_masks_nuc is not None:
@@ -898,14 +920,8 @@ class GUI(QMainWindow):
         
         Returns TYX [T,Y,X] masks when TYX mode is active, otherwise YX [Y,X].
         ParticleTracking normalizes to TYX internally for backward compatibility.
-        
-        Returns
-        -------
-        tuple: (masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei)
-            - masks_complete_cells: Labeled cytosol masks (or nuclei if no cytosol)
-            - masks_nuclei: Labeled nucleus masks (or None)
-            - masks_cytosol_no_nuclei: Cytosol with overlapping nucleus regions removed (or None)
         """
+        
         if self._active_mask_source == 'cellpose':
             # Check if TYX masks are active
             if getattr(self, 'use_tyx_masks', False):
@@ -917,6 +933,7 @@ class GUI(QMainWindow):
                     masks_cytosol_no_nuclei = masks_cyto.copy()
                     overlap = (masks_nuc > 0) & (masks_cyto > 0)
                     masks_cytosol_no_nuclei[overlap] = 0
+                    
                     return masks_cyto, masks_nuc, masks_cytosol_no_nuclei
                 elif masks_cyto is not None:
                     return masks_cyto, None, None
@@ -937,6 +954,7 @@ class GUI(QMainWindow):
                 elif masks_nuc is not None:
                     return masks_nuc, masks_nuc, None
         
+        # Fallback: segmentation mask (binary) - always YX
         # Fallback: segmentation mask (binary) - always YX
         if self.segmentation_mask is not None:
             return self.segmentation_mask, None, None
@@ -3158,6 +3176,8 @@ class GUI(QMainWindow):
                 
                 # Check if optimization is requested
                 selection_metric = 'max_cells_and_area' if self.chk_optimize_nuc.isChecked() else None
+                if image_to_use.shape[0] > 1:
+                    diff = np.abs(image_to_use[0].astype(float) - image_to_use[1].astype(float)).sum()
                 
                 tyx_generator = mi.CellposeTimeSeries(
                     image=image_to_use,
@@ -3229,6 +3249,32 @@ class GUI(QMainWindow):
                  self.cellpose_masks_cyto, self.cellpose_masks_nuc
              )
         
+        # Synchronize TYX masks if active and both exist
+        if (getattr(self, 'use_tyx_masks', False) and 
+            getattr(self, 'cellpose_masks_cyto_tyx', None) is not None and 
+            getattr(self, 'cellpose_masks_nuc_tyx', None) is not None):
+            
+            self.cellpose_masks_cyto_tyx, self.cellpose_masks_nuc_tyx = mi.CellSegmentation.synchronize_masks_tyx(
+                self.cellpose_masks_cyto_tyx, self.cellpose_masks_nuc_tyx
+            )
+            
+            # Update current 2D frame from synchronized TYX
+            if self.current_frame < len(self.cellpose_masks_cyto_tyx):
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
+        elif (getattr(self, 'use_tyx_masks', False) and 
+              getattr(self, 'cellpose_masks_cyto_tyx', None) is None and 
+              getattr(self, 'cellpose_masks_nuc_tyx', None) is not None):
+            # Update current 2D frame from TYX nucleus masks
+            if self.current_frame < len(self.cellpose_masks_nuc_tyx):
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
+        elif (getattr(self, 'use_tyx_masks', False) and 
+              getattr(self, 'cellpose_masks_cyto_tyx', None) is not None and 
+              getattr(self, 'cellpose_masks_nuc_tyx', None) is None):
+            # Update current 2D frame from TYX cytosol masks
+            if self.current_frame < len(self.cellpose_masks_cyto_tyx):
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+
         self.plot_cellpose_results()
         # Reset dependent tabs since masks changed
         self.reset_photobleaching_tab()
@@ -4970,12 +5016,15 @@ class GUI(QMainWindow):
                                            f"{int(row['particle'])}",
                                            color='white', fontsize=6,
                                            ha='center', va='center')
-            if self.show_trajectories_checkbox.isChecked() and not self.df_tracking.empty and 'particle' in self.df_tracking.columns:
-                df_up_to_current = self.df_tracking[self.df_tracking['frame'] <= self.current_frame]
-                for particle_id, grp in df_up_to_current.groupby('particle'):
-                    if grp.shape[0] > 1:
-                        grp = grp.sort_values('frame')
-                        self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=1, color='white', alpha=0.5)
+            if self.show_trajectories_checkbox.isChecked() and not self.df_tracking.empty:
+                # Use unique_particle to avoid cross-cell trajectory connections
+                particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+                if particle_col in self.df_tracking.columns:
+                    df_up_to_current = self.df_tracking[self.df_tracking['frame'] <= self.current_frame]
+                    for particle_id, grp in df_up_to_current.groupby(particle_col):
+                        if grp.shape[0] > 1:
+                            grp = grp.sort_values('frame')
+                            self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=1, color='white', alpha=0.5)
             if legend_handles:
                 legend = self.ax_tracking.legend(legend_handles, legend_labels,
                                                  loc='upper right', bbox_to_anchor=(1, 1))
@@ -4998,18 +5047,38 @@ class GUI(QMainWindow):
             for mask_type, labeled_mask, color in masks_to_draw:
                 if labeled_mask is not None:
                     # Draw contours for each labeled region
-                    unique_labels = np.unique(labeled_mask)
-                    unique_labels = unique_labels[unique_labels > 0]  # Exclude background
-                    for label_id in unique_labels:
-                        single_mask = (labeled_mask == label_id).astype(np.uint8)
-                        self.ax_tracking.contour(single_mask, levels=[0.5], colors=color, linewidths=0.8, alpha=0.7)
-                        # Find centroid for label text
-                        coords = np.argwhere(single_mask > 0)
-                        if len(coords) > 0:
-                            cy, cx = coords.mean(axis=0)
-                            self.ax_tracking.text(cx, cy, str(int(label_id)),
-                                                  color=color, fontsize=6, ha='center', va='center',
-                                                  fontweight='bold', alpha=0.9)
+                        # Optimized mask visualization
+                    if labeled_mask.max() > 0:
+                        # Draw boundaries efficiently using FIND_BOUNDARIES (vectorized)
+                        # mode='inner' draws boundaries inside the object
+                        boundaries = find_boundaries(labeled_mask, mode='inner', background=0)
+                        boundaries = np.ma.masked_where(boundaries == 0, boundaries)
+                        
+                        # Convert named color to RGB for Colormap
+                        color_rgb = mcolors.to_rgb(color)
+                        cmap_boundary = mcolors.ListedColormap([color_rgb])
+                        
+                        self.ax_tracking.imshow(boundaries, cmap=cmap_boundary, alpha=0.7, interpolation='none')
+
+                        # Optimized label placement using CENTER_OF_MASS
+                        unique_labels = np.unique(labeled_mask)
+                        unique_labels = unique_labels[unique_labels > 0]  # Exclude background
+                        
+                        # Limit text labels for performance if too many cells
+                        if len(unique_labels) > 0 and len(unique_labels) < 500:
+                            # Use labeled_mask for geometric center calculation
+                            centers = center_of_mass(labeled_mask, labels=labeled_mask, index=unique_labels)
+                            # center_of_mass returns a list of tuples [(y, x), ...] when index is an array
+                            if not isinstance(centers, list): 
+                                centers = [centers]
+                                
+                            for label_id, center in zip(unique_labels, centers):
+                                if center is None or np.isnan(center).any():
+                                    continue
+                                cy, cx = center
+                                self.ax_tracking.text(cx, cy, str(int(label_id)),
+                                                    color=color, fontsize=6, ha='center', va='center',
+                                                    fontweight='bold', alpha=0.9)
         if self.tracking_time_text_checkbox.isChecked():
             current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
             time_str = f"{int(current_time)} s" if current_time <= 300 else self.format_time(current_time)
@@ -5052,6 +5121,7 @@ class GUI(QMainWindow):
                 show_plot=False,
                 save_files=False,
                 threshold_for_spot_detection=threshold,
+                image_counter=getattr(self, 'current_frame', 0),
                 use_maximum_projection=self.use_maximum_projection,
                 calculate_intensity=False,
             ).get_dataframe()[0]
@@ -5076,6 +5146,7 @@ class GUI(QMainWindow):
             masks_nuc = masks_nuc[self.current_frame]
         if masks_cyto_no_nuc is not None and masks_cyto_no_nuc.ndim == 3:
             masks_cyto_no_nuc = masks_cyto_no_nuc[self.current_frame]
+            
             
         if masks_complete is None:
             masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
@@ -5102,6 +5173,7 @@ class GUI(QMainWindow):
         self.plot_tracking()
         # Get masks for tracking (supports both Cellpose and Segmentation)
         masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks()
+        
         if masks_complete is None:
             masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
         image_to_use = self.get_current_image_source()
@@ -5193,6 +5265,15 @@ class GUI(QMainWindow):
                 df_tracking = pd.concat(list_dataframes_trajectories, ignore_index=True)
                 if 'particle' not in df_tracking.columns or df_tracking['particle'].nunique() == 0:
                     raise ValueError("No particles detected or 'particle' column missing.")
+                
+                # Create unique_particle column to avoid duplicate particle IDs across cells
+                if 'cell_id' in df_tracking.columns:
+                    df_tracking['unique_particle'] = (
+                        df_tracking['cell_id'].astype(str) + '_' + df_tracking['particle'].astype(str)
+                    )
+                else:
+                    df_tracking['unique_particle'] = df_tracking['particle'].astype(str)
+                
                 self.df_tracking = df_tracking.reset_index(drop=True)
                 self.has_tracked = True
             else:
@@ -5217,19 +5298,25 @@ class GUI(QMainWindow):
                 for idx, cb in enumerate(self.channel_checkboxes):
                     cb.setChecked(idx == 0)
             if (not self.df_tracking.empty) and self.has_tracked: 
-                traj_counts = self.df_tracking.groupby('particle')['frame'].nunique()
-                if ('particle' in self.df_tracking.columns
+                # Use unique_particle for accurate trajectory counting across cells
+                particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+                traj_counts = self.df_tracking.groupby(particle_col)['frame'].nunique()
+                if (particle_col in self.df_tracking.columns
                     and traj_counts.min() >= self.MIN_FRAMES_MSD
                     and traj_counts.size >= self.MIN_PARTICLES_MSD):
-                    pm = mi.ParticleMotion(
-                        self.df_tracking,
-                        microns_per_pixel=self.voxel_yx_nm / 1000.0,    # convert nm to microns
-                        step_size_in_sec=float(self.time_interval_value),      # time interval between frames (seconds)
-                        show_plot=False, 
-                        remove_drift=False
-                    )
-                    D_um2_s, D_px2_s, _, _, _, _ ,_= pm.calculate_msd()
-                    self.msd_label.setText(f"Mean Square Displacement: {D_um2_s:.4f} μm²/s " + f" | {D_px2_s:.4f} px²/s")
+                    try:
+                        pm = mi.ParticleMotion(
+                            self.df_tracking,
+                            microns_per_pixel=self.voxel_yx_nm / 1000.0,
+                            step_size_in_sec=float(self.time_interval_value),
+                            show_plot=False, 
+                            remove_drift=False
+                        )
+                        D_um2_s, D_px2_s, _, _, _, _ ,_= pm.calculate_msd()
+                        self.msd_label.setText(f"Mean Square Displacement: {D_um2_s:.4f} μm²/s " + f" | {D_px2_s:.4f} px²/s")
+                    except Exception as msd_err:
+                        print(f"MSD calculation skipped: {msd_err}")
+                        self.msd_label.setText("MSD: See MSD tab for per-cell calculation")
                 else:
                     self.msd_label.setText("Mean Square Displacement: Not enough data")
                     print("Not enough data for MSD calculation: "
@@ -5561,7 +5648,15 @@ class GUI(QMainWindow):
 
     def plot_intensity_histogram(self):
         if self.df_tracking.empty:
-            QMessageBox.warning(self, "No Data", "No tracking data available.")
+            self.figure_distribution.clear()
+            ax = self.figure_distribution.add_subplot(111)
+            ax.set_facecolor('black')
+            self.figure_distribution.patch.set_facecolor('black')
+            ax.axis('off')
+            ax.text(0.5, 0.5, 'No tracking data available.\nPlease run tracking first.',
+                    horizontalalignment='center', verticalalignment='center',
+                    fontsize=12, color='white', transform=ax.transAxes)
+            self.canvas_distribution.draw()
             return
         selected_field = self.intensity_field_combo.currentText()
         selected_channel = self.intensity_channel_combo.currentData()  # channel index
@@ -6027,45 +6122,80 @@ class GUI(QMainWindow):
         self.remove_outliers = self.remove_outliers_checkbox.isChecked()
         self.index_max_lag_for_fit = index_max
         self.correlation_results = []
+        
+        # Get unique cell IDs for per-cell correlation
+        if 'cell_id' in self.df_tracking.columns:
+            cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+        else:
+            cell_ids = [None]  # No cell separation
+        
         if correlation_type == 'autocorrelation':
-            for ch, data in intensity_arrays.items():
-                corr = mi.Correlation(
-                    primary_data=data,
-                    nan_handling='ignore',
-                    time_interval_between_frames_in_seconds=step_size_in_sec,
-                    start_lag=start_lag,
-                    show_plot=False,
-                    return_full=False,
-                    use_linear_projection_for_lag_0=True,
-                    fit_type=self.correlation_fit_type,
-                    de_correlation_threshold=self.de_correlation_threshold,
-                    correct_baseline=self.correct_baseline,
-                    remove_outliers=self.remove_outliers,
-                    multi_tau=use_multi,
-                )
-                mean_corr, std_corr, lags, correlations_array, _ = corr.run()
-                if index_max >= len(lags):
-                    QMessageBox.warning(
-                        self, "Max-Lag Adjusted",
-                        f"Requested lag {index_max} exceeds available {len(lags)-1} "
-                        f"for {'multi-tau' if use_multi else 'linear'} mode.\n"
-                        f"Using {len(lags)-1} instead.")
-                    index_max = len(lags) - 1
-                    self.index_max_lag_for_fit_input.setValue(index_max)
-                self.correlation_results.append({
-                    'type': 'autocorrelation',
-                    'channel': ch,
-                    'intensity_array': data,
-                    'mean_corr': mean_corr,
-                    'std_corr': std_corr,
-                    'correlations_array': correlations_array,
-                    'lags': lags,
-                    'step_size_in_sec': step_size_in_sec,
-                    'normalize_plot_with_g0': normalize_g0,
-                    'index_max_lag_for_fit': index_max,
-                    'start_lag': start_lag,
-                    'multi_tau': use_multi,
-                })
+            for ch, data_all in intensity_arrays.items():
+                # Compute per-cell correlations
+                for cell_id in cell_ids:
+                    # Filter data for this cell
+                    if cell_id is not None:
+                        cell_df = self.df_tracking[self.df_tracking['cell_id'] == cell_id]
+                        col = f"{field_base}_ch_{ch}"
+                        if col not in cell_df.columns or cell_df.empty:
+                            continue
+                        data = mi.Utilities().df_trajectories_to_array(
+                            dataframe=cell_df,
+                            selected_field=col,
+                            fill_value=np.nan,
+                            total_frames=self.total_frames
+                        )
+                        try:
+                            data = mi.Utilities().shift_trajectories(
+                                data,
+                                min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory
+                            )
+                        except ValueError:
+                            continue
+                        if data.shape[0] == 0:
+                            continue
+                    else:
+                        data = data_all
+                    
+                    try:
+                        corr = mi.Correlation(
+                            primary_data=data,
+                            nan_handling='ignore',
+                            time_interval_between_frames_in_seconds=step_size_in_sec,
+                            start_lag=start_lag,
+                            show_plot=False,
+                            return_full=False,
+                            use_linear_projection_for_lag_0=True,
+                            fit_type=self.correlation_fit_type,
+                            de_correlation_threshold=self.de_correlation_threshold,
+                            correct_baseline=self.correct_baseline,
+                            remove_outliers=self.remove_outliers,
+                            multi_tau=use_multi,
+                        )
+                        mean_corr, std_corr, lags, correlations_array, _ = corr.run()
+                    except Exception as e:
+                        print(f"Correlation failed for cell {cell_id}, ch {ch}: {e}")
+                        continue
+                    
+                    if index_max >= len(lags):
+                        index_max = len(lags) - 1
+                    
+                    self.correlation_results.append({
+                        'type': 'autocorrelation',
+                        'channel': ch,
+                        'cell_id': cell_id,
+                        'intensity_array': data,
+                        'mean_corr': mean_corr,
+                        'std_corr': std_corr,
+                        'correlations_array': correlations_array,
+                        'lags': lags,
+                        'step_size_in_sec': step_size_in_sec,
+                        'normalize_plot_with_g0': normalize_g0,
+                        'index_max_lag_for_fit': index_max,
+                        'start_lag': start_lag,
+                        'multi_tau': use_multi,
+                        'n_trajectories': data.shape[0],
+                    })
 
         else:  # crosscorrelation
             ch1, ch2 = selected_channels
@@ -8703,7 +8833,6 @@ class GUI(QMainWindow):
 
     def calculate_msd_from_gui(self):
         """Calculate MSD using tracked particle data from the Tracking tab."""
-        from src.microscopy import ParticleMotion
         
         # Check if tracking data exists
         if not hasattr(self, 'df_tracking') or self.df_tracking is None or self.df_tracking.empty:
@@ -8748,7 +8877,7 @@ class GUI(QMainWindow):
                 print("Warning: time_interval_value not set, using 1.0 s")
             
             # Create ParticleMotion instance
-            motion = ParticleMotion(
+            motion = mi.ParticleMotion(
                 trackpy_dataframe=self.df_tracking.copy(),
                 microns_per_pixel=microns_per_pixel,
                 step_size_in_sec=step_size_in_sec,
@@ -8774,18 +8903,38 @@ class GUI(QMainWindow):
                 'is_3d': is_3d
             }
             
-            # Calculate per-trajectory MSD for export
-            self._calculate_per_trajectory_msd(trackpy_df, microns_per_pixel, step_size_in_sec)
+            # Calculate per-trajectory MSD for export (use self.df_tracking to preserve cell_id)
+            self._calculate_per_trajectory_msd(self.df_tracking, microns_per_pixel, step_size_in_sec)
             
             # Calculate R² value
-            from scipy.stats import linregress
+
             slope, intercept, r_value, p_value, std_err = linregress(fit_times, em_um2.values[:len(fit_times)])
             
             # Update result labels - use scientific notation for D
             n_particles = trackpy_df['particle'].nunique()
-            self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
+            
+            # Check if we have per-cell data for summary
+            if hasattr(self, 'msd_per_cell') and self.msd_per_cell:
+                # Only count cells with enough particles (same threshold as plot_msd)
+                MIN_PARTICLES_PER_CELL = 10
+                valid_cells = {cid: data for cid, data in self.msd_per_cell.items() 
+                               if data['n_particles'] >= MIN_PARTICLES_PER_CELL}
+                n_cells = len(valid_cells)
+                all_D_values = [d for cell in valid_cells.values() for d in cell['D_values']]
+                # Also count only particles from valid cells
+                n_particles_valid = sum(cell['n_particles'] for cell in valid_cells.values())
+                if all_D_values:
+                    D_mean = np.mean(all_D_values)
+                    D_std = np.std(all_D_values)
+                    self.msd_diffusion_label.setText(f"D = {D_mean:.2e} ± {D_std:.2e} µm²/s")
+                    self.msd_n_particles_label.setText(f"N = {n_particles_valid} (from {n_cells} cells)")
+                else:
+                    self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
+                    self.msd_n_particles_label.setText(f"N = {n_particles}")
+            else:
+                self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
+                self.msd_n_particles_label.setText(f"N = {n_particles}")
             self.msd_r_squared_label.setText(f"R² = {r_value**2:.4f}")
-            self.msd_n_particles_label.setText(f"N = {n_particles}")
             
             # Plot results
             self.plot_msd()
@@ -8796,25 +8945,69 @@ class GUI(QMainWindow):
             traceback.print_exc()
 
     def _calculate_per_trajectory_msd(self, trackpy_df, microns_per_pixel, step_size_in_sec):
-        """Calculate MSD for each individual trajectory for export."""
-        import trackpy as tp
+        """Calculate MSD for each individual trajectory for export, organized by cell."""
         
-        particles = trackpy_df['particle'].unique()
-        msd_dict = {}
+        # Get unique cell IDs
+        if 'cell_id' in trackpy_df.columns:
+            cell_ids = sorted(trackpy_df['cell_id'].dropna().unique())
+        else:
+            cell_ids = [0]  # Default to single cell if no cell_id column
+        
+        msd_dict = {}  # {(cell_id, particle_id): em}
         max_lag = 0
         
-        for particle_id in particles:
-            traj = trackpy_df[trackpy_df['particle'] == particle_id]
-            if len(traj) < 2:
-                continue
-            try:
-                em = tp.emsd(traj, mpp=float(microns_per_pixel), fps=1.0/float(step_size_in_sec))
-                msd_dict[particle_id] = em
-                max_lag = max(max_lag, len(em))
-            except:
-                continue
+        # Per-cell results for plotting
+        self.msd_per_cell = {}
         
-        # Create DataFrame with time as first column and MSD per trajectory
+        for cell_id in cell_ids:
+            if 'cell_id' in trackpy_df.columns:
+                cell_df = trackpy_df[trackpy_df['cell_id'] == cell_id].copy()
+            else:
+                cell_df = trackpy_df.copy()
+            
+            if cell_df.empty:
+                print(f"MSD: Cell {cell_id} has no data, skipping")
+                continue
+            
+            particles = cell_df['particle'].unique()
+            cell_msd_values = []
+            cell_D_values = []
+            print(f"MSD: Processing Cell {cell_id} with {len(particles)} particles")
+            
+            for particle_id in particles:
+                traj = cell_df[cell_df['particle'] == particle_id]
+                if len(traj) < 2:
+                    continue
+                try:
+                    em = tp.emsd(traj, mpp=float(microns_per_pixel), fps=1.0/float(step_size_in_sec))
+                    msd_dict[(cell_id, particle_id)] = em
+                    max_lag = max(max_lag, len(em))
+                    cell_msd_values.append(em)
+                    
+                    # Calculate D for this trajectory
+                    max_fit = min(self.msd_fit_points_spinbox.value(), len(em))
+                    if max_fit >= 2:
+                        is_3d = self.msd_data.get('is_3d', False) if hasattr(self, 'msd_data') and self.msd_data else False
+                        divisor = 6 if is_3d else 4
+                        slope, intercept, r_val, _, _ = linregress(em.index[:max_fit], em.values[:max_fit])
+                        D = slope / divisor if slope > 0 else 0
+                        cell_D_values.append(D)
+                except Exception as e:
+                    print(f"MSD: Failed for Cell {cell_id}, particle {particle_id}: {e}")
+                    continue
+            
+            # Store per-cell summary
+            print(f"MSD: Cell {cell_id} computed {len(cell_D_values)} D values")
+            if cell_D_values:
+                self.msd_per_cell[cell_id] = {
+                    'D_values': cell_D_values,
+                    'D_mean': np.mean(cell_D_values),
+                    'D_std': np.std(cell_D_values),
+                    'n_particles': len(cell_D_values),
+                    'msd_values': cell_msd_values
+                }
+        
+        # Create DataFrame with time as first column and MSD per trajectory_X_cell_Y
         if msd_dict:
             # Get all unique lag times
             all_times = set()
@@ -8824,14 +9017,14 @@ class GUI(QMainWindow):
             
             # Build DataFrame
             df_msd = pd.DataFrame({'time_lag_s': all_times})
-            for pid, em in msd_dict.items():
-                col_name = f'msd_traj_{pid}'
-                df_msd[col_name] = df_msd['time_lag_s'].map(lambda t: em.get(t, np.nan) if t in em.index else np.nan)
+            for (cid, pid), em in sorted(msd_dict.items()):
+                col_name = f'msd_traj_{pid}_cell_{cid}'
+                df_msd[col_name] = df_msd['time_lag_s'].map(lambda t, em=em: em.get(t, np.nan) if t in em.index else np.nan)
             
             self.msd_per_trajectory = df_msd
 
     def plot_msd(self):
-        """Plot MSD vs lag time with optional log-log scale."""
+        """Plot MSD vs lag time with per-cell coloring and optional log-log scale."""
         if self.msd_data is None:
             return
         
@@ -8854,22 +9047,106 @@ class GUI(QMainWindow):
         self.ax_msd.yaxis.label.set_color('white')
         self.ax_msd.title.set_color('white')
         
-        # Plot MSD data with bright colors for dark background
-        self.ax_msd.plot(em_um2.index, em_um2.values, 'o', alpha=0.6, color='cyan', label='MSD data')
+        # Per-cell color palette (same as Distribution/Time Course tabs)
+        cell_colors = [
+            '#00FFFF', '#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3',
+            '#F38181', '#AA96DA', '#FCBAD3', '#A8D8EA', '#FF9F43',
+            '#6C5CE7', '#00CEC9', '#FD79A8', '#FFEAA7', '#74B9FF'
+        ]
         
-        # Plot fitted region
-        self.ax_msd.plot(fit_times, em_um2.values[:len(fit_times)], 'o', markersize=8, color='orange', label='Fitted region')
-        
-        # Plot fit line
-        fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
-        self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd, '-', linewidth=2, color='lime', label=f'D = {D_um2_s:.2e} µm²/s')
+        # Check if we have per-cell data
+        if hasattr(self, 'msd_per_cell') and self.msd_per_cell:
+            # Plot per-cell MSD curves (mean with error)
+            n_cells = len(self.msd_per_cell)
+            stats_lines = []
+            MIN_TRAJECTORIES_PER_LAG = 5  # Filter lags with fewer trajectories
+            MIN_PARTICLES_PER_CELL = 10  # Minimum particles to display a cell
+            
+            for i, (cell_id, cell_data) in enumerate(sorted(self.msd_per_cell.items())):
+                color = cell_colors[i % len(cell_colors)]
+                
+                # Skip cells with too few particles
+                if cell_data['n_particles'] < MIN_PARTICLES_PER_CELL:
+                    print(f"MSD: Skipping Cell {cell_id} (only {cell_data['n_particles']} particles, need {MIN_PARTICLES_PER_CELL})")
+                    continue
+                
+                # Compute mean MSD across all trajectories for this cell
+                msd_values_list = cell_data['msd_values']
+                if not msd_values_list:
+                    continue
+                
+                # Collect all lag times and MSD values
+                all_lags = set()
+                for em in msd_values_list:
+                    all_lags.update(em.index.tolist())
+                all_lags = sorted(all_lags)
+                
+                # Calculate mean and std MSD at each lag, filter by min trajectories
+                mean_msd = []
+                std_msd = []
+                valid_lags = []
+                for lag in all_lags:
+                    values_at_lag = [em.get(lag) for em in msd_values_list if lag in em.index and not np.isnan(em.get(lag))]
+                    if len(values_at_lag) >= MIN_TRAJECTORIES_PER_LAG:
+                        mean_msd.append(np.mean(values_at_lag))
+                        std_msd.append(np.std(values_at_lag))
+                        valid_lags.append(lag)
+                
+                if not valid_lags:
+                    continue
+                
+                mean_msd = np.array(mean_msd)
+                std_msd = np.array(std_msd)
+                valid_lags = np.array(valid_lags)
+                
+                # Plot mean MSD with error bars
+                self.ax_msd.errorbar(valid_lags, mean_msd, yerr=std_msd, 
+                                    fmt='o', color=color, markersize=4, 
+                                    linewidth=1.5, alpha=0.8, capsize=2)
+                
+                # Add per-cell linear fit line
+                D_mean = cell_data['D_mean']
+                n_particles = cell_data['n_particles']
+                divisor = 6 if is_3d else 4  # 3D: D = slope/6, 2D: D = slope/4
+                slope = D_mean * divisor  # Reverse the calculation to get slope
+                # Use the global fit_times max (based on Fit Points spinbox) for consistent x-range
+                fit_max_time = float(fit_times[-1]) if len(fit_times) > 0 else valid_lags.max()
+                fit_x = np.linspace(0, fit_max_time, 50)
+                fit_y = slope * fit_x  # MSD = slope * t (assuming intercept = 0)
+                self.ax_msd.plot(fit_x, fit_y, '--', color=color, linewidth=2, alpha=0.7)
+                
+                # Add to legend with D value
+                cell_label = f"Cell {cell_id}: D={D_mean:.2e} (n={n_particles})"
+                self.ax_msd.plot([], [], 'o--', color=color, label=cell_label)
+                
+                stats_lines.append(f"Cell {cell_id}: D={D_mean:.2e} ± {cell_data['D_std']:.2e} µm²/s")
+            
+            # Plot overall fit line
+            fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
+            self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd,
+                            '-', linewidth=2, color='white', linestyle='--', label=f'Overall D={D_um2_s:.2e}')
+            
+            # Add stats text box
+            if stats_lines:
+                stats_text = '\n'.join(stats_lines[:10])  # Limit to 10 cells
+                self.ax_msd.text(0.98, 0.02, stats_text, transform=self.ax_msd.transAxes,
+                                fontsize=8, verticalalignment='bottom', horizontalalignment='right',
+                                color='white', family='monospace',
+                                bbox=dict(boxstyle='round', facecolor='black', alpha=0.8, edgecolor='gray'))
+        else:
+            # Fallback: single combined MSD plot
+            self.ax_msd.plot(em_um2.index, em_um2.values, 'o', alpha=0.6, color='cyan', label='MSD data')
+            self.ax_msd.plot(fit_times, em_um2.values[:len(fit_times)], 'o', markersize=8, color='orange', label='Fitted region')
+            fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
+            self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd,
+                            '-', linewidth=2, color='lime', label=f'D = {D_um2_s:.2e} µm²/s')
         
         # Labels
         dim_text = "3D" if is_3d else "2D"
         self.ax_msd.set_xlabel('Time lag (s)')
         self.ax_msd.set_ylabel(r'MSD [µm²]')
         self.ax_msd.set_title(f'Mean Squared Displacement ({dim_text})')
-        self.ax_msd.legend(loc='upper left', facecolor='black', edgecolor='white', labelcolor='white')
+        self.ax_msd.legend(loc='upper left', facecolor='black', edgecolor='white', labelcolor='white', fontsize=8)
         self.ax_msd.grid(True, which='both', color='gray', linestyle='--', linewidth=0.3, alpha=0.5)
         
         # Apply log-log scale if checked
@@ -9248,7 +9525,10 @@ class GUI(QMainWindow):
                     if any(r.get('normalize_plot_with_g0') for r in results)
                     else r"$G(\tau)$")
             ax.set_ylabel(ylabel, color='white')
-            ax.set_title('Autocorrelation (all channels)', color='white')
+            # Update title to indicate per-cell if applicable
+            has_cells = any(r.get('cell_id') is not None for r in results)
+            title = 'Autocorrelation (per-cell)' if has_cells else 'Autocorrelation (all channels)'
+            ax.set_title(title, color='white')
             leg = ax.legend(fontsize=8)
             leg.get_frame().set_facecolor('black')
             leg.get_frame().set_edgecolor('white')
@@ -9264,15 +9544,22 @@ class GUI(QMainWindow):
         for i, r in enumerate(results):
             ax = axes[i][0]
             if r['type'] == 'autocorrelation':
-                color = list_colors_default[r['channel'] % len(list_colors_default)]
+                # Per-cell coloring: use cell_id if available
+                cell_id = r.get('cell_id')
+                if cell_id is not None:
+                    color = list_colors_default[int(cell_id) % len(list_colors_default)]
+                    title = f'Cell {cell_id} - Ch {r["channel"]} (n={r.get("n_trajectories", "?")})'
+                else:
+                    color = list_colors_default[r['channel'] % len(list_colors_default)]
+                    title = f'Autocorrelation Channel {r["channel"]}'
                 self.plots.plot_autocorrelation(
                     mean_correlation                   = r['mean_corr'],
                     error_correlation                  = r['std_corr'],
                     lags                               = r['lags'],
                     time_interval_between_frames_in_seconds = r['step_size_in_sec'],
-                    channel_label                      = r['channel'],
+                    channel_label                      = f"Cell {cell_id}" if cell_id is not None else r['channel'],
                     axes                               = ax,
-                    plot_title                         = f'Autocorrelation Channel {r["channel"]}',
+                    plot_title                         = title,
                     fit_type                           = self.correlation_fit_type,
                     normalize_plot_with_g0             = r.get('normalize_plot_with_g0', False),
                     line_color                         = color,
@@ -9476,30 +9763,63 @@ class GUI(QMainWindow):
         # --- Plotting Logic ---
         
         if data_type == "particles":
-            # Particles is universal.
-            particles_per_frame = self.df_tracking.groupby('frame')['particle'].nunique()
+            # Particles per cell over time
+            # Per-cell color palette (same as MSD and Distribution tabs)
+            cell_colors = [
+                '#FF6B6B', '#00FFFF', '#4ECDC4', '#FFE66D', '#95E1D3',
+                '#F38181', '#AA96DA', '#FCBAD3', '#A8D8EA', '#FF9F43',
+                '#6C5CE7', '#00CEC9', '#FD79A8', '#FFEAA7', '#74B9FF'
+            ]
+            
+            # Get unique cell IDs
+            if 'cell_id' in self.df_tracking.columns:
+                cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+            else:
+                cell_ids = [0]  # Default to single "cell" if no cell_id column
+            
             all_frames = np.arange(total_frames)
-            particles_per_frame = particles_per_frame.reindex(all_frames, fill_value=0)
+            all_y_data = []  # For mean calculation
             
-            y_data = particles_per_frame.values.astype(float)
+            for i, cell_id in enumerate(cell_ids):
+                if 'cell_id' in self.df_tracking.columns:
+                    cell_df = self.df_tracking[self.df_tracking['cell_id'] == cell_id]
+                else:
+                    cell_df = self.df_tracking
+                
+                particles_per_frame = cell_df.groupby('frame')['particle'].nunique()
+                particles_per_frame = particles_per_frame.reindex(all_frames, fill_value=0)
+                y_data = particles_per_frame.values.astype(float)
+                
+                # Apply Moving Average
+                if window_size > 1:
+                    y_data = apply_moving_average(y_data, window_size)
+                
+                if normalize:
+                    min_v = np.min(y_data)
+                    max_v = np.max(y_data)
+                    if max_v > min_v:
+                        y_data = (y_data - min_v) / (max_v - min_v)
+                
+                all_y_data.append(y_data)
+                color = cell_colors[i % len(cell_colors)]
+                self.ax_time_course.plot(time_points, y_data, 'o-', color=color, 
+                                          linewidth=1.5, markersize=3, alpha=0.8,
+                                          label=f"Cell {int(cell_id)}")
             
-            # Apply Moving Average
-            if window_size > 1:
-                y_data = apply_moving_average(y_data, window_size)
-
-            if normalize:
-                min_v = np.min(y_data)
-                max_v = np.max(y_data)
-                if max_v > min_v:
-                    y_data = (y_data - min_v) / (max_v - min_v)
+            # Plot overall mean if multiple cells
+            if len(cell_ids) > 1 and all_y_data:
+                mean_y = np.mean(all_y_data, axis=0)
+                self.ax_time_course.plot(time_points, mean_y, '--', color='white', 
+                                          linewidth=2, alpha=0.9, label="Mean")
             
-            self.ax_time_course.plot(time_points, y_data, 'o-', color='orangered', linewidth=2, label="Particles")
-            self.ax_time_course.set_title("Number of Particles vs Time", fontsize=10, color='white')
+            self.ax_time_course.set_title("Number of Particles vs Time (per Cell)", fontsize=10, color='white')
+            self.ax_time_course.legend(loc='upper right', fontsize=8, framealpha=0.7)
             
             if normalize:
                  self.ax_time_course.set_ylim([-0.1, 1.1])
             else:
-                 max_particles = particles_per_frame.max()
+                 # Find max across all cells
+                 max_particles = max(np.max(y) for y in all_y_data) if all_y_data else 1
                  self.ax_time_course.set_ylim([0, max_particles + 1])
 
         else:

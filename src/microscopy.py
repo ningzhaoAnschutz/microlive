@@ -1684,6 +1684,7 @@ class CellposeTimeSeries:
             
             if mask is None:
                 mask = np.zeros((self.Y, self.X), dtype=np.uint16)
+            
             masks_list.append(mask)
         
         return masks_list
@@ -2287,6 +2288,37 @@ class CellSegmentation():
         # Matching nuclei and cytosol
         masks_cyto, masks_nuclei = matching_masks(masks_cyto, masks_nuclei)                
         return masks_cyto, masks_nuclei
+
+    @staticmethod
+    def synchronize_masks_tyx(masks_cyto_tyx, masks_nuc_tyx):
+        """
+        Synchronizes 3D (TYX) masks frame-by-frame.
+        Iterates through time dimension and calls synchronize_masks for each frame.
+        """
+        if masks_cyto_tyx is None or masks_nuc_tyx is None:
+            return masks_cyto_tyx, masks_nuc_tyx
+            
+        if masks_cyto_tyx.ndim != 3 or masks_nuc_tyx.ndim != 3:
+            # Fallback for 2D inputs or errors
+             return masks_cyto_tyx, masks_nuc_tyx
+             
+        T = min(masks_cyto_tyx.shape[0], masks_nuc_tyx.shape[0])
+        
+        synced_cyto_tyx = np.zeros_like(masks_cyto_tyx)
+        synced_nuc_tyx = np.zeros_like(masks_nuc_tyx)
+        
+        
+        for t in range(T):
+            c_frame = masks_cyto_tyx[t]
+            n_frame = masks_nuc_tyx[t]
+            
+            # Synchronize 2D frame
+            s_c, s_n = CellSegmentation.synchronize_masks(c_frame, n_frame)
+            
+            synced_cyto_tyx[t] = s_c
+            synced_nuc_tyx[t] = s_n
+            
+        return synced_cyto_tyx, synced_nuc_tyx
     @staticmethod
     def is_nucleus_in_cytosol(mask_n, mask_c):
         """
@@ -3424,6 +3456,8 @@ class SpotDetection():
         self.number_color_channels = image.shape[-1]
         self.channels_cytosol=channels_cytosol
         self.channels_nucleus=channels_nucleus
+        
+        
         if not (masks_complete_cells is None):
             self.list_masks_complete_cells = Utilities().separate_masks(masks_complete_cells)
         elif (masks_complete_cells is None) and not(masks_nuclei is None):
@@ -3611,6 +3645,7 @@ class ParticleTracking:
         self.masks_nuclei = masks_nuclei
         self.masks_cytosol_no_nuclei = masks_cytosol_no_nuclei
         
+        
         # Normalize masks to TYX format for per-frame tracking support
         # If YX [Y,X] mask is passed, expand to TYX [T,Y,X] by tiling
         T = image.shape[0]
@@ -3673,11 +3708,12 @@ class ParticleTracking:
     def _normalize_mask_to_tyx(self, mask, T):
         """
         Normalize a mask to TYX [T, Y, X] format for per-frame tracking.
+        STRICT MODE: Raises error if mask dimensions do not match T.
         
         Parameters
         ----------
         mask : ndarray or None
-            Input mask - can be YX [Y,X], ZYX [Z,Y,X], or TYX [T,Y,X]
+            Input mask - can be YX [Y,X] (static) or TYX [T,Y,X] (dynamic).
         T : int
             Number of timepoints
             
@@ -3691,22 +3727,29 @@ class ParticleTracking:
         
         if mask.ndim == 2:
             # YX [Y, X] -> tile to TYX [T, Y, X]
-            print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}]")
+            print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}] (static mask across all frames)")
             return np.tile(mask[np.newaxis, :, :], (T, 1, 1))
         elif mask.ndim == 3:
-            # Check if first dim matches T (TYX) or is likely Z dimension
+            # Check if first dim matches T (TYX)
             if mask.shape[0] == T:
-                # Already TYX format - verify by checking if masks differ across frames
-                print(f"[ParticleTracking] Using TYX mask as-is: {mask.shape}")
+                # TYX format - verify masks actually vary across time
+                unique_per_frame = np.array([len(np.unique(mask[t])) for t in range(min(T, 5))])
+                if np.any(unique_per_frame > 1):  # At least one frame has cells
+                    print(f"[ParticleTracking] Using TYX mask as-is: {mask.shape} (time-varying)")
+                else:
+                    print(f"[WARNING] TYX mask {mask.shape} is all zeros/background. Using as-is.")
                 return mask
             else:
-                # Assume ZYX - take max projection and tile
-                print(f"[ParticleTracking] Converting ZYX mask {mask.shape} to TYX via max projection")
-                mask_2d = np.max(mask, axis=0)
-                return np.tile(mask_2d[np.newaxis, :, :], (T, 1, 1))
+                # Dimension mismatch: T != mask.shape[0]
+                error_msg = (
+                    f"Mask dimension mismatch! Expected {T} frames, but mask has {mask.shape[0]} frames/slices.\n"
+                    f"Cellpose may have segmented fewer frames than the video contains.\n"
+                    f"Please ensure segmentation covers all frames or start/end points match."
+                )
+                print(f"[ERROR] {error_msg}")
+                raise ValueError(error_msg)
         else:
-            # Unknown format - return as-is
-            print(f"[ParticleTracking] Warning: Unknown mask format {mask.shape}, using as-is")
+            print(f"[WARNING] Unknown mask format {mask.shape}, using as-is (may cause errors)")
             return mask
 
     def run(self):
@@ -3797,31 +3840,37 @@ class ParticleTracking:
                     spot_id += 1
             df_random = pd.DataFrame(rows, columns=expected_columns)
             # Prepare image and mask for intensity extraction.
+            # Prepare image and mask for intensity extraction.
             if self.use_maximum_projection:
-                image_proj = np.max(self.image, axis=1, keepdims=False)  # [T, Y, X, C]
-                mask_proj = np.max(self.masks, axis=0) if self.masks.ndim > 2 else self.masks
+                # Max projection of IMAGE along Z (axis 1) -> [T, Y, X, C]
+                image_proj = np.max(self.image, axis=1, keepdims=False) 
             else:
                 image_proj = self.image
-                mask_proj = self.masks
 
             # Process each frame in parallel.
             def process_frame(t):
                 df_frame = df_random[df_random['frame'] == t].copy()
                 # DataProcessing expects an array with 4 columns: [z, y, x, cluster_size]
                 clusters_array = df_frame[['z', 'y', 'x', 'cluster_size']].to_numpy()
+                
+                # Correctly slice masks for frame t from TYX arrays
+                mask_t = self.masks_tyx[t] if self.masks_tyx is not None else None
+                mask_nuc_t = self.masks_nuclei_tyx[t] if self.masks_nuclei_tyx is not None else None
+                mask_cyto_t = self.masks_cytosol_no_nuclei_tyx[t] if self.masks_cytosol_no_nuclei_tyx is not None else None
+
                 dp = DataProcessing(
                     clusters_and_spots=clusters_array,
                     image=image_proj[t],      # t-th frame; shape [Y, X, C]
-                    masks_complete_cells=mask_proj,
-                    masks_nuclei=self.masks_nuclei,
-                    masks_cytosol_no_nuclei=self.masks_cytosol_no_nuclei,
+                    masks_complete_cells=mask_t,
+                    masks_nuclei=mask_nuc_t,
+                    masks_cytosol_no_nuclei=mask_cyto_t,
                     channels_cytosol=self.channels_cytosol,
                     channels_nucleus=self.channels_nucleus,
                     yx_spot_size_in_px=self.yx_spot_size_in_px,
                     spot_type=0,
                     dataframe=None,
                     reset_cell_counter=True,
-                    image_counter=0,
+                    image_counter=t,
                     number_color_channels=self.number_color_channels,
                     use_maximum_projection=self.use_maximum_projection,
                     use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation
@@ -3845,6 +3894,15 @@ class ParticleTracking:
                 mask_nuc_frame = self.masks_nuclei_tyx[i] if self.masks_nuclei_tyx is not None else None
                 mask_cyto_no_nuc_frame = self.masks_cytosol_no_nuclei_tyx[i] if self.masks_cytosol_no_nuclei_tyx is not None else None
                 
+                # Diagnostic logging for frame-specific masks
+                if mask_frame is not None:
+                    unique_ids = np.unique(mask_frame)
+                    n_cells = len(unique_ids[unique_ids > 0])  # Exclude background (0)
+                    print(f"[Frame {i:03d}] Complete Cell Mask: {n_cells} cells, IDs={unique_ids[unique_ids > 0]}, Shape={mask_frame.shape}")
+                if mask_nuc_frame is not None:
+                    unique_ids_nuc = np.unique(mask_nuc_frame)
+                    n_nuc = len(unique_ids_nuc[unique_ids_nuc > 0])
+                
                 dataframe, imgs, _ = SpotDetection(
                     self.image[i],
                     channels_spots=self.channels_spots,
@@ -3862,7 +3920,7 @@ class ParticleTracking:
                     z_spot_size_in_px=self.z_spot_size_in_px,
                     use_trackpy=self.use_trackpy,
                     use_maximum_projection=self.use_maximum_projection,
-                    use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation
+                    use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
                 ).get_dataframe()
                 filtered_images = []
                 for ch in range(self.number_color_channels):
@@ -3938,13 +3996,30 @@ class ParticleTracking:
             counter = 0
             for spot_type in range(len(self.channels_spots)):
                 df_spot = df_all[df_all['spot_type'] == spot_type]
-                number_masks = np.max(self.masks)
+                # Use masks_tyx for per-frame cell assignment when available
+                reference_mask = self.masks_tyx[0] if self.masks_tyx is not None else self.masks
+                number_masks = np.max(reference_mask)
                 if number_masks > 0:
                     mask_dfs = []
                     for index_mask in range(1, int(number_masks) + 1):
-                        mask_sel = (self.masks == index_mask).astype(int)
-                        df_in_mask = Utilities().spots_in_mask(df_spot, mask_sel)
-                        df_particles = df_in_mask[df_in_mask['In Mask'] == True]
+                        # Filter spots per-frame using time-varying masks
+                        frame_filtered_spots = []
+                        for frame_idx in df_spot['frame'].unique():
+                            df_frame = df_spot[df_spot['frame'] == frame_idx]
+                            # Get frame-specific mask slice from TYX array
+                            if self.masks_tyx is not None:
+                                mask_frame = self.masks_tyx[int(frame_idx)]
+                            else:
+                                mask_frame = self.masks
+                            mask_sel = (mask_frame == index_mask).astype(int)
+                            df_in_mask_frame = Utilities().spots_in_mask(df_frame, mask_sel)
+                            df_in_mask_frame = df_in_mask_frame[df_in_mask_frame['In Mask'] == True]
+                            frame_filtered_spots.append(df_in_mask_frame)
+                        
+                        if frame_filtered_spots:
+                            df_particles = pd.concat(frame_filtered_spots, ignore_index=True)
+                        else:
+                            df_particles = pd.DataFrame()
                         if self.link_particles:
                             if self.use_maximum_projection:
                                 linked_df = linking_2D(
@@ -4236,8 +4311,12 @@ class DataProcessing():
         '''
         def mask_selector(mask,calculate_centroid= True):
             mask_area = np.count_nonzero(mask)
-            if calculate_centroid == True:
-                centroid_y,centroid_x = ndimage.measurements.center_of_mass(mask)
+            if calculate_centroid == True and mask_area > 0:
+                coords = ndimage.measurements.center_of_mass(mask)
+                if len(coords) >= 2:
+                    centroid_y, centroid_x = coords[-2], coords[-1]
+                else:
+                    centroid_y, centroid_x = 0, 0
             else:
                 centroid_y,centroid_x = 0,0
             return  mask_area, int(centroid_y), int(centroid_x)
@@ -4525,7 +4604,7 @@ class DataProcessing():
             # Continue with any further processing or type casting if needed
             df = pd.concat([df, new_dataframe], ignore_index=True)
             
-            new_dtypes = {'image_id':int, 'cell_id':int, 'spot_id':int,'is_nuc':int,'is_cluster':int,'nuc_loc_y':int, 'nuc_loc_x':int,'cyto_loc_y':int, 'cyto_loc_x':int,'nuc_area_px':int,'cyto_area_px':int, 'cell_area_px':int,'cluster_size':int,'spot_type':int,'is_cell_fragmented':int} # 'x':int,'y':int,'z':int,
+            new_dtypes = {'image_id':'Int64', 'cell_id':'Int64', 'spot_id':'Int64','is_nuc':'Int64','is_cluster':'Int64','nuc_loc_y':'Int64', 'nuc_loc_x':'Int64','cyto_loc_y':'Int64', 'cyto_loc_x':'Int64','nuc_area_px':'Int64','cyto_area_px':'Int64', 'cell_area_px':'Int64','cluster_size':'Int64','spot_type':'Int64','is_cell_fragmented':'Int64'} # 'x':int,'y':int,'z':int,
             df = df.astype(new_dtypes)
             return df
         
@@ -4533,7 +4612,6 @@ class DataProcessing():
             n_masks = len(self.masks_nuclei)
         else:
             n_masks = len(self.masks_complete_cells)  
-            
         # Initializing Dataframe
         if (not ( self.dataframe is None))   and  ( self.reset_cell_counter == False): # IF the dataframe exist and not reset for multi-channel is passed
             new_dataframe = self.dataframe
@@ -4579,6 +4657,7 @@ class DataProcessing():
             # calculating nuclear area and center of mass
             if not (self.channels_nucleus in  (None, [None])):
                 nuc_area, nuc_centroid_y, nuc_centroid_x = mask_selector(self.masks_nuclei[id_cell], calculate_centroid=True)
+
                 selected_mask_nuc = self.masks_nuclei[id_cell]
                 dilated_image_mask = binary_dilation(selected_mask_nuc, iterations=num_pixels_to_dilate).astype('int')
                 pseudo_cytosol_mask = np.subtract(dilated_image_mask, selected_mask_nuc)
@@ -4586,7 +4665,10 @@ class DataProcessing():
                 tested_mask_for_border =  self.masks_nuclei[id_cell]
                 nuc_int = np.zeros( (self.number_color_channels ))
                 for k in range(self.number_color_channels ):
-                    temp_img = np.max (self.image[:,:,:,k ],axis=0)
+                    if self.use_maximum_projection:
+                        temp_img = self.image[:,:,k]
+                    else:
+                        temp_img = np.max (self.image[:,:,:,k ],axis=0)
                     temp_masked_img = temp_img * self.masks_nuclei[id_cell]
                     temp_masked_img_pseudo_cytosol_mask = temp_img * pseudo_cytosol_mask
                     nuc_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5)
@@ -4604,12 +4686,15 @@ class DataProcessing():
                 complete_cell_int = np.zeros( (self.number_color_channels ))
                 cyto_int = np.zeros( (self.number_color_channels ))
                 for k in range(self.number_color_channels ):
-                    temp_img = np.max (self.image[:,:,:,k ],axis=0)
+                    if self.use_maximum_projection:
+                        temp_img = self.image[:,:,k]
+                    else:
+                        temp_img = np.max (self.image[:,:,:,k ],axis=0)
                     # calculating cytosol intensity for complete cell mask
                     temp_masked_img = temp_img * self.masks_complete_cells[id_cell]
                     complete_cell_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5) 
                     # calculate cytosol intensity only if masks_cytosol_no_nuclei is not None
-                    if not (self.masks_cytosol_no_nuclei in (None, [None])):
+                    if self.masks_cytosol_no_nuclei is not None and not (isinstance(self.masks_cytosol_no_nuclei, list) and self.masks_cytosol_no_nuclei == [None]):
                         temp_masked_img_cyto_only = temp_img * self.masks_cytosol_no_nuclei[id_cell]
                         cyto_int[k]=  np.round( temp_masked_img_cyto_only[np.nonzero(temp_masked_img_cyto_only)].mean() , 5)
                     else:
@@ -4662,11 +4747,10 @@ class DataProcessing():
                 selected_masks_complete_cells = self.masks_complete_cells[id_cell]
             else:
                 slected_masks_cytosol_no_nuclei = None
-                cyto_area = 0 
-                selected_masks_complete_cells = None
             # determining if the cell is in the border of the image. If true the cell is in the border.
             is_cell_in_border =  np.any( np.concatenate( ( tested_mask_for_border[:,0],tested_mask_for_border[:,-1],tested_mask_for_border[0,:],tested_mask_for_border[-1,:] ) ) )  
             # Data extraction
+
             new_dataframe = data_to_df( new_dataframe, 
                                         self.clusters_and_spots, 
                                         mask_nuc = selected_mask_nuc, 
@@ -4713,10 +4797,19 @@ class ParticleMotion:
         else:
             self.trackpy_dataframe = trackpy_dataframe
         # Select columns based on 2D or 3D tracking
-        if self.is_3d and 'z' in self.trackpy_dataframe.columns:
-            self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y', 'z']].copy()
+        # If unique_particle exists, use it to avoid duplicate IDs across cells
+        if 'unique_particle' in self.trackpy_dataframe.columns:
+            # Create a copy with unique_particle renamed to particle
+            if self.is_3d and 'z' in self.trackpy_dataframe.columns:
+                self.trackpy_dataframe = self.trackpy_dataframe[['unique_particle', 'frame', 'x', 'y', 'z']].copy()
+            else:
+                self.trackpy_dataframe = self.trackpy_dataframe[['unique_particle', 'frame', 'x', 'y']].copy()
+            self.trackpy_dataframe = self.trackpy_dataframe.rename(columns={'unique_particle': 'particle'})
         else:
-            self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y']].copy()
+            if self.is_3d and 'z' in self.trackpy_dataframe.columns:
+                self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y', 'z']].copy()
+            else:
+                self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y']].copy()
 
         # use self.max_lagtime = max_lagtime but test it is not longer than max_lagtime in the dataframe.
         if max_lagtime is None:
@@ -7649,6 +7742,11 @@ class Utilities():
             data_array = np.full((n_particles, total_frames), np.nan, dtype=float)
         for particle in particles:
             particle_data = df[df['unique_particle'] == particle]
+            # Filter out rows with NaN frames before conversion
+            valid_mask = ~particle_data['frame'].isna()
+            particle_data = particle_data[valid_mask]
+            if particle_data.empty:
+                continue
             frames = particle_data['frame'].values.astype(int)
             values = particle_data[selected_field].values
             row_idx = particle_to_index[particle]
@@ -9816,7 +9914,8 @@ class Plots():
             list_contours = Utilities().masks_to_contours(masks)
         else:
             number_masks = 0
-        max_z = df['z'].max().astype(int)
+        max_z_val = df['z'].max()
+        max_z = int(max_z_val) if not pd.isna(max_z_val) else 0
         
         # function to plot the trajectories
         if plot_type == '3d' or plot_type == 'both':
