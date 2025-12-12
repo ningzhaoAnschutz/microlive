@@ -4593,18 +4593,41 @@ class GUI(QMainWindow):
             mask_GUI = np.where(mask_GUI > 0, 1, 0)
             mask_GUI.setflags(write=1)
 
-        # Use registered image if available, otherwise original
-        image_for_correction = self.registered_image if self.registered_image is not None else self.image_stack
-
-        photobleaching_obj = mi.Photobleaching(
-            image_TZYXC=image_for_correction,
+        # Step 1: Calculate photobleaching parameters from RAW image (avoids registration artifacts)
+        raw_photobleaching_obj = mi.Photobleaching(
+            image_TZYXC=self.image_stack,  # Always use raw for parameter calculation
             mask_YX=mask_GUI,
             show_plot=False,
             mode=mode,
             radius=radius,
             time_interval_seconds=self.time_interval_value
         )
-        self.corrected_image, self.photobleaching_data = photobleaching_obj.apply_photobleaching_correction()
+        decay_params = raw_photobleaching_obj.calculate_photobleaching()
+        
+        # Store raw mean intensities for plotting (not affected by registration artifacts)
+        raw_mean_intensities = raw_photobleaching_obj.mean_intensities
+        raw_err_intensities = raw_photobleaching_obj.err_intensities
+
+        # Step 2: Determine which image to apply correction to
+        image_for_correction = self.registered_image if self.registered_image is not None else self.image_stack
+
+        # Step 3: Apply correction using pre-calculated parameters from raw image
+        correction_obj = mi.Photobleaching(
+            image_TZYXC=image_for_correction,  # Apply to registered (or raw if no registration)
+            mask_YX=mask_GUI,
+            show_plot=False,
+            mode=mode,
+            radius=radius,
+            time_interval_seconds=self.time_interval_value,
+            precalulated_list_decay_rates=decay_params  # Use params from raw image
+        )
+        self.corrected_image, self.photobleaching_data = correction_obj.apply_photobleaching_correction()
+        
+        # Override mean_intensities in photobleaching_data with raw image values for accurate plot
+        # This shows the actual decay curve (from raw) as "Original" in the plot
+        self.photobleaching_data['mean_intensities'] = raw_mean_intensities
+        self.photobleaching_data['err_intensities'] = raw_err_intensities
+        
         self.photobleaching_calculated = True
         self.plot_photobleaching()
 
