@@ -478,49 +478,44 @@ class Photobleaching:
         """
         Applies photobleaching correction normalized to the initial intensity (t=0).
         The correction factor is I_fit(0) / I_fit(t), ensuring the initial frame is unchanged.
+        
+        MEMORY OPTIMIZED: Processes frames one at a time instead of creating a full float32 copy.
+        Corrected intensities are computed analytically from correction factors.
         """
         params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
         T, Z, Y, X, C = self.image_TZYXC.shape
-        corrected_image = self.image_TZYXC.astype(np.float32).copy()
-        #start_idx = 0 # self.number_removed_initial_points or 0
         time_array = np.arange(T, dtype=float) * self.time_interval_seconds
+        
+        # Ensure mask exists
+        if not hasattr(self, 'mask'):
+            h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
+            if self.mode == 'use_circular_region':
+                if self.user_provided_mask and self.mask_YX.any():
+                    cy, cx = np.mean(np.argwhere(self.mask_YX), axis=0).astype(int)
+                else:
+                    cy, cx = h // 2, w // 2
+                Y_grid, X_grid = np.ogrid[:h, :w]
+                dist = np.sqrt((X_grid - cx) ** 2 + (Y_grid - cy) ** 2)
+                self.mask = dist <= self.radius
+            elif self.mode == 'inside_cell':
+                self.mask = self.mask_YX
+            elif self.mode == 'outside_cell':
+                self.mask = ~self.mask_YX
+            elif self.mode == 'entire_image':
+                self.mask = np.ones((h, w), dtype=bool)
+        
+        # Pre-compute correction factors for each channel
+        correction_factors_per_ch = {}
+        channels_to_correct = []
+        raw_intensities_per_ch = {}  # Store per-channel intensities for fallback
+        
         for ch in range(C):
-            if hasattr(self, 'mean_intensities'):
-                final_intensity = self.mean_intensities[-1, ch]
-            else:
-                if not hasattr(self, 'mask'):
-                    h, w = self.image_TZYXC.shape[2], self.image_TZYXC.shape[3]
-                    if self.mode == 'use_circular_region':
-                        if self.user_provided_mask and self.mask_YX.any():
-                            cy, cx = np.mean(np.argwhere(self.mask_YX), axis=0).astype(int)
-                        else:
-                            cy, cx = h // 2, w // 2
-                        Y, X_grid = np.ogrid[:h, :w]
-                        dist = np.sqrt((X_grid - cx) ** 2 + (Y - cy) ** 2)
-                        mask = dist <= self.radius
-                    elif self.mode == 'inside_cell':
-                        mask = self.mask_YX
-                    elif self.mode == 'outside_cell':
-                        mask = ~self.mask_YX
-                    elif self.mode == 'entire_image':
-                        mask = np.ones((h, w), dtype=bool)
-                    self.mask = mask
-                final_frame = self.image_TZYXC[-1, :, :, :, ch]
-                max_proj = np.max(final_frame, axis=0)
-                masked_pixels = max_proj[self.mask]
-                final_intensity = np.mean(masked_pixels) if masked_pixels.size > 0 else 0.0
-            if final_intensity < self.min_intensity_threshold:
-                try:
-                    QMessageBox.warning(None, "Photobleaching Correction",
-                        f"Photobleaching correction skipped for channel {ch} "
-                        f"(final intensity {final_intensity:.2f} < {self.min_intensity_threshold}).")
-                except Exception:
-                    print(f"Warning: Photobleaching correction skipped for channel {ch} "
-                        f"(final intensity {final_intensity:.2f} < 100).")
-                continue            
+            # Get mean intensities (already calculated or need to calculate)
             if hasattr(self, 'mean_intensities'):
                 raw_intensities = self.mean_intensities[:, ch]
+                final_intensity = self.mean_intensities[-1, ch]
             else:
+                # Calculate if not available
                 raw_intensities = np.zeros(T)
                 for i in range(T):
                     stack_ch = self.image_TZYXC[i, :, :, :, ch]
@@ -529,36 +524,74 @@ class Photobleaching:
                     masked_pixels = masked_pixels[masked_pixels != 0]
                     if masked_pixels.size > 0:
                         raw_intensities[i] = np.mean(masked_pixels)
-            eps = 1e-9
-            log_int = np.log(raw_intensities + eps)
+                final_intensity = raw_intensities[-1] if len(raw_intensities) > 0 else 0.0
+            
+            # Store per-channel raw intensities for later use
+            raw_intensities_per_ch[ch] = raw_intensities.copy()
+            
+            # Check if correction should be skipped
+            if final_intensity < self.min_intensity_threshold:
+                print(f"Warning: Photobleaching correction skipped for channel {ch} "
+                      f"(final intensity {final_intensity:.2f} < {self.min_intensity_threshold}).")
+                correction_factors_per_ch[ch] = np.ones(T)  # No correction
+                continue
+            
             if len(time_array) < 2:
                 print(f"Skipping photobleaching correction for channel {ch} (not enough data points).")
+                correction_factors_per_ch[ch] = np.ones(T)
                 continue
-            intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / raw_intensities[0]
+            
+            intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / (raw_intensities[0] + 1e-9)
             if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
                 print(f"Photobleaching correction not necessary for channel {ch}. No correction applied.")
-                continue 
+                correction_factors_per_ch[ch] = np.ones(T)
+                continue
+            
+            # Calculate correction factors
+            eps = 1e-9
+            log_int = np.log(raw_intensities + eps)
             slope, intercept = np.polyfit(time_array, log_int, 1)
             k_fit = -slope
             I0_fit = np.exp(intercept)
             I_fit = I0_fit * np.exp(-k_fit * time_array)
-            correction_factors = I0_fit / I_fit  # This gives exp(k_fit * time_array)
-            for i in range(T):
-                corrected_image[i, ..., ch] *= correction_factors[i]
+            correction_factors_per_ch[ch] = I0_fit / I_fit  # exp(k_fit * time_array)
+            channels_to_correct.append(ch)
+        
+        # MEMORY-EFFICIENT: Allocate output array as uint16 directly
+        # Process one frame at a time to avoid 15GB float32 intermediate
+        corrected_image = np.zeros_like(self.image_TZYXC, dtype=np.uint16)
+        
+        print(f"Applying photobleaching correction frame-by-frame ({T} frames)...")
+        for i in range(T):
+            # Process this frame
+            frame_float = self.image_TZYXC[i].astype(np.float32)
+            for ch in channels_to_correct:
+                frame_float[..., ch] *= correction_factors_per_ch[ch][i]
+            # Clip and convert back to uint16
+            corrected_image[i] = np.clip(frame_float, 0, 65535).astype(np.uint16)
+            
+            # Progress indicator every 50 frames
+            if (i + 1) % 50 == 0 or i == T - 1:
+                print(f"  Frame {i + 1}/{T} completed")
+        
+        # Compute corrected mean intensities analytically (no need to re-scan image)
+        # corrected_intensity = original_intensity * correction_factor
         mean_intensities_corr = np.zeros((T, C), dtype=float)
-        err_intensities_corr  = np.zeros((T, C), dtype=float)
-        for ch in range(C):
-            for i in range(T):
-                max_proj_corr = np.max(corrected_image[i, ..., ch], axis=0)
-                masked_pixels_corr = max_proj_corr[self.mask]
-                masked_pixels_corr = masked_pixels_corr[masked_pixels_corr != 0]  # exclude zeros
-                if masked_pixels_corr.size > 0:
-                    mean_intensities_corr[i, ch] = masked_pixels_corr.mean()
-                    err_intensities_corr[i, ch] = masked_pixels_corr.std() / np.sqrt(masked_pixels_corr.size)
+        err_intensities_corr = np.zeros((T, C), dtype=float)
+        
+        if hasattr(self, 'mean_intensities'):
+            for ch in range(C):
+                mean_intensities_corr[:, ch] = self.mean_intensities[:, ch] * correction_factors_per_ch.get(ch, np.ones(T))
+                err_intensities_corr[:, ch] = self.err_intensities[:, ch] * correction_factors_per_ch.get(ch, np.ones(T))
+        else:
+            # Fallback: use stored per-channel raw intensities
+            for ch in range(C):
+                mean_intensities_corr[:, ch] = raw_intensities_per_ch[ch] * correction_factors_per_ch.get(ch, np.ones(T))
+        
         if self.show_plot or (self.plot_name is not None):
             orig = [self.image_TZYXC[i].mean() for i in range(T)]
             corr = [corrected_image[i].mean() for i in range(T)]
-            plt.figure(figsize=(5,4))
+            plt.figure(figsize=(5, 4))
             plt.plot(orig, 'o-', label='Original', color='gray')
             plt.plot(corr, 'o-', label='Corrected', color='blue')
             plt.xlabel('Frame')
@@ -569,18 +602,18 @@ class Photobleaching:
                 plt.savefig(self.plot_name, dpi=300, bbox_inches='tight')
             if self.show_plot:
                 plt.show()
-            else:  
+            else:
                 plt.close()
+        
         photobleaching_data = {
             'decay_rates': params,
             'time_array': time_array,
-            'mean_intensities': self.mean_intensities if hasattr(self, 'mean_intensities') else raw_intensities.reshape(-1,1),
-            'err_intensities': self.err_intensities if hasattr(self, 'err_intensities') else np.zeros((T,C)),
+            'mean_intensities': self.mean_intensities if hasattr(self, 'mean_intensities') else np.zeros((T, C)),
+            'err_intensities': self.err_intensities if hasattr(self, 'err_intensities') else np.zeros((T, C)),
             'mean_intensities_corrected': mean_intensities_corr,
             'err_intensities_corrected': err_intensities_corr,
         }
-        corrected_uint16 = np.clip(corrected_image, 0, 65535).astype(np.uint16)
-        return corrected_uint16, photobleaching_data
+        return corrected_image, photobleaching_data
 
 
 class ReadLif:
@@ -678,14 +711,35 @@ class ReadLif:
                 print("-"*40)
             stem = f"{self.path.stem}_{idx}"
             outdir = self.path.parent / "images_reformatted"
+            # if self.save_tif:
+            #     outdir.mkdir(parents=True, exist_ok=True)
+            #     tifffile.imwrite(
+            #         outdir / f"{stem}.ome.tif",
+            #         arr,
+            #         imagej=False,
+            #         metadata={
+            #             'axes': self.format,
+            #             'PhysicalSizeX': pixel_XY,
+            #             'PhysicalSizeY': pixel_XY,
+            #             'PhysicalSizeZ': pixel_Z,
+            #             'TimeIncrement': ti,
+            #             'TimeIncrementUnit': 's',
+            #             'SignificantBits': bit_depth,
+            #             'Channel': {'Name': ch_names},
+            #         }
+            #     )
+            # outdir = self.path.parent / "images_reformatted"
             if self.save_tif:
                 outdir.mkdir(parents=True, exist_ok=True)
+                # Transpose from TZYXC (internal format) to TCZYX (OME-TIFF standard)
+                # This ensures tifffile saves with correct axis interpretation
+                arr_tczyx = np.transpose(arr, (0, 4, 1, 2, 3))  # T,Z,Y,X,C → T,C,Z,Y,X
                 tifffile.imwrite(
                     outdir / f"{stem}.ome.tif",
-                    arr,
+                    arr_tczyx,
                     imagej=False,
                     metadata={
-                        'axes': self.format,
+                        'axes': 'TCZYX',
                         'PhysicalSizeX': pixel_XY,
                         'PhysicalSizeY': pixel_XY,
                         'PhysicalSizeZ': pixel_Z,
@@ -693,6 +747,7 @@ class ReadLif:
                         'TimeIncrementUnit': 's',
                         'SignificantBits': bit_depth,
                         'Channel': {'Name': ch_names},
+                        'shape': list(arr_tczyx.shape),  # Explicit shape for verification
                     }
                 )
             if self.save_png:
@@ -4754,7 +4809,11 @@ class DataProcessing():
                     temp_masked_img = temp_img * self.masks_complete_cells[id_cell]
                     complete_cell_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5) 
                     # calculate cytosol intensity only if masks_cytosol_no_nuclei is not None
-                    if self.masks_cytosol_no_nuclei is not None and not (isinstance(self.masks_cytosol_no_nuclei, list) and self.masks_cytosol_no_nuclei == [None]):
+                    # Check if it's a valid mask (not None and not a list containing only None)
+                    is_valid_cyto_mask = self.masks_cytosol_no_nuclei is not None
+                    if is_valid_cyto_mask and isinstance(self.masks_cytosol_no_nuclei, list):
+                        is_valid_cyto_mask = len(self.masks_cytosol_no_nuclei) > 0 and self.masks_cytosol_no_nuclei[0] is not None
+                    if is_valid_cyto_mask:
                         temp_masked_img_cyto_only = temp_img * self.masks_cytosol_no_nuclei[id_cell]
                         cyto_int[k]=  np.round( temp_masked_img_cyto_only[np.nonzero(temp_masked_img_cyto_only)].mean() , 5)
                     else:

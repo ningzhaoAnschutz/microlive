@@ -2204,11 +2204,23 @@ class GUI(QMainWindow):
             self.time_slider_tracking_vis.blockSignals(False)
         
         self.detected_spots_frame = None
-        self.plot_image()
-        self.plot_tracking()
-        self.update_threshold_histogram()
-        if hasattr(self, 'ax_tracking_vis'):
-            self.display_tracking_visualization()
+        
+        # OPTIMIZATION: Only update the currently visible tab instead of all tabs
+        current_tab_index = self.tabs.currentIndex()
+        
+        # Tab index mapping:
+        # 0=Import, 1=Registration, 2=Segmentation, 3=Cellpose, 4=Photobleaching,
+        # 5=Tracking, 6=MSD, 7=Distribution, 8=Time Course, 9=Correlation,
+        # 10=Colocalization, 11=Colocalization Manual, 12=Tracking Visualization
+        
+        if current_tab_index == 0:  # Import tab
+            self.plot_image()
+        elif current_tab_index == 5:  # Tracking tab
+            self.plot_tracking()
+            self.update_threshold_histogram()
+        elif current_tab_index == 12:  # Tracking Visualization tab
+            if hasattr(self, 'ax_tracking_vis'):
+                self.display_tracking_visualization()
 
     def plot_image(self):
         self.figure_display.clear()
@@ -4944,7 +4956,7 @@ class GUI(QMainWindow):
             self.threshold_slider.setValue(slider_min)
         else:
             self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=3)
-        self.canvas_threshold_hist.draw()
+        self.canvas_threshold_hist.draw_idle()
 
     def update_threshold_value(self, value):
         if self.image_stack is None:
@@ -4981,7 +4993,7 @@ class GUI(QMainWindow):
         self.ax_threshold_hist.grid(False)
         self.ax_threshold_hist.tick_params(axis='both', which='major', labelsize=6)
         self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=3)
-        self.canvas_threshold_hist.draw()
+        self.canvas_threshold_hist.draw_idle()
         self.detect_spots_in_current_frame()
 
     def on_image_source_changed(self):
@@ -7611,6 +7623,11 @@ class GUI(QMainWindow):
         self.msd_diffusion_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         results_layout.addRow("Diffusion Coefficient:", self.msd_diffusion_label)
         
+        # Diffusion coefficient in px²/s
+        self.msd_diffusion_px_label = QLabel("D = --")
+        self.msd_diffusion_px_label.setStyleSheet("font-size: 12px;")
+        results_layout.addRow("D (px²/s):", self.msd_diffusion_px_label)
+        
         self.msd_r_squared_label = QLabel("R² = --")
         results_layout.addRow("R² (Linear Fit):", self.msd_r_squared_label)
         
@@ -9122,6 +9139,8 @@ class GUI(QMainWindow):
         
         if hasattr(self, 'msd_diffusion_label'):
             self.msd_diffusion_label.setText("D = --")
+        if hasattr(self, 'msd_diffusion_px_label'):
+            self.msd_diffusion_px_label.setText("D = --")
         if hasattr(self, 'msd_r_squared_label'):
             self.msd_r_squared_label.setText("R² = --")
         if hasattr(self, 'msd_n_particles_label'):
@@ -9134,7 +9153,7 @@ class GUI(QMainWindow):
         """Calculate MSD using tracked particle data from the Tracking tab."""
         
         # Check if tracking data exists
-        if not hasattr(self, 'df_tracking') or self.df_tracking is None or self.df_tracking.empty:
+        if not hasattr(self, 'df_tracking') or self.df_tracking is None or len(self.df_tracking) == 0:
             QMessageBox.warning(self, "No Data", "No tracking data available. Please run tracking first.")
             return
         
@@ -9226,12 +9245,18 @@ class GUI(QMainWindow):
                     D_mean = np.mean(all_D_values)
                     D_std = np.std(all_D_values)
                     self.msd_diffusion_label.setText(f"D = {D_mean:.2e} ± {D_std:.2e} µm²/s")
+                    # Convert to px²/s: D_px2 = D_um2 / (microns_per_pixel)^2
+                    D_mean_px = D_mean / (microns_per_pixel ** 2)
+                    D_std_px = D_std / (microns_per_pixel ** 2)
+                    self.msd_diffusion_px_label.setText(f"D = {D_mean_px:.2e} ± {D_std_px:.2e} px²/s")
                     self.msd_n_particles_label.setText(f"N = {n_particles_valid} (from {n_cells} cells)")
                 else:
                     self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
+                    self.msd_diffusion_px_label.setText(f"D = {D_px2_s:.2e} px²/s")
                     self.msd_n_particles_label.setText(f"N = {n_particles}")
             else:
                 self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
+                self.msd_diffusion_px_label.setText(f"D = {D_px2_s:.2e} px²/s")
                 self.msd_n_particles_label.setText(f"N = {n_particles}")
             self.msd_r_squared_label.setText(f"R² = {r_value**2:.4f}")
             
@@ -9260,11 +9285,12 @@ class GUI(QMainWindow):
         
         for cell_id in cell_ids:
             if 'cell_id' in trackpy_df.columns:
+                # Handle potential NaN cell_id values safely
                 cell_df = trackpy_df[trackpy_df['cell_id'] == cell_id].copy()
             else:
                 cell_df = trackpy_df.copy()
             
-            if cell_df.empty:
+            if len(cell_df) == 0:
                 print(f"MSD: Cell {cell_id} has no data, skipping")
                 continue
             
@@ -9289,7 +9315,9 @@ class GUI(QMainWindow):
                         is_3d = self.msd_data.get('is_3d', False) if hasattr(self, 'msd_data') and self.msd_data else False
                         divisor = 6 if is_3d else 4
                         slope, intercept, r_val, _, _ = linregress(em.index[:max_fit], em.values[:max_fit])
-                        D = slope / divisor if slope > 0 else 0
+                        # Ensure slope is a scalar (not a Series)
+                        slope = float(slope)
+                        D = slope / divisor if slope > 0 else 0.0
                         cell_D_values.append(D)
                 except Exception as e:
                     print(f"MSD: Failed for Cell {cell_id}, particle {particle_id}: {e}")
@@ -9385,7 +9413,15 @@ class GUI(QMainWindow):
                 std_msd = []
                 valid_lags = []
                 for lag in all_lags:
-                    values_at_lag = [em.get(lag) for em in msd_values_list if lag in em.index and not np.isnan(em.get(lag))]
+                    values_at_lag = []
+                    for em in msd_values_list:
+                        if lag in em.index:
+                            val = em.get(lag)
+                            # Ensure val is a scalar
+                            if hasattr(val, 'item'):
+                                val = val.item()
+                            if val is not None and not np.isnan(val):
+                                values_at_lag.append(float(val))
                     if len(values_at_lag) >= MIN_TRAJECTORIES_PER_LAG:
                         mean_msd.append(np.mean(values_at_lag))
                         std_msd.append(np.std(values_at_lag))
