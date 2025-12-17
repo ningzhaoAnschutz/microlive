@@ -5516,6 +5516,7 @@ class GUI(QMainWindow):
             return
         self.df_tracking = pd.DataFrame()
         self.detected_spots_frame = None
+        self.reset_msd_tab()
         self.plot_tracking()
         # Get masks for tracking (supports both Cellpose and Segmentation)
         masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks()
