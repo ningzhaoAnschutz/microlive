@@ -57,7 +57,7 @@ from skimage.feature import peak_local_max, blob_log
 
 ### Scipy imports
 from scipy import signal, ndimage
-from scipy.ndimage import gaussian_filter, binary_dilation, gaussian_filter1d
+from scipy.ndimage import gaussian_filter, binary_dilation, gaussian_filter1d, distance_transform_edt
 from scipy.optimize import curve_fit, linear_sum_assignment
 #import scipy.stats as stats
 from scipy.spatial.distance import cdist
@@ -444,11 +444,44 @@ class Photobleaching:
                 params.extend([0.0, raw_intensities[0]])  # [k_fit=0, I0_fit=initial_intensity]
                 print(f"Warning: Photobleaching correction not necessary for channel {ch}. No correction applied.")
                 continue
+            
+            # Use constrained nonlinear fitting instead of log-linear
+            # This prevents I0 from being overestimated for non-ideal decay curves
+            # curve_fit is imported at top of file
+            
+            def exp_decay(t, I0, k):
+                return I0 * np.exp(-k * t)
+            
+            # Initial guesses from data
+            I0_guess = raw_intensities[0]  # Start with actual first value
+            
+            # Estimate k from log-linear fit (but only use for initial guess)
             eps = 1e-9
             log_int = np.log(raw_intensities + eps)
             slope, intercept = np.polyfit(time_array, log_int, 1)
-            k_fit = -slope
-            I0_fit = np.exp(intercept)
+            k_guess = max(-slope, 1e-6)  # Ensure positive
+            
+            # Bounds: I0 between 0 and 1.1x the max observed value
+            # k between 0 and a reasonable upper bound
+            max_intensity = np.max(raw_intensities)
+            bounds = ([0, 0], [max_intensity * 1.1, 1.0])  # [I0_min, k_min], [I0_max, k_max]
+            
+            try:
+                popt, pcov = curve_fit(
+                    exp_decay, 
+                    time_array, 
+                    raw_intensities,
+                    p0=[I0_guess, k_guess],
+                    bounds=bounds,
+                    maxfev=5000
+                )
+                I0_fit, k_fit = popt
+            except Exception as e:
+                # Fallback to log-linear if curve_fit fails
+                print(f"Warning: curve_fit failed for channel {ch}, using log-linear fit. Error: {e}")
+                k_fit = -slope
+                I0_fit = np.exp(intercept)
+            
             params.extend([k_fit, I0_fit])
         if self.show_plot or (self.plot_name is not None):
             fig, axes = plt.subplots(1, C, figsize=(5*C, 5))
@@ -524,15 +557,16 @@ class Photobleaching:
                     masked_pixels = masked_pixels[masked_pixels != 0]
                     if masked_pixels.size > 0:
                         raw_intensities[i] = np.mean(masked_pixels)
-                final_intensity = raw_intensities[-1] if len(raw_intensities) > 0 else 0.0
             
             # Store per-channel raw intensities for later use
             raw_intensities_per_ch[ch] = raw_intensities.copy()
             
-            # Check if correction should be skipped
-            if final_intensity < self.min_intensity_threshold:
+            # Check if correction should be skipped based on INITIAL intensity
+            # (Final intensity is naturally low after photobleaching - that's expected)
+            initial_intensity = raw_intensities[0] if len(raw_intensities) > 0 else 0.0
+            if initial_intensity < self.min_intensity_threshold:
                 print(f"Warning: Photobleaching correction skipped for channel {ch} "
-                      f"(final intensity {final_intensity:.2f} < {self.min_intensity_threshold}).")
+                      f"(initial intensity {initial_intensity:.2f} < {self.min_intensity_threshold}).")
                 correction_factors_per_ch[ch] = np.ones(T)  # No correction
                 continue
             
@@ -542,9 +576,19 @@ class Photobleaching:
                 continue
             
             intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / (raw_intensities[0] + 1e-9)
+            
+            # Skip if intensity doesn't decrease significantly (< 5% decrease)
             if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
                 print(f"Photobleaching correction not necessary for channel {ch}. No correction applied.")
                 correction_factors_per_ch[ch] = np.ones(T)
+                continue
+            
+            # Skip if intensity decays too much (> 95% decrease) - correction would be unreliable
+            # because we'd be dividing by near-zero values at the end
+            if intensity_decrease > 0.95:
+                print(f"Warning: Photobleaching correction skipped for channel {ch} "
+                      f"(extreme decay {intensity_decrease*100:.1f}% - correction would be unreliable).")
+                correction_factors_per_ch[ch] = np.ones(T)  # No correction
                 continue
             
             # Calculate correction factors
@@ -4440,15 +4484,45 @@ class DataProcessing():
             mask[:, -number_of_pixels_to_replace_in_border:] = 0
             return mask
         
-        def separate_clusters_and_spots_in_mask(clusters_and_spots,mask):
+        def separate_clusters_and_spots_in_mask(clusters_and_spots, mask, edge_exclusion_px=2):
+            """Filter spots to only those inside the mask, excluding spots near mask edges.
+            
+            Parameters:
+                clusters_and_spots: array with columns [Z, Y, X, cluster_size, ...]
+                mask: 2D binary mask
+                edge_exclusion_px: exclude spots within this many pixels of mask edge (default=2)
+            """
             mask = replace_border_px_zeros(mask)
-            coords = np.array([clusters_and_spots[:,1], clusters_and_spots[:,2]]).T # These are the points detected by trackpy
-            coords_int = np.round(coords).astype(int)  # or np.floor, depends
-            values_at_coords = mask[tuple(coords_int.T)] # If 1 the value is in the mask
-            clusters_in_mask = clusters_and_spots[values_at_coords==1]  # [Z,Y,X,size,idx_foci]
-            spots = clusters_in_mask[clusters_in_mask[:,3]<=1]  # [Z,Y,X,size,idx_foci]
-            clusters = clusters_in_mask[clusters_in_mask[:,3]>1] # [Z,Y,X,size,idx_foci]
-            return spots, clusters #spots[:,:-1], clusters[:,:-1]
+            
+            # Compute distance transform to find distance from each pixel to mask edge
+            # This helps exclude spots that are on cell/nucleus boundaries
+            if edge_exclusion_px > 0:
+                # distance_transform_edt is imported at top of file
+                distance_to_edge = distance_transform_edt(mask > 0)
+            
+            coords = np.array([clusters_and_spots[:,1], clusters_and_spots[:,2]]).T  # Y, X coordinates
+            coords_int = np.round(coords).astype(int)
+            
+            # Clip coordinates to valid range
+            coords_int[:, 0] = np.clip(coords_int[:, 0], 0, mask.shape[0] - 1)
+            coords_int[:, 1] = np.clip(coords_int[:, 1], 0, mask.shape[1] - 1)
+            
+            # Check if spots are inside mask
+            values_at_coords = mask[tuple(coords_int.T)]
+            in_mask = values_at_coords == 1
+            
+            # Additionally check if spots are far enough from edge
+            if edge_exclusion_px > 0:
+                distance_at_coords = distance_to_edge[tuple(coords_int.T)]
+                far_from_edge = distance_at_coords > edge_exclusion_px
+                valid_spots = in_mask & far_from_edge
+            else:
+                valid_spots = in_mask
+            
+            clusters_in_mask = clusters_and_spots[valid_spots]  # [Z,Y,X,size,idx_foci]
+            spots = clusters_in_mask[clusters_in_mask[:,3] <= 1]
+            clusters = clusters_in_mask[clusters_in_mask[:,3] > 1]
+            return spots, clusters
 
         def data_to_df(df, clusters_and_spots, mask_nuc = None, mask_cytosol_only=None,masks_complete_cells=None, nuc_area = 0, cyto_area =0, cell_area=0,
                         nuc_centroid_y=0, nuc_centroid_x=0, cyto_centroid_y=0, cyto_centroid_x=0, image_counter=0, is_cell_in_border = 0, spot_type=0, cell_counter =0,
@@ -7297,29 +7371,41 @@ class Utilities():
         return df_merged_trajectories, df_non_overlapping, df_overlapping
 
 
-    def spots_in_mask(self, df, mask):
+    def spots_in_mask(self, df, mask, edge_exclusion_px=2):
         """
-        Checks which spots are inside the given 3D mask.
+        Checks which spots are inside the given mask, excluding spots near mask edges.
 
         Parameters
         ----------
         df : pd.DataFrame
             A DataFrame containing at least the columns 'z', 'y', 'x' for spot coordinates.
         mask : np.ndarray
-            A 3D binary mask of shape [Z, Y, X] where 1 indicates inside the mask and 0 outside.
+            A 2D or 3D binary mask where 1 indicates inside the mask and 0 outside.
+        edge_exclusion_px : int
+            Exclude spots within this many pixels of the mask edge (default=2).
 
         Returns
         -------
         df : pd.DataFrame
             The same DataFrame with a new column 'In Mask' that is True/1 if the spot is inside
-            the mask, and False/0 otherwise.
+            the mask and far enough from edges, and False/0 otherwise.
         """
+        # distance_transform_edt is imported at top of file
+        
         if len(mask.shape) == 2:
             mask = np.expand_dims(mask, axis=0)
         if 'z' not in df.columns:
             df['z'] = 0
         n_z = df.z.nunique()
         mask = np.repeat(mask, n_z, axis=0)
+        
+        # Compute distance transform for edge exclusion (on 2D slices)
+        if edge_exclusion_px > 0:
+            # Apply distance transform to each Z-slice
+            distance_to_edge = np.zeros_like(mask, dtype=float)
+            for z in range(mask.shape[0]):
+                distance_to_edge[z] = distance_transform_edt(mask[z] > 0)
+        
         coords = np.stack([df['z'].values, df['y'].values, df['x'].values], axis=1)
         coords_int = np.round(coords).astype(int)
         z_valid = (0 <= coords_int[:, 0]) & (coords_int[:, 0] < mask.shape[0])
@@ -7329,7 +7415,14 @@ class Utilities():
         df['In Mask'] = False
         valid_coords = coords_int[valid_mask]
         values_at_coords = mask[valid_coords[:, 0], valid_coords[:, 1], valid_coords[:, 2]]
-        df.loc[valid_mask, 'In Mask'] = (values_at_coords == 1)
+        
+        # Also check distance from edge
+        if edge_exclusion_px > 0:
+            distances_at_coords = distance_to_edge[valid_coords[:, 0], valid_coords[:, 1], valid_coords[:, 2]]
+            in_mask_and_far = (values_at_coords == 1) & (distances_at_coords > edge_exclusion_px)
+            df.loc[valid_mask, 'In Mask'] = in_mask_and_far
+        else:
+            df.loc[valid_mask, 'In Mask'] = (values_at_coords == 1)
 
         return df
 

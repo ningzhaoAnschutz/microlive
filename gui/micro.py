@@ -2001,6 +2001,14 @@ class GUI(QMainWindow):
         else:
             self.z_slider_display.setMaximum(0)      # single-plane image
         self.z_slider_display.setValue(Z if Z > 1 else 0)
+        # Configure Tracking tab Z-slider (same range, defaults to max projection)
+        if hasattr(self, 'z_slider_tracking'):
+            self.z_slider_tracking.setMinimum(0)
+            if Z > 1:
+                self.z_slider_tracking.setMaximum(Z)
+            else:
+                self.z_slider_tracking.setMaximum(0)
+            self.z_slider_tracking.setValue(Z if Z > 1 else 0)
         self.y_pixels_label.setText(str(Y))
         self.x_pixels_label.setText(str(X))
         self.channels_label.setText(str(C))
@@ -2038,6 +2046,14 @@ class GUI(QMainWindow):
         else:
             self.z_slider_display.setMaximum(0) 
         self.z_slider_display.setValue(Z if Z > 1 else 0)
+        # Configure Tracking tab Z-slider (same range, defaults to max projection)
+        if hasattr(self, 'z_slider_tracking'):
+            self.z_slider_tracking.setMinimum(0)
+            if Z > 1:
+                self.z_slider_tracking.setMaximum(Z)
+            else:
+                self.z_slider_tracking.setMaximum(0)
+            self.z_slider_tracking.setValue(Z if Z > 1 else 0)
         self.y_pixels_label.setText(str(Y))
         self.x_pixels_label.setText(str(X))
         self.channels_label.setText(str(self.number_color_channels))
@@ -2326,6 +2342,15 @@ class GUI(QMainWindow):
         # No need to sync other sliders; just refresh the display
         self.current_frame = 0  # Reset to first frame for new Z selection
         self.plot_image()
+
+    def update_z_tracking(self, value):
+        """Handle Z-slider value change for Tracking tab.
+        
+        When slider is at max (Z), show max projection with all spots.
+        When slider is at specific value (0 to Z-1), show that Z-plane
+        and only spots from that plane (for 3D tracking).
+        """
+        self.plot_tracking()
 
     def close_selected_file(self):
         """
@@ -3397,7 +3422,6 @@ class GUI(QMainWindow):
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Cytosol segmentation failed: {str(e)}")
 
@@ -3507,7 +3531,6 @@ class GUI(QMainWindow):
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
-            import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Nucleus segmentation failed: {str(e)}")
 
@@ -4703,7 +4726,7 @@ class GUI(QMainWindow):
             fitted_curve = I0_fit * np.exp(-k_fit * t)
             
             axs[ch, 0].plot(t, data, 'o', label='Raw Data', color='cyan', lw=2)
-            axs[ch, 0].plot(t, fitted_curve, '-', label=f'I₀={I0_fit:.0f}, k={k_fit:.4f}', color='white', lw=2)
+            axs[ch, 0].plot(t, fitted_curve, '-', label=f'I₀={I0_fit:.0f}, k={k_fit:.2e}', color='white', lw=2)
             axs[ch, 0].set_title(f'Channel {ch}: Exponential Fit', fontsize=10)
             axs[ch, 0].set_xlabel('Time (s)')
             axs[ch, 0].set_ylabel('Intensity')
@@ -5234,15 +5257,28 @@ class GUI(QMainWindow):
             'sigma': self.display_sigma,
             'low_sigma': self.low_display_sigma
         }
+        
+        # Get Z-slice selection from slider
+        _, Z, _, _, _ = image_to_use.shape  # shape is [T, Z, Y, X, C]
+        z_val = self.z_slider_tracking.value() if hasattr(self, 'z_slider_tracking') else Z
+        
         image_channel = image_to_use[self.current_frame, :, :, :, ch]
-        max_proj = np.max(image_channel, axis=0)
+        
+        # Display based on Z-slider: max projection (z_val == Z) or specific plane
+        if z_val >= Z:
+            # Max projection (default, slider at top)
+            display_image = np.max(image_channel, axis=0)
+        else:
+            # Specific Z-plane
+            display_image = image_channel[z_val]
+        
         if self.tracking_remove_background_checkbox.isChecked():
             mask = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
-            max_proj = max_proj * mask
+            display_image = display_image * mask
         min_p = self.min_percentile_spinbox_tracking.value() if hasattr(self, 'min_percentile_spinbox_tracking') else self.tracking_min_percentile
         max_p = self.max_percentile_spinbox_tracking.value() if hasattr(self, 'max_percentile_spinbox_tracking') else 99.95
         rescaled_image = mi.Utilities().convert_to_int8(
-            max_proj,
+            display_image,
             rescale=True,
             min_percentile=min_p,
             max_percentile=max_p
@@ -5258,7 +5294,16 @@ class GUI(QMainWindow):
         self.ax_tracking.imshow(normalized_image, cmap=cmap_imagej, vmin=0, vmax=1)
         dpi = self.figure_tracking.get_dpi()
         marker_scale = dpi / 100.0
-        df_frame = self.df_tracking[self.df_tracking['frame'] == self.current_frame] if not self.df_tracking.empty else (self.detected_spots_frame if hasattr(self, 'detected_spots_frame') and self.detected_spots_frame is not None and not self.detected_spots_frame.empty and self.detected_spots_frame['frame'].iloc[0] == self.current_frame else pd.DataFrame())
+        
+        # Get tracking data for current frame
+        df_frame = self.df_tracking[self.df_tracking['frame'] == self.current_frame] if len(self.df_tracking) > 0 else (self.detected_spots_frame if hasattr(self, 'detected_spots_frame') and self.detected_spots_frame is not None and len(self.detected_spots_frame) > 0 and self.detected_spots_frame['frame'].iloc[0] == self.current_frame else pd.DataFrame())
+        
+        # Filter spots by Z-plane if viewing a specific Z-slice (for 3D tracking)
+        if z_val < Z and 'z' in df_frame.columns and len(df_frame) > 0:
+            # Filter spots to those within ±0.5 of the selected Z-plane
+            z_tolerance = 0.5
+            df_frame = df_frame[(df_frame['z'] >= z_val - z_tolerance) & 
+                               (df_frame['z'] <= z_val + z_tolerance)]
         if not df_frame.empty:
             edge_color = "w"
             single_spots = df_frame[df_frame['cluster_size'] <= 1]
@@ -5687,7 +5732,21 @@ class GUI(QMainWindow):
         self.figure_tracking, self.ax_tracking = plt.subplots(figsize=(8, 8))
         self.figure_tracking.patch.set_facecolor('black')
         self.canvas_tracking = FigureCanvas(self.figure_tracking)
-        tracking_left_layout.addWidget(self.canvas_tracking)
+        
+        # Create horizontal layout to hold canvas + Z slider (like Import tab)
+        canvas_slider_layout_tracking = QHBoxLayout()
+        canvas_slider_layout_tracking.addWidget(self.canvas_tracking)
+        
+        # Initialize vertical Z-plane slider for tracking visualization
+        self.z_slider_tracking = QSlider(Qt.Vertical, self)
+        self.z_slider_tracking.setMinimum(0)
+        self.z_slider_tracking.setMaximum(0)  # Will be set when image loads
+        self.z_slider_tracking.setTickPosition(QSlider.NoTicks)
+        self.z_slider_tracking.setFixedWidth(20)
+        self.z_slider_tracking.valueChanged.connect(self.update_z_tracking)
+        canvas_slider_layout_tracking.addWidget(self.z_slider_tracking)
+        
+        tracking_left_layout.addLayout(canvas_slider_layout_tracking)
         # Intensity percentile controls (spinboxes) for Tracking tab
         spin_layout = QHBoxLayout()
         # Min percentile spinbox (0–50%)
@@ -9265,7 +9324,6 @@ class GUI(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"MSD calculation failed:\n{str(e)}")
-            import traceback
             traceback.print_exc()
 
     def _calculate_per_trajectory_msd(self, trackpy_df, microns_per_pixel, step_size_in_sec):
