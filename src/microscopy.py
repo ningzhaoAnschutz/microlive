@@ -4974,8 +4974,9 @@ class DataProcessing():
 
 class ParticleMotion:
 
-    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False):
+    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False, microns_per_pixel_z=None):
         self.microns_per_pixel = microns_per_pixel
+        self.microns_per_pixel_z = microns_per_pixel_z if microns_per_pixel_z is not None else microns_per_pixel
         self.step_size_in_sec = step_size_in_sec
         self.show_plot = show_plot 
         self.remove_drift = remove_drift
@@ -5003,6 +5004,13 @@ class ParticleMotion:
                 self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y', 'z']].copy()
             else:
                 self.trackpy_dataframe = self.trackpy_dataframe[['particle', 'frame', 'x', 'y']].copy()
+
+        # For 3D mode, pre-scale Z coordinates to account for anisotropic voxel sizes.
+        # trackpy's emsd() uses a single mpp value, so we scale Z by (mpp_z / mpp_xy) here
+        # so that when emsd() applies mpp_xy uniformly, Z is correctly in physical units.
+        if self.is_3d and 'z' in self.trackpy_dataframe.columns:
+            z_scale_factor = self.microns_per_pixel_z / self.microns_per_pixel
+            self.trackpy_dataframe['z'] = self.trackpy_dataframe['z'] * z_scale_factor
 
         # use self.max_lagtime = max_lagtime but test it is not longer than max_lagtime in the dataframe.
         if max_lagtime is None:

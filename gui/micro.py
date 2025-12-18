@@ -674,6 +674,16 @@ class Metadata:
                 write_attr('Correction Applied', 'photobleaching_calculated')
                 write_attr('Mode', 'photobleaching_mode')
                 write_attr('Radius (px)', 'photobleaching_radius')
+                # Add decay rates per channel if available
+                if hasattr(self, 'photobleaching_data') and self.photobleaching_data is not None:
+                    decay_rates = self.photobleaching_data.get('decay_rates', [])
+                    if decay_rates is not None and len(decay_rates) > 0:
+                        num_channels = len(decay_rates) // 2
+                        for ch in range(num_channels):
+                            k_fit = decay_rates[2 * ch]
+                            I0_fit = decay_rates[2 * ch + 1]
+                            write_value(f'Channel {ch} Decay Rate (k)', f'{k_fit:.6e}')
+                            write_value(f'Channel {ch} Initial Intensity (I0)', f'{I0_fit:.2f}')
                 
                 # Tracking Parameters
                 write_section('Tracking Parameters')
@@ -708,6 +718,18 @@ class Metadata:
                 combo_val = getattr(self, 'image_source_combo', '')
                 using_corrected = 'Yes' if 'Corrected' in str(combo_val) else 'No'
                 write_value('Using Photobleaching Corrected Image', using_corrected)
+                
+                # MSD Results (from Tracking tab)
+                write_subsection('MSD Results')
+                D_um2 = getattr(self, 'tracking_D_um2_s', None)
+                D_px2 = getattr(self, 'tracking_D_px2_s', None)
+                msd_mode = getattr(self, 'tracking_msd_mode', None)
+                if D_um2 is not None:
+                    write_value('Diffusion Coefficient (µm²/s)', f'{D_um2:.6e}')
+                    write_value('Diffusion Coefficient (px²/s)', f'{D_px2:.6e}')
+                    write_value('MSD Mode', msd_mode)
+                else:
+                    write_value('Diffusion Coefficient', 'Not calculated')
                 
                 # Correlation Parameters
                 write_section('Correlation Parameters')
@@ -5652,18 +5674,44 @@ class GUI(QMainWindow):
                     and traj_counts.min() >= self.MIN_FRAMES_MSD
                     and traj_counts.size >= self.MIN_PARTICLES_MSD):
                     try:
+                        # Detect 3D mode (same logic as MSD tab)
+                        is_2d_projection = getattr(self, 'use_maximum_projection', False)
+                        if 'z' in self.df_tracking.columns:
+                            z_values = self.df_tracking['z'].dropna()
+                            z_is_constant = z_values.nunique() <= 1 if len(z_values) > 0 else True
+                        else:
+                            z_is_constant = True
+                        is_3d = not is_2d_projection and not z_is_constant
+                        
+                        # Get Z voxel size for 3D MSD
+                        if is_3d and hasattr(self, 'voxel_z_nm') and self.voxel_z_nm is not None:
+                            microns_per_pixel_z = self.voxel_z_nm / 1000.0
+                        else:
+                            microns_per_pixel_z = None
+                        
                         pm = mi.ParticleMotion(
                             self.df_tracking,
                             microns_per_pixel=self.voxel_yx_nm / 1000.0,
                             step_size_in_sec=float(self.time_interval_value),
                             show_plot=False, 
-                            remove_drift=False
+                            remove_drift=False,
+                            is_3d=is_3d,
+                            microns_per_pixel_z=microns_per_pixel_z
                         )
                         D_um2_s, D_px2_s, _, _, _, _ ,_= pm.calculate_msd()
-                        self.msd_label.setText(f"D = {D_um2_s:.2e} μm²/s | {D_px2_s:.2e} px²/s")
+                        mode_str = "3D" if is_3d else "2D"
+                        self.msd_label.setText(f"D = {D_um2_s:.2e} μm²/s | {D_px2_s:.2e} px²/s ({mode_str})")
+                        # Store for metadata export
+                        self.tracking_D_um2_s = D_um2_s
+                        self.tracking_D_px2_s = D_px2_s
+                        self.tracking_msd_mode = mode_str
                     except Exception as msd_err:
                         print(f"MSD calculation skipped: {msd_err}")
                         self.msd_label.setText("MSD: See MSD tab for per-cell calculation")
+                        self.tracking_D_um2_s = None
+                        self.tracking_D_px2_s = None
+                        self.tracking_msd_mode = None
+
                 else:
                     self.msd_label.setText("Mean Square Displacement: Not enough data")
                     print("Not enough data for MSD calculation: "
@@ -8349,6 +8397,12 @@ class GUI(QMainWindow):
             # Updated Photobleaching Params (Values)
             photobleaching_mode=pb_mode,
             photobleaching_radius=pb_radius,
+            photobleaching_data=getattr(self, 'photobleaching_data', None),
+            
+            # MSD Results from Tracking
+            tracking_D_um2_s=getattr(self, 'tracking_D_um2_s', None),
+            tracking_D_px2_s=getattr(self, 'tracking_D_px2_s', None),
+            tracking_msd_mode=getattr(self, 'tracking_msd_mode', None),
             
             file_path=file_path,
             
@@ -9206,6 +9260,15 @@ class GUI(QMainWindow):
         if hasattr(self, 'msd_n_particles_label'):
             self.msd_n_particles_label.setText("N = --")
         
+        # Reset mode label to default
+        if hasattr(self, 'msd_mode_label'):
+            self.msd_mode_label.setText("Mode: Auto-detect")
+            self.msd_mode_label.setStyleSheet("color: gray; font-style: italic;")
+        
+        # Reset fit points spinbox to default
+        if hasattr(self, 'msd_fit_points_spinbox'):
+            self.msd_fit_points_spinbox.setValue(20)
+        
         self.msd_data = None
         self.msd_per_trajectory = None
 
@@ -9253,6 +9316,11 @@ class GUI(QMainWindow):
             else:
                 step_size_in_sec = 1.0  # Fallback
                 print("Warning: time_interval_value not set, using 1.0 s")
+            # Get Z voxel size for 3D MSD - convert from nm to microns
+            if is_3d and hasattr(self, 'voxel_z_nm') and self.voxel_z_nm is not None:
+                microns_per_pixel_z = self.voxel_z_nm / 1000.0  # nm to µm
+            else:
+                microns_per_pixel_z = None  # Will use microns_per_pixel for Z (isotropic assumption)
             
             # Create ParticleMotion instance
             motion = mi.ParticleMotion(
@@ -9263,7 +9331,8 @@ class GUI(QMainWindow):
                 show_plot=False,
                 remove_drift=False,
                 max_fit_points=max_fit_points,
-                is_3d=is_3d
+                is_3d=is_3d,
+                microns_per_pixel_z=microns_per_pixel_z
             )
             
             # Calculate MSD
