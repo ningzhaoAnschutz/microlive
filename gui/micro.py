@@ -3238,24 +3238,50 @@ class GUI(QMainWindow):
         self.chk_remove_unpaired_cells.stateChanged.connect(self.on_remove_unpaired_cells_changed)
         improve_layout.addRow(self.chk_remove_unpaired_cells)
 
-        # Cell expansion controls
+        # Mask expansion slider (auto-apply on change)
         expand_layout = QHBoxLayout()
-        self.cell_expansion_spinbox = QSpinBox()
-        self.cell_expansion_spinbox.setMinimum(0)
-        self.cell_expansion_spinbox.setMaximum(50)
-        self.cell_expansion_spinbox.setValue(1)
-        self.cell_expansion_spinbox.setToolTip("Number of pixels to expand each cell mask")
-        expand_layout.addWidget(QLabel("Expand by (px):"))
-        expand_layout.addWidget(self.cell_expansion_spinbox)
+        expand_layout.addWidget(QLabel("Expand masks (px):"))
         
-        self.btn_expand_cells = QPushButton("Expand Cells")
-        self.btn_expand_cells.setToolTip("Expand all cell masks by the specified number of pixels without overlap")
-        self.btn_expand_cells.clicked.connect(self.expand_cell_masks)
-        expand_layout.addWidget(self.btn_expand_cells)
+        self.cell_expansion_slider = QSlider(Qt.Horizontal)
+        self.cell_expansion_slider.setMinimum(0)
+        self.cell_expansion_slider.setMaximum(10)
+        self.cell_expansion_slider.setValue(0)
+        self.cell_expansion_slider.setTickPosition(QSlider.TicksBelow)
+        self.cell_expansion_slider.setTickInterval(1)
+        self.cell_expansion_slider.setToolTip("Expand all cell masks by the specified number of pixels (0 = original size)")
+        self.cell_expansion_slider.valueChanged.connect(self._on_expansion_slider_changed)
+        expand_layout.addWidget(self.cell_expansion_slider)
+        
+        self.expansion_value_label = QLabel("0")
+        self.expansion_value_label.setMinimumWidth(20)
+        expand_layout.addWidget(self.expansion_value_label)
+        
         improve_layout.addRow(expand_layout)
+
+        # Mask shrink slider (auto-apply on change)
+        shrink_layout = QHBoxLayout()
+        shrink_layout.addWidget(QLabel("Shrink masks (px):"))
+        
+        self.cell_shrink_slider = QSlider(Qt.Horizontal)
+        self.cell_shrink_slider.setMinimum(0)
+        self.cell_shrink_slider.setMaximum(10)
+        self.cell_shrink_slider.setValue(0)
+        self.cell_shrink_slider.setTickPosition(QSlider.TicksBelow)
+        self.cell_shrink_slider.setTickInterval(1)
+        self.cell_shrink_slider.setToolTip("Shrink all cell masks by the specified number of pixels (0 = original size)")
+        self.cell_shrink_slider.valueChanged.connect(self._on_shrink_slider_changed)
+        shrink_layout.addWidget(self.cell_shrink_slider)
+        
+        self.shrink_value_label = QLabel("0")
+        self.shrink_value_label.setMinimumWidth(20)
+        shrink_layout.addWidget(self.shrink_value_label)
+        
+        improve_layout.addRow(shrink_layout)
 
         improve_group.setLayout(improve_layout)
         right_layout.addWidget(improve_group)
+
+
 
         # Clear Button
         self.btn_clear_cellpose = QPushButton("Clear Masks & IDs")
@@ -3275,6 +3301,13 @@ class GUI(QMainWindow):
         self.cellpose_masks_cyto_tyx = None  # [T, Y, X] labeled masks
         self.cellpose_masks_nuc_tyx = None   # [T, Y, X] labeled masks
         self.use_tyx_masks = False           # Flag: are TYX masks active?
+        
+        # Original masks (before expansion) for slider to work from
+        self._original_cellpose_masks_cyto = None
+        self._original_cellpose_masks_nuc = None
+        self._original_cellpose_masks_cyto_tyx = None
+        self._original_cellpose_masks_nuc_tyx = None
+
 
     def _on_num_masks_slider_changed(self, value):
         """Update the value label and adjust min_frames_slider max range."""
@@ -3289,6 +3322,236 @@ class GUI(QMainWindow):
         """Update the value label for min_frames slider."""
         self.min_frames_value_label.setText(str(value))
     
+    def _on_expansion_slider_changed(self, value):
+        """
+        Apply mask expansion when slider value changes.
+        Uses Voronoi-like expansion from ORIGINAL masks to allow shrinking back.
+        """
+        # Update label
+        if hasattr(self, 'expansion_value_label'):
+            self.expansion_value_label.setText(str(value))
+        
+        # Check if we have any masks to expand
+        has_masks = (self.cellpose_masks_cyto is not None or 
+                     self.cellpose_masks_nuc is not None)
+        if not has_masks:
+            return  # No masks yet, nothing to do
+        
+        # Store originals if not yet stored (first-time expansion)
+        if self._original_cellpose_masks_cyto is None and self.cellpose_masks_cyto is not None:
+            self._original_cellpose_masks_cyto = self.cellpose_masks_cyto.copy()
+        if self._original_cellpose_masks_nuc is None and self.cellpose_masks_nuc is not None:
+            self._original_cellpose_masks_nuc = self.cellpose_masks_nuc.copy()
+        
+        # For TYX masks
+        if getattr(self, 'use_tyx_masks', False):
+            if self._original_cellpose_masks_cyto_tyx is None and self.cellpose_masks_cyto_tyx is not None:
+                self._original_cellpose_masks_cyto_tyx = self.cellpose_masks_cyto_tyx.copy()
+            if self._original_cellpose_masks_nuc_tyx is None and self.cellpose_masks_nuc_tyx is not None:
+                self._original_cellpose_masks_nuc_tyx = self.cellpose_masks_nuc_tyx.copy()
+        
+        # Reset shrink slider when expanding (they're mutually exclusive from original)
+        if value > 0 and hasattr(self, 'cell_shrink_slider'):
+            self.cell_shrink_slider.blockSignals(True)
+            self.cell_shrink_slider.setValue(0)
+            self.cell_shrink_slider.blockSignals(False)
+            if hasattr(self, 'shrink_value_label'):
+                self.shrink_value_label.setText("0")
+        
+
+        # Apply expansion from originals
+        if value == 0:
+            # Restore originals
+            if self._original_cellpose_masks_cyto is not None:
+                self.cellpose_masks_cyto = self._original_cellpose_masks_cyto.copy()
+            if self._original_cellpose_masks_nuc is not None:
+                self.cellpose_masks_nuc = self._original_cellpose_masks_nuc.copy()
+            if getattr(self, 'use_tyx_masks', False):
+                if self._original_cellpose_masks_cyto_tyx is not None:
+                    self.cellpose_masks_cyto_tyx = self._original_cellpose_masks_cyto_tyx.copy()
+                if self._original_cellpose_masks_nuc_tyx is not None:
+                    self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
+        else:
+            # Apply expansion from originals
+            from scipy.ndimage import distance_transform_edt
+            
+            def expand_labeled_mask(mask, expansion_pixels):
+                """Expand each label in a mask without overlaps (Voronoi-like)."""
+                if mask is None:
+                    return None
+                
+                expanded = np.zeros_like(mask)
+                unique_labels = np.unique(mask)
+                unique_labels = unique_labels[unique_labels != 0]
+                
+                if len(unique_labels) == 0:
+                    return mask.copy()
+                
+                # Compute distance from each cell for all pixels
+                all_distances = np.full((len(unique_labels),) + mask.shape, np.inf)
+                
+                for i, label_id in enumerate(unique_labels):
+                    cell_mask = (mask == label_id)
+                    all_distances[i] = distance_transform_edt(~cell_mask)
+                
+                min_distance_idx = np.argmin(all_distances, axis=0)
+                min_distances = np.min(all_distances, axis=0)
+                
+                for i, label_id in enumerate(unique_labels):
+                    # Original cell pixels keep their label
+                    expanded[mask == label_id] = label_id
+                    # Expanded region: closest to this cell and within expansion distance
+                    expansion_mask = (
+                        (min_distance_idx == i) & 
+                        (min_distances <= expansion_pixels) & 
+                        (min_distances > 0)
+                    )
+                    expanded[expansion_mask] = label_id
+                
+                return expanded
+            
+            # Expand cytosol from original
+            if self._original_cellpose_masks_cyto is not None:
+                self.cellpose_masks_cyto = expand_labeled_mask(
+                    self._original_cellpose_masks_cyto, value
+                )
+            
+            # Expand nucleus from original
+            if self._original_cellpose_masks_nuc is not None:
+                self.cellpose_masks_nuc = expand_labeled_mask(
+                    self._original_cellpose_masks_nuc, value
+                )
+            
+            # Expand TYX masks from originals
+            if getattr(self, 'use_tyx_masks', False):
+                if self._original_cellpose_masks_cyto_tyx is not None:
+                    for t in range(self._original_cellpose_masks_cyto_tyx.shape[0]):
+                        self.cellpose_masks_cyto_tyx[t] = expand_labeled_mask(
+                            self._original_cellpose_masks_cyto_tyx[t], value
+                        )
+                if self._original_cellpose_masks_nuc_tyx is not None:
+                    for t in range(self._original_cellpose_masks_nuc_tyx.shape[0]):
+                        self.cellpose_masks_nuc_tyx[t] = expand_labeled_mask(
+                            self._original_cellpose_masks_nuc_tyx[t], value
+                        )
+        
+        # Update display
+        self.plot_cellpose_results()
+        n_cyto = int(self.cellpose_masks_cyto.max()) if self.cellpose_masks_cyto is not None else 0
+        n_nuc = int(self.cellpose_masks_nuc.max()) if self.cellpose_masks_nuc is not None else 0
+        if value == 0:
+            self.statusBar().showMessage(f"Masks restored to original size. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
+        else:
+            self.statusBar().showMessage(f"Masks expanded by {value}px. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
+    
+    def _on_shrink_slider_changed(self, value):
+        """
+        Apply mask shrinking (erosion) when slider value changes.
+        Uses morphological erosion from ORIGINAL masks to allow returning to 0.
+        """
+        # Update label
+        if hasattr(self, 'shrink_value_label'):
+            self.shrink_value_label.setText(str(value))
+        
+        # Check if we have any masks to shrink
+        has_masks = (self.cellpose_masks_cyto is not None or 
+                     self.cellpose_masks_nuc is not None)
+        if not has_masks:
+            return  # No masks yet, nothing to do
+        
+        # Store originals if not yet stored (first-time modification)
+        if self._original_cellpose_masks_cyto is None and self.cellpose_masks_cyto is not None:
+            self._original_cellpose_masks_cyto = self.cellpose_masks_cyto.copy()
+        if self._original_cellpose_masks_nuc is None and self.cellpose_masks_nuc is not None:
+            self._original_cellpose_masks_nuc = self.cellpose_masks_nuc.copy()
+        
+        # For TYX masks
+        if getattr(self, 'use_tyx_masks', False):
+            if self._original_cellpose_masks_cyto_tyx is None and self.cellpose_masks_cyto_tyx is not None:
+                self._original_cellpose_masks_cyto_tyx = self.cellpose_masks_cyto_tyx.copy()
+            if self._original_cellpose_masks_nuc_tyx is None and self.cellpose_masks_nuc_tyx is not None:
+                self._original_cellpose_masks_nuc_tyx = self.cellpose_masks_nuc_tyx.copy()
+        
+        # Reset expand slider when shrinking (they're mutually exclusive from original)
+        if value > 0 and hasattr(self, 'cell_expansion_slider'):
+            self.cell_expansion_slider.blockSignals(True)
+            self.cell_expansion_slider.setValue(0)
+            self.cell_expansion_slider.blockSignals(False)
+            if hasattr(self, 'expansion_value_label'):
+                self.expansion_value_label.setText("0")
+        
+        # Apply shrinking from originals
+        if value == 0:
+            # Restore originals
+            if self._original_cellpose_masks_cyto is not None:
+                self.cellpose_masks_cyto = self._original_cellpose_masks_cyto.copy()
+            if self._original_cellpose_masks_nuc is not None:
+                self.cellpose_masks_nuc = self._original_cellpose_masks_nuc.copy()
+            if getattr(self, 'use_tyx_masks', False):
+                if self._original_cellpose_masks_cyto_tyx is not None:
+                    self.cellpose_masks_cyto_tyx = self._original_cellpose_masks_cyto_tyx.copy()
+                if self._original_cellpose_masks_nuc_tyx is not None:
+                    self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
+        else:
+            # Apply erosion from originals
+            from scipy.ndimage import distance_transform_edt
+            
+            def shrink_labeled_mask(mask, shrink_pixels):
+                """Shrink each label in a mask by eroding from boundaries."""
+                if mask is None:
+                    return None
+                
+                shrunk = np.zeros_like(mask)
+                unique_labels = np.unique(mask)
+                unique_labels = unique_labels[unique_labels != 0]
+                
+                if len(unique_labels) == 0:
+                    return mask.copy()
+                
+                for label_id in unique_labels:
+                    cell_mask = (mask == label_id)
+                    # Distance from boundary (positive inside cell)
+                    dist_inside = distance_transform_edt(cell_mask)
+                    # Keep only pixels that are more than shrink_pixels from edge
+                    shrunk[dist_inside > shrink_pixels] = label_id
+                
+                return shrunk
+            
+            # Shrink cytosol from original
+            if self._original_cellpose_masks_cyto is not None:
+                self.cellpose_masks_cyto = shrink_labeled_mask(
+                    self._original_cellpose_masks_cyto, value
+                )
+            
+            # Shrink nucleus from original
+            if self._original_cellpose_masks_nuc is not None:
+                self.cellpose_masks_nuc = shrink_labeled_mask(
+                    self._original_cellpose_masks_nuc, value
+                )
+            
+            # Shrink TYX masks from originals
+            if getattr(self, 'use_tyx_masks', False):
+                if self._original_cellpose_masks_cyto_tyx is not None:
+                    for t in range(self._original_cellpose_masks_cyto_tyx.shape[0]):
+                        self.cellpose_masks_cyto_tyx[t] = shrink_labeled_mask(
+                            self._original_cellpose_masks_cyto_tyx[t], value
+                        )
+                if self._original_cellpose_masks_nuc_tyx is not None:
+                    for t in range(self._original_cellpose_masks_nuc_tyx.shape[0]):
+                        self.cellpose_masks_nuc_tyx[t] = shrink_labeled_mask(
+                            self._original_cellpose_masks_nuc_tyx[t], value
+                        )
+        
+        # Update display
+        self.plot_cellpose_results()
+        n_cyto = int(self.cellpose_masks_cyto.max()) if self.cellpose_masks_cyto is not None else 0
+        n_nuc = int(self.cellpose_masks_nuc.max()) if self.cellpose_masks_nuc is not None else 0
+        if value == 0:
+            self.statusBar().showMessage(f"Masks restored to original size. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
+        else:
+            self.statusBar().showMessage(f"Masks shrunk by {value}px. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
+    
+
     def _update_cellpose_sliders_for_image(self, total_frames):
         """Update Cellpose TYX sliders when a new image is loaded."""
         if hasattr(self, 'num_masks_slider'):
@@ -3766,92 +4029,7 @@ class GUI(QMainWindow):
         
         self.plot_cellpose_results()
 
-    def expand_cell_masks(self):
-        """
-        Expand all cell masks by N pixels without causing overlaps.
-        Uses a Voronoi-like expansion where disputed pixels are assigned
-        to the nearest cell boundary.
-        """
-        expand_px = self.cell_expansion_spinbox.value()
-        if expand_px <= 0:
-            QMessageBox.information(self, "Info", "Expansion value must be at least 1 pixel.")
-            return
-        
-        if self.cellpose_masks_cyto is None and self.cellpose_masks_nuc is None:
-            QMessageBox.warning(self, "No Masks", "Please run Cellpose segmentation first.")
-            return
-        
-        from scipy.ndimage import distance_transform_edt
-        
-        def expand_labeled_mask(mask, expansion_pixels):
-            """Expand each label in a mask without overlaps."""
-            if mask is None:
-                return None
-            
-            expanded = np.zeros_like(mask)
-            unique_labels = np.unique(mask)
-            unique_labels = unique_labels[unique_labels != 0]  # Exclude background
-            
-            if len(unique_labels) == 0:
-                return mask
-            
-            # For each pixel in the expanded region, find which cell is closest
-            # Create distance arrays for each cell
-            all_distances = np.full((len(unique_labels),) + mask.shape, np.inf)
-            
-            for i, label_id in enumerate(unique_labels):
-                # Distance from each pixel to this cell's boundary
-                cell_mask = (mask == label_id)
-                # Distance transform: 0 inside cell, increasing outside
-                all_distances[i] = distance_transform_edt(~cell_mask)
-            
-            # For each pixel, find the closest cell (minimum distance)
-            min_distance_idx = np.argmin(all_distances, axis=0)
-            min_distances = np.min(all_distances, axis=0)
-            
-            # Assign pixels within expansion_pixels distance to the nearest cell
-            for i, label_id in enumerate(unique_labels):
-                # Original cell pixels always keep their label
-                expanded[mask == label_id] = label_id
-                # Expanded region: pixels closest to this cell and within expansion distance
-                expansion_mask = (
-                    (min_distance_idx == i) & 
-                    (min_distances <= expansion_pixels) & 
-                    (min_distances > 0)  # Not already inside the cell
-                )
-                expanded[expansion_mask] = label_id
-            
-            return expanded
-        
-        # Expand cytosol masks
-        if self.cellpose_masks_cyto is not None:
-            self.cellpose_masks_cyto = expand_labeled_mask(
-                self.cellpose_masks_cyto, expand_px
-            )
-        
-        # Expand nucleus masks  
-        if self.cellpose_masks_nuc is not None:
-            self.cellpose_masks_nuc = expand_labeled_mask(
-                self.cellpose_masks_nuc, expand_px
-            )
-        
-        # Also expand TYX masks if active
-        if getattr(self, 'use_tyx_masks', False):
-            if self.cellpose_masks_cyto_tyx is not None:
-                for t in range(self.cellpose_masks_cyto_tyx.shape[0]):
-                    self.cellpose_masks_cyto_tyx[t] = expand_labeled_mask(
-                        self.cellpose_masks_cyto_tyx[t], expand_px
-                    )
-            if self.cellpose_masks_nuc_tyx is not None:
-                for t in range(self.cellpose_masks_nuc_tyx.shape[0]):
-                    self.cellpose_masks_nuc_tyx[t] = expand_labeled_mask(
-                        self.cellpose_masks_nuc_tyx[t], expand_px
-                    )
-        
-        self.plot_cellpose_results()
-        n_cyto = int(self.cellpose_masks_cyto.max()) if self.cellpose_masks_cyto is not None else 0
-        n_nuc = int(self.cellpose_masks_nuc.max()) if self.cellpose_masks_nuc is not None else 0
-        self.statusBar().showMessage(f"Expanded masks by {expand_px}px. Cytosol: {n_cyto} cells, Nucleus: {n_nuc} cells.")
+
 
     def get_border_touching_labels(self, masks):
         """Get set of labels touching image border."""
@@ -9271,6 +9449,12 @@ class GUI(QMainWindow):
         
         self.msd_data = None
         self.msd_per_trajectory = None
+        
+        # Also reset tracking D values for metadata consistency
+        self.tracking_D_um2_s = None
+        self.tracking_D_px2_s = None
+        self.tracking_msd_mode = None
+
 
     def calculate_msd_from_gui(self):
         """Calculate MSD using tracked particle data from the Tracking tab."""
@@ -9349,6 +9533,12 @@ class GUI(QMainWindow):
                 'trackpy_df': trackpy_df,
                 'is_3d': is_3d
             }
+            
+            # Also update tracking values for metadata export
+            # This ensures metadata reflects the most recent MSD calculation
+            self.tracking_D_um2_s = D_um2_s
+            self.tracking_D_px2_s = D_px2_s
+            self.tracking_msd_mode = "3D" if is_3d else "2D"
             
             # Calculate per-trajectory MSD for export (use self.df_tracking to preserve cell_id)
             self._calculate_per_trajectory_msd(self.df_tracking, microns_per_pixel, step_size_in_sec)
@@ -9742,6 +9932,29 @@ class GUI(QMainWindow):
         self.cellpose_masks_nuc_tyx = None
         self.use_tyx_masks = False
         
+        # Clear original masks (for expansion slider)
+        self._original_cellpose_masks_cyto = None
+        self._original_cellpose_masks_nuc = None
+        self._original_cellpose_masks_cyto_tyx = None
+        self._original_cellpose_masks_nuc_tyx = None
+        
+        # Reset expansion slider to 0
+        if hasattr(self, 'cell_expansion_slider'):
+            self.cell_expansion_slider.blockSignals(True)
+            self.cell_expansion_slider.setValue(0)
+            self.cell_expansion_slider.blockSignals(False)
+        if hasattr(self, 'expansion_value_label'):
+            self.expansion_value_label.setText("0")
+        
+        # Reset shrink slider to 0
+        if hasattr(self, 'cell_shrink_slider'):
+            self.cell_shrink_slider.blockSignals(True)
+            self.cell_shrink_slider.setValue(0)
+            self.cell_shrink_slider.blockSignals(False)
+        if hasattr(self, 'shrink_value_label'):
+            self.shrink_value_label.setText("0")
+        
+
         # Reset frame/channel indices
         if hasattr(self, 'cellpose_current_frame'):
             self.cellpose_current_frame = 0
