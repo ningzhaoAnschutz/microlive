@@ -7478,7 +7478,7 @@ class GUI(QMainWindow):
         self.ml_threshold_input.setDecimals(2)
         self.ml_threshold_input.setRange(0.5, 1.0)
         self.ml_threshold_input.setSingleStep(0.05)
-        self.ml_threshold_input.setValue(0.50)
+        self.ml_threshold_input.setValue(0.51)  # Default 0.51 for optimal accuracy (97.5%)
         mlLayout.addWidget(self.ml_threshold_input)
         threshOptionsLayout.addWidget(mlGroup)
         intensityGroup = QGroupBox("Intensity Options")
