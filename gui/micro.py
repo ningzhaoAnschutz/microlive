@@ -1625,15 +1625,7 @@ class GUI(QMainWindow):
             btn.clicked.connect(partial(self.select_tracking_vis_channel, idx))
             self.channel_buttons_layout_tracking_vis.addWidget(btn)
             self.channel_buttons_tracking_vis.append(btn)
-        if hasattr(self, 'channel_buttons_crops'):
-            for btn in self.channel_buttons_crops:
-                btn.setParent(None)
-        self.channel_buttons_crops = []
-        for idx, channel_name in enumerate(self.channel_names):
-            button = QPushButton(f"Channel {idx}", self)
-            button.clicked.connect(partial(self.update_channel_crops, idx))
-            self.channel_buttons_layout_crops.addWidget(button)
-            self.channel_buttons_crops.append(button)
+        # Note: Crops tab channel buttons removed - Crops tab has been deprecated
         # Create registration tab channel buttons
         if hasattr(self, 'channel_buttons_reg'):
             for btn in self.channel_buttons_reg:
@@ -1848,15 +1840,7 @@ class GUI(QMainWindow):
             self.cellpose_nuc_channel_input.setMaximum(max_ch)
             self.cellpose_nuc_channel_input.setValue(0)
         
-        # Create crops channel buttons
-        for btn in getattr(self, 'channel_buttons_crops', []):
-            btn.setParent(None)
-        self.channel_buttons_crops = []
-        for idx in range(C):
-            button = QPushButton(f"Channel {idx}", self)
-            button.clicked.connect(partial(self.update_channel_crops, idx))
-            self.channel_buttons_layout_crops.addWidget(button)
-            self.channel_buttons_crops.append(button)
+        # Note: Crops channel buttons removed - Crops tab has been deprecated
         
         # Setup channel visualization control tabs
         self.channelControlsTabs.clear()
@@ -2459,7 +2443,6 @@ class GUI(QMainWindow):
             for btn_list in [getattr(self, 'channel_buttons_display', []),
                             getattr(self, 'channel_buttons_tracking', []),
                             getattr(self, 'channel_buttons_tracking_vis', []),
-                            getattr(self, 'channel_buttons_crops', []),
                             getattr(self, 'segmentation_channel_buttons', [])]:
                 for btn in btn_list:
                     if btn:
@@ -2470,8 +2453,6 @@ class GUI(QMainWindow):
             self.channel_buttons_tracking = []
             if hasattr(self, 'channel_buttons_tracking_vis'):
                 self.channel_buttons_tracking_vis = []
-            if hasattr(self, 'channel_buttons_crops'):
-                self.channel_buttons_crops = []
             if hasattr(self, 'segmentation_channel_buttons'):
                 self.segmentation_channel_buttons = []
             
