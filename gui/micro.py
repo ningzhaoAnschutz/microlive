@@ -2235,9 +2235,7 @@ class GUI(QMainWindow):
         self.detected_spots_frame = None
         self.populate_colocalization_channels()
 
-    def update_channel_crops(self, channel):
-        self.current_channel = channel
-        self.display_crops_plot()
+    # Note: update_channel_crops removed - Crops tab has been deprecated
 
     def _update_all_frame_labels(self, value):
         """Update all frame labels across all tabs with the current frame value."""
@@ -8529,43 +8527,6 @@ class GUI(QMainWindow):
 # =============================================================================
 # =============================================================================
 
-    def run_crops_analysis(self):
-        """
-        Called by the 'Analyze Crops' button.
-        Manually trigger analysis and then call display_crops_plot() to update figure.
-        """
-        if self.image_stack is None:
-            QMessageBox.warning(self, "No Image", "No image loaded. Please open an image first.")
-            return
-        if not getattr(self, 'has_tracked', False):
-            QMessageBox.warning(self, "Crops Unavailable", "You must run particle tracking before plotting crops.")
-            return
-        self.display_crops_plot()
-
-    def setup_crops_tab(self):
-        crops_main_layout = QVBoxLayout(self.crops_tab)
-        top_controls_layout = QHBoxLayout()
-        select_channel_label = QLabel("Select Channel")
-        top_controls_layout.addWidget(select_channel_label)
-        self.channel_buttons_crops = []
-        self.channel_buttons_layout_crops = QHBoxLayout()
-        top_controls_layout.addLayout(self.channel_buttons_layout_crops)
-        self.analyze_crops_button = QPushButton("Plot Crops")
-        self.analyze_crops_button.clicked.connect(self.run_crops_analysis)
-        top_controls_layout.addWidget(self.analyze_crops_button)
-        top_controls_layout.addStretch()
-        crops_main_layout.addLayout(top_controls_layout)
-        self.figure_crops = Figure()
-        self.canvas_crops = FigureCanvas(self.figure_crops)
-        crops_main_layout.addWidget(self.canvas_crops)
-        bottom_layout = QHBoxLayout()
-        self.toolbar_crops = NavigationToolbar(self.canvas_crops, self)
-        bottom_layout.addWidget(self.toolbar_crops)
-        self.export_crops_button = QPushButton("Export Crops Image", self)
-        self.export_crops_button.clicked.connect(self.export_crops_image)
-        bottom_layout.addWidget(self.export_crops_button)
-        crops_main_layout.addLayout(bottom_layout)
-
 # =============================================================================
 # =============================================================================
 # Export TAB
@@ -8966,11 +8927,7 @@ class GUI(QMainWindow):
         except Exception as e:
             print(f"Failed to export colocalization image: {e}")
 
-    def _export_crops_image(self, file_path):
-        try:
-            self.figure_crops.savefig(file_path, dpi=600)
-        except Exception as e:
-            print(f"Failed to export crops image: {e}")
+    # Note: _export_crops_image removed - Crops tab has been deprecated
 
     
 
@@ -9617,24 +9574,7 @@ class GUI(QMainWindow):
 
     
 
-    def export_crops_image(self):
-        """Export the currently displayed crops figure as PNG."""
-        options = QFileDialog.Options()
-        default_name = self.get_default_export_filename(prefix='crops', extension='png')
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Crops Image",
-            default_name,
-            "PNG Files (*.png);;All Files (*)",
-            options=options
-        )
-        if not file_path:
-            return
-        try:
-            self.figure_crops.savefig(file_path, dpi=600)
-            QMessageBox.information(self, "Success", f"Crops image exported successfully to:\n{file_path}")
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")
+    # Note: export_crops_image removed - Crops tab has been deprecated
 
 
     def setup_export_tab(self):
@@ -10391,19 +10331,7 @@ class GUI(QMainWindow):
         for checkbox in self.channel_checkboxes:
             checkbox.setChecked(False)
 
-    def reset_crops_tab(self):
-        self.figure_crops.clear()
-        self.ax_crops = self.figure_crops.add_subplot(111)
-        self.ax_crops.set_facecolor('black')
-        self.ax_crops.axis('off')
-        self.ax_crops.text(
-            0.5, 0.5, 'No crops data available.',
-            horizontalalignment='center',
-            verticalalignment='center',
-            fontsize=12, color='white',
-            transform=self.ax_crops.transAxes
-        )
-        self.canvas_crops.draw()
+    # Note: reset_crops_tab removed - Crops tab has been deprecated
 
     def reset_manual_colocalization(self):
         """Reset manual colocalization state and UI elements."""
@@ -10514,7 +10442,7 @@ class GUI(QMainWindow):
         self.reset_time_course_tab()
         self.reset_correlation_tab()
         self.reset_colocalization_tab()
-        self.reset_crops_tab()
+        # Note: Crops tab has been removed - reset_crops_tab() is deprecated
         self.reset_tracking_visualization_tab()
         self.reset_export_comment()
         self.reset_manual_colocalization()
@@ -10552,61 +10480,7 @@ class GUI(QMainWindow):
         """Delegate to plot_intensity_histogram for per-cell overlay histograms."""
         self.plot_intensity_histogram()
 
-    
-    def display_crops_plot(self):
-        # clear & bump DPI for crispness
-        self.figure_crops.clear()
-        self.figure_crops.set_dpi(300)
-
-        # early exits
-        if self.df_tracking.empty:
-            return
-        if self.corrected_image is None and self.image_stack is None:
-            return
-
-        # ==== FIXED LINE: choose the image without using `or` on arrays ====
-        if self.corrected_image is not None:
-            image_to_use = self.corrected_image
-        else:
-            image_to_use = self.image_stack
-
-        # compute crop size
-        crop_size = int(self.yx_spot_size_in_px) + 5
-        if crop_size % 2 == 0:
-            crop_size += 1
-
-        # optional max‐projection
-        if self.use_maximum_projection:
-            image_to_use = np.max(image_to_use, axis=1, keepdims=True)
-
-        # filter & build croparray
-        filtered = mi.Utilities().log_filter(image_to_use, spot_radius_px=1)
-        croparray, _, _, crop_size = mi.CropArray(
-            image=filtered,
-            df_crops=self.df_tracking,
-            crop_size=crop_size,
-            remove_outliers=True,
-            max_percentile=99.95,
-            selected_time_point=None,
-            normalize_each_particle=True
-        ).run()
-
-        # render into a single axis
-        ax = self.figure_crops.add_subplot(111)
-        mi.Plots().plot_croparray(
-            croparray=croparray,
-            crop_size=crop_size,
-            show_particle_labels=True,
-            cmap='binary_r',
-            max_percentile=99.5,
-            selected_channel=self.current_channel,
-            axes=[ax]
-        )
-        ax.set_title(f'Crops — Channel {self.current_channel}')
-        ax.axis('off')
-
-        self.figure_crops.tight_layout()
-        self.canvas_crops.draw()
+    # Note: display_crops_plot removed - Crops tab has been deprecated
 
 
     def display_correlation_plot(self):
