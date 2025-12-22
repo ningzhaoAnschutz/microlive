@@ -356,7 +356,9 @@ class Photobleaching:
         radius=50,
         time_interval_seconds = None,
         min_intensity_threshold = 10,
+        verbose = False
     ):
+        self.verbose = verbose
         if mode not in ['inside_cell', 'outside_cell', 'use_circular_region', 'entire_image']:
             raise ValueError(
                 "mode must be 'inside_cell', 'outside_cell', 'use_circular_region', or 'entire_image'"
@@ -579,7 +581,8 @@ class Photobleaching:
             
             # Skip if intensity doesn't decrease significantly (< 5% decrease)
             if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
-                print(f"Photobleaching correction not necessary for channel {ch}. No correction applied.")
+                if self.verbose:
+                    print(f"Photobleaching correction not necessary for channel {ch}. No correction applied.")
                 correction_factors_per_ch[ch] = np.ones(T)
                 continue
             
@@ -605,7 +608,8 @@ class Photobleaching:
         # Process one frame at a time to avoid 15GB float32 intermediate
         corrected_image = np.zeros_like(self.image_TZYXC, dtype=np.uint16)
         
-        print(f"Applying photobleaching correction frame-by-frame ({T} frames)...")
+        if self.verbose:
+            print(f"Applying photobleaching correction frame-by-frame ({T} frames)...")
         for i in range(T):
             # Process this frame
             frame_float = self.image_TZYXC[i].astype(np.float32)
@@ -615,7 +619,7 @@ class Photobleaching:
             corrected_image[i] = np.clip(frame_float, 0, 65535).astype(np.uint16)
             
             # Progress indicator every 50 frames
-            if (i + 1) % 50 == 0 or i == T - 1:
+            if ((i + 1) % 50 == 0 or i == T - 1) and self.verbose:
                 print(f"  Frame {i + 1}/{T} completed")
         
         # Compute corrected mean intensities analytically (no need to re-scan image)
@@ -3729,8 +3733,9 @@ class ParticleTracking:
                  use_maximum_projection=False, separate_clusters_and_spots=False,
                  maximum_range_search_pixels=10, link_using_3d_coordinates=False,
                  neighbor_strategy='KDTree', generate_random_particles=False,
-                 number_of_random_particles_trajectories=None,step_size_in_sec=1.0):
+                 number_of_random_particles_trajectories=None,step_size_in_sec=1.0, verbose=False):
 
+        self.verbose = verbose
         if len(image.shape) != 5:
             raise ValueError('The image must have 5 dimensions [T, Z, Y, X, C].')
 
@@ -4021,7 +4026,8 @@ class ParticleTracking:
                 if mask_frame is not None:
                     unique_ids = np.unique(mask_frame)
                     n_cells = len(unique_ids[unique_ids > 0])  # Exclude background (0)
-                    print(f"[Frame {i:03d}] Complete Cell Mask: {n_cells} cells, IDs={unique_ids[unique_ids > 0]}, Shape={mask_frame.shape}")
+                    if self.verbose:
+                        print(f"[Frame {i:03d}] Complete Cell Mask: {n_cells} cells, IDs={unique_ids[unique_ids > 0]}, Shape={mask_frame.shape}")
                 if mask_nuc_frame is not None:
                     unique_ids_nuc = np.unique(mask_nuc_frame)
                     n_nuc = len(unique_ids_nuc[unique_ids_nuc > 0])
