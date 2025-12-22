@@ -16,7 +16,7 @@ if errorlevel 1 (
 
 REM Activate the 'micro' environment.
 REM Using "call" is critical in batch files so that the script continues after activation.
-call conda activate micro
+call conda activate micro_windows
 
 REM Change to the folder where this batch file resides.
 cd /d %~dp0
