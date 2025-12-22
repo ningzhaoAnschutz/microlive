@@ -2784,12 +2784,13 @@ class GUI(QMainWindow):
         display_right_layout.addWidget(QLabel("Select Image"))
         self.image_tree = QTreeWidget()
         self.image_tree.setMinimumWidth(200)
-        self.image_tree.setMinimumHeight(200)
+        self.image_tree.setMinimumHeight(120)
+        self.image_tree.setMaximumHeight(220)
         self.image_tree.setHeaderHidden(True)
         self.image_tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.image_tree.itemClicked.connect(self.on_tree_item_clicked)
         self.image_tree.currentItemChanged.connect(self.on_tree_current_item_changed)
-        display_right_layout.addWidget(self.image_tree, 3)
+        display_right_layout.addWidget(self.image_tree)
         # Close file button
         self.close_file_button = QPushButton("Close File", self)
         self.close_file_button.clicked.connect(self.close_selected_file)
@@ -2831,7 +2832,8 @@ class GUI(QMainWindow):
         scroll_info = QScrollArea()
         scroll_info.setWidgetResizable(True)
         scroll_info.setWidget(image_info_group)
-        scroll_info.setMaximumHeight(200)  # adjust as needed
+        scroll_info.setMinimumHeight(280)
+        scroll_info.setMaximumHeight(350)
         display_right_layout.addWidget(scroll_info)
         # Export buttons
         self.export_displayed_image_button = QPushButton("Export Image", self)
@@ -5260,6 +5262,8 @@ class GUI(QMainWindow):
 # =============================================================================
 
     def compute_photobleaching(self):
+        import gc  # For memory management with large images
+        
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
@@ -5308,8 +5312,13 @@ class GUI(QMainWindow):
         decay_params = raw_photobleaching_obj.calculate_photobleaching()
         
         # Store raw mean intensities for plotting (not affected by registration artifacts)
-        raw_mean_intensities = raw_photobleaching_obj.mean_intensities
-        raw_err_intensities = raw_photobleaching_obj.err_intensities
+        raw_mean_intensities = raw_photobleaching_obj.mean_intensities.copy()
+        raw_err_intensities = raw_photobleaching_obj.err_intensities.copy()
+        
+        # MEMORY OPTIMIZATION: Delete raw_photobleaching_obj to free memory
+        # (It holds a reference to the full image array)
+        del raw_photobleaching_obj
+        gc.collect()
 
         # Step 2: Determine which image to apply correction to
         image_for_correction = self.registered_image if self.registered_image is not None else self.image_stack
@@ -5326,10 +5335,41 @@ class GUI(QMainWindow):
         )
         self.corrected_image, self.photobleaching_data = correction_obj.apply_photobleaching_correction()
         
+        # MEMORY OPTIMIZATION: Delete correction_obj to free memory
+        del correction_obj
+        gc.collect()
+        
         # Override mean_intensities in photobleaching_data with raw image values for accurate plot
         # This shows the actual decay curve (from raw) as "Original" in the plot
         self.photobleaching_data['mean_intensities'] = raw_mean_intensities
         self.photobleaching_data['err_intensities'] = raw_err_intensities
+        
+        # Also compute corrected intensities from RAW intensities (not registered)
+        # This avoids registration edge artifacts in the "Corrected" line
+        T, C = raw_mean_intensities.shape
+        time_array = self.photobleaching_data['time_array']
+        params = decay_params
+        
+        # Calculate correction factors and apply to raw intensities
+        raw_intensities_corrected = np.zeros_like(raw_mean_intensities)
+        raw_err_corrected = np.zeros_like(raw_err_intensities)
+        
+        for ch in range(C):
+            k_fit = params[2*ch]
+            I0_fit = params[2*ch + 1]
+            
+            if k_fit > 0:
+                # Compute correction factor: I0 / I_fit(t) = exp(k*t)
+                correction_factors = np.exp(k_fit * time_array)
+                raw_intensities_corrected[:, ch] = raw_mean_intensities[:, ch] * correction_factors
+                raw_err_corrected[:, ch] = raw_err_intensities[:, ch] * correction_factors
+            else:
+                # No correction applied for this channel
+                raw_intensities_corrected[:, ch] = raw_mean_intensities[:, ch]
+                raw_err_corrected[:, ch] = raw_err_intensities[:, ch]
+        
+        self.photobleaching_data['mean_intensities_corrected'] = raw_intensities_corrected
+        self.photobleaching_data['err_intensities_corrected'] = raw_err_corrected
         
         self.photobleaching_calculated = True
         self.plot_photobleaching()

@@ -4231,6 +4231,8 @@ class Registration:
         Pixels to add around ROI bounds (default 10)
     progress_callback : callable or None
         Function(message: str) called to report progress
+    verbose : bool
+        If True, print progress messages to console (default False)
     """
     
     MODES = {
@@ -4241,7 +4243,7 @@ class Registration:
     }
     
     def __init__(self, image, roi_bounds, reference_channel=0,
-                 mode='RIGID_BODY', padding=10, progress_callback=None):
+                 mode='RIGID_BODY', padding=10, progress_callback=None, verbose=False):
         if image.ndim != 5:
             raise ValueError(f"Expected 5D image [T,Z,Y,X,C], got {image.ndim}D")
         
@@ -4251,6 +4253,7 @@ class Registration:
         self.reference_channel = reference_channel
         self.padding = padding
         self.progress_callback = progress_callback
+        self.verbose = verbose
         
         if mode not in self.MODES:
             raise ValueError(f"Invalid mode '{mode}'. Choose from: {list(self.MODES.keys())}")
@@ -4272,7 +4275,8 @@ class Registration:
         """Report progress via callback if available."""
         if self.progress_callback:
             self.progress_callback(message)
-        print(f"[Registration] {message}")
+        if self.verbose:
+            print(f"[Registration] {message}")
     
     def register(self):
         """
