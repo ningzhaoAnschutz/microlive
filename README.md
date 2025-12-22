@@ -150,14 +150,31 @@ cd microlive
 
 #### 2. Create Environment from YAML File
 
+**macOS (Apple Silicon M1/M2/M3):**
+
 ```bash
 conda env create -f micro_gpu.yml
 ```
 
+**Windows with NVIDIA GPU:**
+
+```bash
+conda env create -f micro_windows.yml
+```
+
+> **Note:** The Windows environment uses PyTorch with CUDA 12.4 for GPU acceleration. Ensure you have NVIDIA drivers and CUDA installed. To verify GPU support after installation:
+>
+> ```python
+> import torch
+> print(f"CUDA available: {torch.cuda.is_available()}")
+> print(f"GPU: {torch.cuda.get_device_name(0)}")
+> ```
+
 #### 3. Activate Environment
 
 ```bash
-conda activate micro_gpu
+conda activate micro_gpu        # macOS
+conda activate micro_windows    # Windows
 ```
 
 ### Manual Installation
@@ -173,6 +190,12 @@ conda activate micro_gpu
 
 ```bash
 pip install -r requirements.txt
+```
+
+**For Windows GPU support**, install PyTorch with CUDA:
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 
 See [requirements.txt](requirements.txt) for the complete dependency list with versions.
@@ -219,7 +242,7 @@ When launching MicroLive for the first time:
 
 ## Project Structure
 
-```
+```text
 microlive/
 ├── src/                          # Core source code
 │   ├── microscopy.py             # Main analysis classes and functions
@@ -239,7 +262,8 @@ microlive/
 │   └── converter.ipynb           # Format conversion notebook
 ├── modeling/                     # Machine learning models
 │   └── machine_learning/         # ML-based analysis tools
-├── micro_gpu.yml                 # Conda environment file (GPU)
+├── micro_gpu.yml                 # Conda environment file (macOS GPU)
+├── micro_windows.yml             # Conda environment file (Windows CUDA GPU)
 ├── requirements.txt              # Python dependencies
 ├── LICENSE                       # GPL v3 License
 └── README.md                     # This file
