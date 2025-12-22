@@ -153,7 +153,7 @@ cd microlive
 **macOS (Apple Silicon M1/M2/M3):**
 
 ```bash
-conda env create -f micro_gpu.yml
+conda env create -f micro_mac.yml
 ```
 
 **Windows with NVIDIA GPU:**
@@ -173,7 +173,7 @@ conda env create -f micro_windows.yml
 #### 3. Activate Environment
 
 ```bash
-conda activate micro_gpu        # macOS
+conda activate micro_mac        # macOS
 conda activate micro_windows    # Windows
 ```
 
@@ -182,23 +182,25 @@ conda activate micro_windows    # Windows
 #### 1. Create Virtual Environment
 
 ```bash
-conda create -n micro_gpu python=3.12 -y
-conda activate micro_gpu
+conda create -n micro_mac python=3.12 -y
+conda activate micro_mac
 ```
 
 #### 2. Install Dependencies
+
+**macOS:**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-**For Windows GPU support**, install PyTorch with CUDA:
+**Windows with NVIDIA GPU:**
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements_windows.txt
 ```
 
-See [requirements.txt](requirements.txt) for the complete dependency list with versions.
+See [requirements.txt](requirements.txt) (macOS) and [requirements_windows.txt](requirements_windows.txt) (Windows GPU) for the complete dependency lists.
 
 ---
 
@@ -214,7 +216,7 @@ See [requirements.txt](requirements.txt) for the complete dependency list with v
 1. **Activate Environment**:
 
    ```bash
-   conda activate micro_gpu
+   conda activate micro_mac
    ```
 
 2. **Navigate to GUI Directory**:
@@ -262,9 +264,10 @@ microlive/
 │   └── converter.ipynb           # Format conversion notebook
 ├── modeling/                     # Machine learning models
 │   └── machine_learning/         # ML-based analysis tools
-├── micro_gpu.yml                 # Conda environment file (macOS GPU)
+├── micro_mac.yml                 # Conda environment file (macOS GPU)
 ├── micro_windows.yml             # Conda environment file (Windows CUDA GPU)
-├── requirements.txt              # Python dependencies
+├── requirements.txt              # Python dependencies (macOS)
+├── requirements_windows.txt      # Python dependencies (Windows CUDA GPU)
 ├── LICENSE                       # GPL v3 License
 └── README.md                     # This file
 ```

@@ -11,8 +11,8 @@ fi
 # Source conda’s shell functions
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 
-# Activate the 'micro' environment
-conda activate micro
+# Activate the 'micro_mac' environment
+conda activate micro_mac
 
 # Change to the folder containing this script (which should also contain gui.py)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

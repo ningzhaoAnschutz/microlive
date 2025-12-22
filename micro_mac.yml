@@ -1,4 +1,4 @@
-name: micro_gpu
+name: micro_mac
 channels:
   - conda-forge
   - defaults
