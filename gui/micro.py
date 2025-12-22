@@ -797,7 +797,7 @@ class GUI(QMainWindow):
     Micro is a comprehensive GUI application for microscopy image analysis.
     A PyQt5 QMainWindow‐based application for interactive analysis of multi-dimensional microscopy image data.
     Organized into multiple tabs—Display, Segmentation, Photobleaching, Tracking, Distributions, Time Courses,
-    Correlation, Colocalization (automated and manual), Tracking Visualization, Crops, and Export. 
+    Correlation, Colocalization (automated and manual), Tracking Visualization, and Export. 
     This GUI provides end-to-end workflows for loading, visualizing, processing, analyzing, and exporting microscopy datasets.
     Key Features:
         • Image I/O & Metadata
@@ -827,8 +827,7 @@ class GUI(QMainWindow):
         • Colocalization
             – Automated intensity‐based or ML‐based colocalization across channels.
             – Manual verification grid with flagging, mosaic export, and CSV output.
-        • Cropping & Export
-            – Define crops for focused analysis and export composite crop grids.
+        • Export
             – Batch export of images, masks, metadata, user comments, and data tables into structured result folders.
     """
     
@@ -1069,7 +1068,6 @@ class GUI(QMainWindow):
             - Colocalization
             - Colocalization Manual
             - Tracking Visualization
-            - Crops
             - Export
         4. Connects the tab widget's currentChanged signal to the on_tab_change handler.
         5. Calls dedicated setup methods to populate each tab with its UI components.
@@ -1110,8 +1108,6 @@ class GUI(QMainWindow):
         self.tabs.addTab(self.colocalization_manual_tab, "Coloc Edit")
         self.tracking_visualization_tab = QWidget()
         self.tabs.addTab(self.tracking_visualization_tab, "Visualization")
-        self.crops_tab = QWidget()
-        self.tabs.addTab(self.crops_tab, "Crops")
         self.export_tab = QWidget()
         self.tabs.addTab(self.export_tab, "Export")
         self.tabs.currentChanged.connect(self.on_tab_change)
@@ -1127,7 +1123,6 @@ class GUI(QMainWindow):
         self.setup_correlation_tab()
         self.setup_colocalization_tab()
         self.setup_colocalization_manual_tab()
-        self.setup_crops_tab()
         self.setup_export_tab()
         self.applyTheme(self.themeToggle.isChecked())
         self.on_tab_change(0)
@@ -1524,7 +1519,7 @@ class GUI(QMainWindow):
         for tab in (
             self.display_tab, self.segmentation_tab, self.photobleaching_tab,
             self.tracking_tab, self.distribution_tab, self.time_course_tab,
-            self.correlation_tab, self.colocalization_tab, self.crops_tab,
+            self.correlation_tab, self.colocalization_tab,
             self.export_tab
         ):
             layout = tab.layout()
@@ -2290,7 +2285,7 @@ class GUI(QMainWindow):
         # Tab index mapping (Cellpose is now a sub-tab of Segmentation):
         # 0=Import, 1=Registration, 2=Segmentation (includes Cellpose), 3=Photobleaching,
         # 4=Tracking, 5=MSD, 6=Distribution, 7=Time Course, 8=Correlation,
-        # 9=Colocalization, 10=Colocalization Manual, 11=Tracking Visualization
+        # 9=Colocalization, 10=Colocalization Manual, 11=Tracking Visualization, 12=Export
         
         if current_tab_index == 0:  # Import tab
             self.plot_image()
@@ -8734,11 +8729,6 @@ class GUI(QMainWindow):
                     out_path = results_folder / default_filename
                     self._export_manual_colocalization_data_to_csv(out_path)
 
-                elif label_text == "Export Crops Image":
-                    default_filename = self.get_default_export_filename(prefix="crops", extension="png")
-                    out_path = results_folder / default_filename
-                    self._export_crops_image(out_path)
-
                 elif label_text == "Export Metadata File":
                     default_filename = self.get_default_export_filename(prefix="Metadata", extension="txt")
                     out_path = results_folder / default_filename
@@ -9720,7 +9710,6 @@ class GUI(QMainWindow):
             ("Export Colocalization Data", "colocalization_data"),
             ("Export Manual Colocalization Image", "colocalization_manual"),
             ("Export Manual Colocalization Data", "colocalization_manual_data"),
-            ("Export Crops Image", "crops"),
             ("Export Metadata File", "metadata"),
             ("Export User Comments", "user_comments"),
             ("Export Random Spots Data", "random_location_spots"),

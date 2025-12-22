@@ -88,12 +88,6 @@
 - **Trajectory Visualization**: Display particle trajectories with customizable colors and trail lengths
 - **Export Options**: High-resolution images, videos (MP4/GIF), and interactive plots
 
-### Cell Crops
-
-- **Individual Cell Export**: Extract and export cropped images of individual cells
-- **Multi-channel Support**: Crop all channels simultaneously
-- **Batch Processing**: Export crops for all detected cells in a single operation
-
 ### Data Export and Documentation
 
 - **Multiple Formats**: PNG (300 DPI), TIFF, OME-TIFF, CSV, and video formats
@@ -109,8 +103,7 @@
 |-----|-------------|
 | Import | Load images, manage files, adjust display settings |
 | Registration | Correct drift and align time-lapse images |
-| Segmentation | Manual ROI drawing and watershed segmentation |
-| Cellpose | Deep learning-based cell and nucleus segmentation |
+| Segmentation | Cell segmentation (Watershed, Cellpose, Manual, Import sub-tabs) |
 | Photobleaching | Correct for fluorescence decay over time |
 | Tracking | Detect spots, link trajectories, analyze clusters |
 | MSD | Calculate diffusion coefficients from trajectories |
@@ -120,7 +113,6 @@
 | Coloc | Automated colocalization analysis |
 | Coloc Edit | Manual verification of colocalization results |
 | Visualization | Trajectory display and video export |
-| Crops | Export individual cell images |
 | Export | Batch export of all analysis results |
 
 ---
