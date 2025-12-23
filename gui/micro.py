@@ -834,7 +834,7 @@ class GUI(QMainWindow):
     def __init__(self, icon_path):
         super().__init__()
         configure_logging_and_styles()
-        self.setWindowTitle("Micro")
+        self.setWindowTitle("MicroLive")
         self.setWindowIcon(QIcon(str(icon_path)))
         self.loaded_lif_files = {}
         self.correct_baseline = False
@@ -1306,7 +1306,7 @@ class GUI(QMainWindow):
             QTabBar::tab {
                 background: #3a3a3a;
                 color: #b0b0b0;
-                padding: 8px 16px;
+                padding: 10px 16px;
                 border: 1px solid #555555;
                 border-bottom: none;
                 border-radius: 4px 4px 0 0;
@@ -11072,8 +11072,8 @@ class GUI(QMainWindow):
             self.display_colocalization_manual()
         elif index == 11:  # Tracking Visualization (was 12)
             if not (getattr(self, 'has_tracked', False)) or self.df_tracking.empty:
-                QMessageBox.warning(self, "No Data", "Please perform particle tracking first.")
-                self.tabs.setCurrentIndex(4)  # Go to Tracking tab (was 5)
+                # Silently reset the visualization tab without warning
+                self.reset_tracking_visualization_tab()
                 return
             self.tracked_particles_list.clear()
             for pid in sorted(self.df_tracking['particle'].unique()):
@@ -11123,7 +11123,7 @@ if __name__ == '__main__':
     palette.setColor(QPalette.Highlight, QColor(142, 45, 197).lighter())
     palette.setColor(QPalette.HighlightedText, Qt.black)
     app.setPalette(palette)
-    app.setApplicationName("micro")
+    app.setApplicationName("MicroLive")
     app.setApplicationDisplayName("micro")
     app.setWindowIcon(QIcon(str(icon_file)))
     main_window = GUI(icon_path=icon_file)
