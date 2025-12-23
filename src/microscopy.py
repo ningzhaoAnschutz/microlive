@@ -3504,9 +3504,9 @@ class SpotDetection():
     channels_spots : int, or List
         List of channels with spots that are used for the quantification
     channels_cytosol : List of int
-        List with integers indicating the index of channels for the cytosol segmentation. The default is None.
+        List with integers indicating the index of channels for the cytosol segmentation. 
     channels_nucleus : list of int
-        List with integers indicating the index of channels for the nucleus segmentation. The default is None. 
+        List with integers indicating the index of channels for the nucleus segmentation. 
     cluster_radius_nm : int, optional
         Maximum distance between two samples for one to be considered as in the neighborhood of the other. Radius expressed in nanometer.
     minimum_spots_cluster : int, optional
@@ -4538,15 +4538,15 @@ class DataProcessing():
                         nuc_centroid_y=0, nuc_centroid_x=0, cyto_centroid_y=0, cyto_centroid_x=0, image_counter=0, is_cell_in_border = 0, spot_type=0, cell_counter =0,
                         nuc_int=None, cyto_int = None, complete_cell_int=None,pseudo_cyto_int=None,nucleus_cytosol_intensity_ratio=None,nucleus_pseudo_cytosol_intensity_ratio=None):
             # detect spots in nucleus
-            if not (self.channels_nucleus in (None,[None]) ):
+            if not (self.channels_nucleus in (None,[None]) ) and mask_nuc is not None:
                 spots_nuc,ts=separate_clusters_and_spots_in_mask(clusters_and_spots,mask=mask_nuc)
             else:
                 spots_nuc, ts = None, None
             # Detecting spots in the cytosol only
-            if not (self.channels_cytosol in (None,[None]) ) and not (self.channels_nucleus in (None,[None]) ):
+            if not (self.channels_cytosol in (None,[None]) ) and not (self.channels_nucleus in (None,[None]) ) and mask_cytosol_only is not None:
                 spots_cytosol_only, clusters_cytosol_only=separate_clusters_and_spots_in_mask(clusters_and_spots,mask=mask_cytosol_only)
             # detecting spots in complete cell if no nucleus is detected
-            elif not (self.channels_cytosol in (None,[None]))  and (self.channels_nucleus in (None,[None]) ):
+            elif not (self.channels_cytosol in (None,[None]))  and (self.channels_nucleus in (None,[None]) ) and masks_complete_cells is not None:
                 spots_cytosol_only,clusters_cytosol_only=separate_clusters_and_spots_in_mask(clusters_and_spots,mask=masks_complete_cells)
             else:
                 spots_cytosol_only = None
@@ -4676,19 +4676,22 @@ class DataProcessing():
             
             # Populating array to add the average intensity in the cell
             for c in range (self.number_color_channels):
-                if not (self.channels_nucleus in (None,[None]) ):
+                if not (self.channels_nucleus in (None,[None]) ) and nuc_int is not None:
                     array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+c] = nuc_int[c] 
-                if not (self.channels_cytosol in (None,[None]) ) :
+                if not (self.channels_cytosol in (None,[None]) ) and cyto_int is not None:
                     array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels+c] = cyto_int[c]    
-                if not (self.channels_cytosol in (None,[None]) ) :
+                if not (self.channels_cytosol in (None,[None]) ) and complete_cell_int is not None:
                     # populating with complete_cell_int
                     array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*2 +c] = complete_cell_int[c]  
                 # populating with pseudo_cyto_int
-                array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*3 +c] = pseudo_cyto_int[c]  
+                if pseudo_cyto_int is not None:
+                    array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*3 +c] = pseudo_cyto_int[c]  
                 # populating with nucleus_cytosol_intensity_ratio
-                array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*4 +c] = nucleus_cytosol_intensity_ratio[c]  
+                if nucleus_cytosol_intensity_ratio is not None:
+                    array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*4 +c] = nucleus_cytosol_intensity_ratio[c]  
                 # populating with nucleus_pseudo_cytosol_intensity_ratio
-                array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*5 +c] = nucleus_pseudo_cytosol_intensity_ratio[c]  
+                if nucleus_pseudo_cytosol_intensity_ratio is not None:
+                    array_complete[:,self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME+self.number_color_channels*5 +c] = nucleus_pseudo_cytosol_intensity_ratio[c]  
             
             NUMBER_INTENSITY_MEASUREMENTS = 6  # Update this if you add/remove types of measurements. This considers the following columns: nuc_int, cyto_int, complete_cell_int, pseudo_cyto_int, nucleus_cytosol_intensity_ratio, nucleus_pseudo_cytosol_intensity_ratio                        
             # This section calculates the intenisty fo each spot and cluster
@@ -4847,8 +4850,11 @@ class DataProcessing():
         
         num_pixels_to_dilate = 30
         for id_cell in range (0,n_masks): # iterating for each mask in a given cell. The mask has values from 0 for background, to int n, where n is the number of detected masks.
+            # Initialize tested_mask_for_border to avoid UnboundLocalError
+            tested_mask_for_border = None
+            
             # calculating nuclear area and center of mass
-            if not (self.channels_nucleus in  (None, [None])):
+            if not (self.channels_nucleus in (None, [None])) and self.masks_nuclei is not None and len(self.masks_nuclei) > id_cell:
                 nuc_area, nuc_centroid_y, nuc_centroid_x = mask_selector(self.masks_nuclei[id_cell], calculate_centroid=True)
 
                 selected_mask_nuc = self.masks_nuclei[id_cell]
@@ -4912,8 +4918,8 @@ class DataProcessing():
             # Calculating ratio between nucleus and cytosol intensity
             nucleus_cytosol_intensity_ratio = np.zeros( (self.number_color_channels ))
             nucleus_pseudo_cytosol_intensity_ratio = np.zeros( (self.number_color_channels ))
-            # case where nucleus and cyto are passed 
-            if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])):
+            # case where nucleus and cyto are passed AND data was actually computed
+            if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])) and nuc_int is not None and cyto_int is not None:
                 for k in range(self.number_color_channels ):
                     # Guard against division by zero
                     if cyto_int[k] != 0 and cyto_int[k] is not None:
@@ -4924,16 +4930,16 @@ class DataProcessing():
                         nucleus_pseudo_cytosol_intensity_ratio[k] = nuc_int[k] / pseudo_cyto_int[k]
                     else:
                         nucleus_pseudo_cytosol_intensity_ratio[k] = np.nan
-            # case where nucleus is passed but not cyto
-            elif (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])):
+            # case where nucleus is passed but not cyto AND nuc_int was computed
+            elif (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])) and nuc_int is not None:
                 for k in range(self.number_color_channels ):
                     # Guard against division by zero
                     if pseudo_cyto_int[k] != 0:
                         nucleus_pseudo_cytosol_intensity_ratio[k] = nuc_int[k] / pseudo_cyto_int[k]
                     else:
                         nucleus_pseudo_cytosol_intensity_ratio[k] = np.nan
-            # case where nucleus and cyto are passed 
-            if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])):
+            # case where nucleus and cyto are passed AND masks are available
+            if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])) and self.masks_cytosol_no_nuclei is not None and self.masks_complete_cells is not None and len(self.masks_cytosol_no_nuclei) > id_cell and len(self.masks_complete_cells) > id_cell:
                 slected_masks_cytosol_no_nuclei = self.masks_cytosol_no_nuclei[id_cell]
                 cyto_area,_,_ = mask_selector(self.masks_cytosol_no_nuclei[id_cell],calculate_centroid=False)
                 selected_masks_complete_cells = self.masks_complete_cells[id_cell]
@@ -4942,16 +4948,33 @@ class DataProcessing():
                 slected_masks_cytosol_no_nuclei = None
                 cyto_area = 0
                 selected_masks_complete_cells = None
-            # case where cyto is passed but not nucleus
-            elif not (self.channels_cytosol in (None, [None])) and (self.channels_nucleus in  (None, [None])):
+            # case where cyto is passed but not nucleus AND masks available
+            elif not (self.channels_cytosol in (None, [None])) and (self.channels_nucleus in  (None, [None])) and self.masks_complete_cells is not None and len(self.masks_complete_cells) > id_cell:
                 # When no nucleus, the complete cell mask is used for filtering spots in cytosol
                 slected_masks_cytosol_no_nuclei = self.masks_complete_cells[id_cell]
                 cyto_area, _, _  = mask_selector(self.masks_complete_cells[id_cell],calculate_centroid=False) # if not nucleus channel is passed the cytosol is consider the complete cell.
                 selected_masks_complete_cells = self.masks_complete_cells[id_cell]
             else:
                 slected_masks_cytosol_no_nuclei = None
+                # Fallback: use masks_complete_cells if available (for pre-computed masks case)
+                if self.masks_complete_cells is not None and len(self.masks_complete_cells) > id_cell:
+                    selected_masks_complete_cells = self.masks_complete_cells[id_cell]
+                    cyto_area, _, _ = mask_selector(self.masks_complete_cells[id_cell], calculate_centroid=False)
+                else:
+                    selected_masks_complete_cells = None
+                    cyto_area = 0
             # determining if the cell is in the border of the image. If true the cell is in the border.
-            is_cell_in_border =  np.any( np.concatenate( ( tested_mask_for_border[:,0],tested_mask_for_border[:,-1],tested_mask_for_border[0,:],tested_mask_for_border[-1,:] ) ) )  
+            # Fallback: if tested_mask_for_border is None, try to use available masks
+            if tested_mask_for_border is None:
+                if self.masks_complete_cells is not None and len(self.masks_complete_cells) > id_cell:
+                    tested_mask_for_border = self.masks_complete_cells[id_cell]
+                elif self.masks_nuclei is not None and len(self.masks_nuclei) > id_cell:
+                    tested_mask_for_border = self.masks_nuclei[id_cell]
+            
+            if tested_mask_for_border is not None:
+                is_cell_in_border = np.any(np.concatenate((tested_mask_for_border[:,0], tested_mask_for_border[:,-1], tested_mask_for_border[0,:], tested_mask_for_border[-1,:])))
+            else:
+                is_cell_in_border = False  # Cannot determine border status without mask  
             # Data extraction
 
             new_dataframe = data_to_df( new_dataframe, 
@@ -8687,18 +8710,19 @@ class Plots():
         number_color_channels = image_TZYXC.shape[-1]
         image_size_x = image_TZYXC.shape[3]
         image_size_y = image_TZYXC.shape[2]
+        # Dynamically detect all spot_int_ch_* columns
+        spot_int_columns = sorted([col for col in df.columns if col.startswith('spot_int_ch_')])
+        spot_int_values = {col: [] for col in spot_int_columns}  # Dict to store values per channel
+        
         if selected_spot is not None:
             frames = sorted(df['frame'].unique())
-            spot_int_values_ch0 = []
-            spot_int_values_ch1 = []
             for f in frames:
                 df_frame_spot = df[(df['frame'] == f) & (df['particle'] == selected_spot)]
-                if len(df_frame_spot) > 0:
-                    spot_int_values_ch0.append(df_frame_spot['spot_int_ch_0'].iloc[0])
-                    spot_int_values_ch1.append(df_frame_spot['spot_int_ch_1'].iloc[0])
-                else:
-                    spot_int_values_ch0.append(0)
-                    spot_int_values_ch1.append(0)
+                for col in spot_int_columns:
+                    if len(df_frame_spot) > 0 and col in df_frame_spot.columns:
+                        spot_int_values[col].append(df_frame_spot[col].iloc[0])
+                    else:
+                        spot_int_values[col].append(0)
         if len(list_max_percentile) == 1:
             list_max_percentile = list_max_percentile * number_color_channels
         # Check time_point
@@ -8845,12 +8869,16 @@ class Plots():
         # Plot the time course on the right subplot (ax_plot)
         if selected_spot is not None:
             ax_plot.set_facecolor('black')
-            if use_standard_color_map == False:
-                ax_plot.plot(frames, spot_int_values_ch0, marker='o', color=cmap_list_imagej[0](1.0), label='Ch0', lw = 2)
-                ax_plot.plot(frames, spot_int_values_ch1, marker='o', color=cmap_list_imagej[1](1.0), label='Ch1', lw = 2)
-            else:
-                ax_plot.plot(frames, spot_int_values_ch0, marker='o', color='r', label='Ch0', lw = 2)
-                ax_plot.plot(frames, spot_int_values_ch1, marker='o', color='g', label='Ch1', lw = 2)
+            # Standard color fallback list for use_standard_color_map=True
+            standard_colors = ['r', 'g', 'b', 'm', 'c', 'y', 'orange', 'lime']
+            # Plot all detected channels dynamically
+            for ch_idx, col in enumerate(spot_int_columns):
+                ch_label = col.replace('spot_int_ch_', 'Ch')
+                if use_standard_color_map == False:
+                    color = cmap_list_imagej[ch_idx % len(cmap_list_imagej)](1.0)
+                else:
+                    color = standard_colors[ch_idx % len(standard_colors)]
+                ax_plot.plot(frames, spot_int_values[col], marker='o', color=color, label=ch_label, lw=2)
             ax_plot.set_xlabel('Frame', fontsize=12, color='white')
             ax_plot.set_ylabel('Spot intensity', fontsize=12, color='white')
             ax_plot.tick_params(colors='white', which='both')
@@ -8869,10 +8897,15 @@ class Plots():
             # Highlight current frame
             if time_point is not None:
                 ax_plot.axvline(x=time_point, color='yellow', linestyle='-', lw=3)
-                ch0_val = spot_int_values_ch0[frames.index(time_point)]
-                ch1_val = spot_int_values_ch1[frames.index(time_point)]
-                ax_plot.text(time_point, ch0_val, f"{ch0_val:.1f}", color='cyan', fontsize=8)
-                ax_plot.text(time_point, ch1_val, f"{ch1_val:.1f}", color='magenta', fontsize=8)
+                # Annotate current values for all channels
+                for ch_idx, col in enumerate(spot_int_columns):
+                    if frames.index(time_point) < len(spot_int_values[col]):
+                        val = spot_int_values[col][frames.index(time_point)]
+                        if use_standard_color_map == False:
+                            text_color = cmap_list_imagej[ch_idx % len(cmap_list_imagej)](1.0)
+                        else:
+                            text_color = standard_colors[ch_idx % len(standard_colors)]
+                        ax_plot.text(time_point + 0.5, val, f"{val:.1f}", color=text_color, fontsize=8)
         if save_image and image_name:
             image_name += '.png' if not image_name.endswith('.png') else ''
             plt.savefig(image_name, transparent=False, dpi=360, bbox_inches='tight', facecolor='black', format='png')
@@ -8911,23 +8944,25 @@ class Plots():
         width_ratios=[1, 3],
         frame_rate_sec=1,
         frame_units='s',
+        show_histogram=False,  # Show intensity distribution histogram (rightmost panel)
     ):
 
         font_props = {'size': 20}
         n_ch = image_TZYXC.shape[-1]
+        # — Dynamically detect all spot intensity columns —
+        spot_int_columns = sorted([col for col in df.columns if col.startswith('spot_int_ch_')])
+        spot_int_values = {col: [] for col in spot_int_columns}
+        
         # — Build intensity vectors for the selected spot —
         if selected_spot is not None:
             frames = sorted(df['frame'].unique())
-            spot_int_ch0 = []
-            spot_int_ch1 = []
             for f in frames:
                 row = df[(df['frame'] == f) & (df['particle'] == selected_spot)]
-                spot_int_ch0.append(
-                    row['spot_int_ch_0'].iloc[0] if 'spot_int_ch_0' in row.columns and not row.empty else 0
-                )
-                spot_int_ch1.append(
-                    row['spot_int_ch_1'].iloc[0] if 'spot_int_ch_1' in row.columns and not row.empty else 0
-                )
+                for col in spot_int_columns:
+                    if col in row.columns and not row.empty:
+                        spot_int_values[col].append(row[col].iloc[0])
+                    else:
+                        spot_int_values[col].append(0)
 
         # — Ensure per-channel percentiles —
         if len(list_max_percentile) == 1:
@@ -8964,14 +8999,23 @@ class Plots():
                 rgb = np.zeros_like(combined)
                 rgb[..., idx] = norm
             combined += rgb
+        # Normalize combined image to prevent saturation from channel overlap
+        if combined.max() > 1.0:
+            combined = combined / combined.max()
         combined = np.clip(combined, 0, 1)
 
-        # — Create 1×3 layout: Image | Time-course | Histogram —
+        # — Create layout: Image | Time-course | (optional) Histogram —
         fig = plt.figure(figsize=figsize, facecolor=facecolor)
-        gs = fig.add_gridspec(1, 3, width_ratios=[width_ratios[0], width_ratios[1], 1])
-        ax      = fig.add_subplot(gs[0, 0])
-        ax_tc   = fig.add_subplot(gs[0, 1], facecolor=facecolor)
-        ax_hist = fig.add_subplot(gs[0, 2], facecolor=facecolor)
+        if show_histogram:
+            gs = fig.add_gridspec(1, 3, width_ratios=[width_ratios[0], width_ratios[1], 1])
+            ax      = fig.add_subplot(gs[0, 0])
+            ax_tc   = fig.add_subplot(gs[0, 1], facecolor=facecolor)
+            ax_hist = fig.add_subplot(gs[0, 2], facecolor=facecolor)
+        else:
+            gs = fig.add_gridspec(1, 2, width_ratios=width_ratios)
+            ax      = fig.add_subplot(gs[0, 0])
+            ax_tc   = fig.add_subplot(gs[0, 1], facecolor=facecolor)
+            ax_hist = None
 
         # — Display combined image —
         ax.set_facecolor('black')
@@ -8995,7 +9039,7 @@ class Plots():
         if show_spots and xs.size:
             for x, y in zip(xs, ys):
                 circ = plt.Circle((x, y), spot_mark_size,
-                                edgecolor=spot_color, facecolor='none', lw=1)
+                                edgecolor=spot_color, facecolor='none', lw=1.5)
                 ax.add_patch(circ)
             if show_spots_ids:
                 for i, pid in enumerate(df_t['particle'].values):
@@ -9022,18 +9066,24 @@ class Plots():
             else:
                 xvals = frames
                 ax_tc.set_xlabel('Frame', fontsize=26, color = 'black')
-            ax_tc.plot(xvals, spot_int_ch0, label='Ch0',
-                    color='green', linewidth=2)
-            if n_ch > 1:
-                ax_tc.plot(xvals, spot_int_ch1, label='Ch1',
-                        color='k', linewidth=3)
+            # Plot all detected channels dynamically
+            cmap_list_plot = [green_colormap, magenta_colormap, yellow_colormap, red_colormap]
+            standard_colors = ['green', 'k', 'blue', 'red', 'cyan', 'magenta', 'orange']
+            for ch_idx, col in enumerate(spot_int_columns):
+                ch_label = col.replace('spot_int_ch_', 'Ch')
+                if not use_standard_color_map:
+                    color = cmap_list_plot[ch_idx % len(cmap_list_plot)](1.0)
+                else:
+                    color = standard_colors[ch_idx % len(standard_colors)]
+                ax_tc.plot(xvals, spot_int_values[col], label=ch_label,
+                        color=color, linewidth=2)
             ax_tc.set_ylabel('Intensity (a.u.)', fontsize=26, color = 'black')
             ax_tc.tick_params(axis='both', which='major', labelsize=24, color = 'black') # font color black for tick_params
             ax_tc.xaxis.label.set_color('black')
             for sp in ax_tc.spines.values():
                 sp.set_visible(True); sp.set_linewidth(3); sp.set_color('black')
             if show_legend:
-                leg = ax_tc.legend(loc='upper right', fontsize=20, color = 'black')
+                leg = ax_tc.legend(loc='upper right', fontsize=20)
                 leg.get_frame().set_edgecolor('black')
                 leg.get_frame().set_linewidth(1.5)
                 for txt in leg.get_texts():
@@ -9041,18 +9091,21 @@ class Plots():
             if time_point in frames:
                 ax_tc.axvline(xvals[frames.index(time_point)],
                             color='yellow', linestyle='--', lw=1)
-            ax_tc.set_xlim(-50, 1850)
-        if selected_spot is not None:
-            ax_hist.hist(spot_int_ch0, bins=100, orientation='horizontal',
-                        color='green', alpha=0.9)
-            ax_hist.set_xlabel('Counts', fontsize=26, color = 'black')
-            ax_hist.set_ylabel('Intensity (a.u.)', fontsize=26, color = 'black')
-            ax_hist.set_ylim(ax_tc.get_ylim())
-            ax_hist.tick_params(axis='both', which='major', labelsize=24, color = 'black') # black color font 
-            ax_hist.xaxis.label.set_color('black')
-            for sp in ax_hist.spines.values():
-                sp.set_visible(True); sp.set_linewidth(3); sp.set_color('black')
-            ax_hist.grid(False)
+            # Auto-scale x-axis to data (removed hardcoded xlim)
+            # Histogram for first channel (if enabled)
+            if show_histogram and ax_hist is not None:
+                first_col = spot_int_columns[0] if spot_int_columns else None
+                if first_col:
+                    ax_hist.hist(spot_int_values[first_col], bins=100, orientation='horizontal',
+                                color='green', alpha=0.9)
+                ax_hist.set_xlabel('Counts', fontsize=26, color = 'black')
+                ax_hist.set_ylabel('Intensity (a.u.)', fontsize=26, color = 'black')
+                ax_hist.set_ylim(ax_tc.get_ylim())
+                ax_hist.tick_params(axis='both', which='major', labelsize=24, color = 'black')
+                ax_hist.xaxis.label.set_color('black')
+                for sp in ax_hist.spines.values():
+                    sp.set_visible(True); sp.set_linewidth(3); sp.set_color('black')
+                ax_hist.grid(False)
         plt.tight_layout()
         if save_image and image_name:
             plt.savefig(image_name, dpi=360, bbox_inches='tight',

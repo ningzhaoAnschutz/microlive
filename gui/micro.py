@@ -3527,6 +3527,15 @@ class GUI(QMainWindow):
                 self.cellpose_masks_cyto_tyx = None
                 self.use_tyx_masks = False
             
+            # Check if any cells were found
+            masks_to_check = self.cellpose_masks_cyto
+            if masks_to_check is None or np.max(masks_to_check) == 0:
+                QMessageBox.warning(self, "No Cells Found", 
+                    "Cellpose did not detect any cells. Try adjusting:\n"
+                    "• Cell diameter (larger or smaller)\n"
+                    "• Different model type\n"
+                    "• Different channel")
+            
             self._active_mask_source = 'cellpose'
             # Clear watershed mask since we're using Cellpose now
             self.segmentation_mask = None
@@ -3635,6 +3644,15 @@ class GUI(QMainWindow):
                 self.cellpose_masks_nuc = masks_nuc
                 self.cellpose_masks_nuc_tyx = None
                 self.use_tyx_masks = False
+            
+            # Check if any nuclei were found
+            masks_to_check = self.cellpose_masks_nuc
+            if masks_to_check is None or np.max(masks_to_check) == 0:
+                QMessageBox.warning(self, "No Nuclei Found", 
+                    "Cellpose did not detect any nuclei. Try adjusting:\n"
+                    "• Nucleus diameter (larger or smaller)\n"
+                    "• Different model type\n"
+                    "• Different channel")
             
             self._active_mask_source = 'cellpose'
             # Clear watershed mask since we're using Cellpose now
@@ -10031,20 +10049,30 @@ class GUI(QMainWindow):
             
             # Get metadata - convert voxel_yx_nm (nanometers) to microns
             if hasattr(self, 'voxel_yx_nm') and self.voxel_yx_nm is not None:
-                microns_per_pixel = self.voxel_yx_nm / 1000.0  # nm to µm
+                # Ensure scalar conversion (voxel_yx_nm might be a numpy array)
+                voxel_val = self.voxel_yx_nm
+                if hasattr(voxel_val, 'item'):  # numpy array with 1 element
+                    voxel_val = voxel_val.item()
+                microns_per_pixel = float(voxel_val) / 1000.0  # nm to µm
             else:
                 microns_per_pixel = 1.0  # Fallback
                 print("Warning: voxel_yx_nm not set, using 1.0 µm/px")
             
             # Get time interval from metadata
             if hasattr(self, 'time_interval_value') and self.time_interval_value is not None:
-                step_size_in_sec = float(self.time_interval_value)
+                time_val = self.time_interval_value
+                if hasattr(time_val, 'item'):  # numpy array with 1 element
+                    time_val = time_val.item()
+                step_size_in_sec = float(time_val)
             else:
                 step_size_in_sec = 1.0  # Fallback
                 print("Warning: time_interval_value not set, using 1.0 s")
             # Get Z voxel size for 3D MSD - convert from nm to microns
             if is_3d and hasattr(self, 'voxel_z_nm') and self.voxel_z_nm is not None:
-                microns_per_pixel_z = self.voxel_z_nm / 1000.0  # nm to µm
+                z_val = self.voxel_z_nm
+                if hasattr(z_val, 'item'):  # numpy array with 1 element
+                    z_val = z_val.item()
+                microns_per_pixel_z = float(z_val) / 1000.0  # nm to µm
             else:
                 microns_per_pixel_z = None  # Will use microns_per_pixel for Z (isotropic assumption)
             
