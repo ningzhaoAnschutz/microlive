@@ -4189,7 +4189,31 @@ class GUI(QMainWindow):
                     self.ax_segmentation.text(x, y, str(label), color='cyan', fontsize=8, ha='center', va='center')
 
         self.ax_segmentation.grid(False)
-        self.ax_segmentation.axis('off')
+        
+        # Add axis labels in pixels (helpful for Cellpose diameter estimation)
+        height, width = img_slice.shape[:2]
+        self.ax_segmentation.set_xlabel('X (pixels)', color='white', fontsize=10)
+        self.ax_segmentation.set_ylabel('Y (pixels)', color='white', fontsize=10)
+        
+        num_x_ticks = 5
+        x_tick_positions = np.linspace(0, width - 1, num_x_ticks)
+        self.ax_segmentation.set_xticks(x_tick_positions)
+        self.ax_segmentation.set_xticklabels([f'{int(pos)}' for pos in x_tick_positions], color='white', fontsize=8)
+        
+        num_y_ticks = 5
+        y_tick_positions = np.linspace(0, height - 1, num_y_ticks)
+        self.ax_segmentation.set_yticks(y_tick_positions)
+        self.ax_segmentation.set_yticklabels([f'{int(pos)}' for pos in y_tick_positions], color='white', fontsize=8)
+        
+        self.ax_segmentation.tick_params(axis='both', colors='white', direction='out', length=4)
+        self.ax_segmentation.spines['bottom'].set_color('white')
+        self.ax_segmentation.spines['left'].set_color('white')
+        self.ax_segmentation.spines['top'].set_visible(False)
+        self.ax_segmentation.spines['right'].set_visible(False)
+        
+        # Add subtle grid lines
+        self.ax_segmentation.grid(True, linewidth=0.3, alpha=0.3, color='white')
+        
         self.canvas_segmentation.draw()
 
 
@@ -4373,13 +4397,37 @@ class GUI(QMainWindow):
             # Draw contours for segmentation mask
             if self.segmentation_mask is not None:
                 self.ax_segmentation.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
+            
+            # Add axis labels in pixels (helpful for Cellpose diameter estimation)
+            height, width = image_to_display.shape[:2]
+            self.ax_segmentation.set_xlabel('X (pixels)', color='white', fontsize=10)
+            self.ax_segmentation.set_ylabel('Y (pixels)', color='white', fontsize=10)
+            
+            num_x_ticks = 5
+            x_tick_positions = np.linspace(0, width - 1, num_x_ticks)
+            self.ax_segmentation.set_xticks(x_tick_positions)
+            self.ax_segmentation.set_xticklabels([f'{int(pos)}' for pos in x_tick_positions], color='white', fontsize=8)
+            
+            num_y_ticks = 5
+            y_tick_positions = np.linspace(0, height - 1, num_y_ticks)
+            self.ax_segmentation.set_yticks(y_tick_positions)
+            self.ax_segmentation.set_yticklabels([f'{int(pos)}' for pos in y_tick_positions], color='white', fontsize=8)
+            
+            self.ax_segmentation.tick_params(axis='both', colors='white', direction='out', length=4)
+            self.ax_segmentation.spines['bottom'].set_color('white')
+            self.ax_segmentation.spines['left'].set_color('white')
+            self.ax_segmentation.spines['top'].set_visible(False)
+            self.ax_segmentation.spines['right'].set_visible(False)
+            
+            # Add subtle grid lines
+            self.ax_segmentation.grid(True, linewidth=0.3, alpha=0.3, color='white')
         else:
             self.ax_segmentation.text(
                 0.5, 0.5, 'No image loaded.',
                 horizontalalignment='center', verticalalignment='center',
                 fontsize=12, color='white', transform=self.ax_segmentation.transAxes
             )
-        self.ax_segmentation.axis('off')
+            self.ax_segmentation.axis('off')
         self.figure_segmentation.tight_layout()
         self.canvas_segmentation.draw()
 
