@@ -1256,32 +1256,70 @@ class GUI(QMainWindow):
             QWidget { background-color: #2b2b2b; color: #e0e0e0; }
             QLabel { color: #e0e0e0; }
 
-            /* Buttons: contrast on dark background */
+            /* Buttons: contrast on dark background with subtle gradient */
             QPushButton {
-                background-color: #c0c0c0;    /* light gray button */
+                background: qlineargradient(y1:0, y2:1, stop:0 #d0d0d0, stop:1 #b0b0b0);
                 color: #000000;               /* black text */
-                border: 1px solid #d0d0d0;    /* light gray border */
-                border-radius: 2px;
-                padding: 5px 10px;
+                border: 1px solid #a0a0a0;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #d0d0d0;
+                background: qlineargradient(y1:0, y2:1, stop:0 #e0e0e0, stop:1 #c0c0c0);
             }
             QPushButton:pressed {
-                background-color: #a0a0a0;
+                background: qlineargradient(y1:0, y2:1, stop:0 #a0a0a0, stop:1 #909090);
             }
             QPushButton:checked {
-                background-color: #007acc;
+                background: qlineargradient(y1:0, y2:1, stop:0 #0090e0, stop:1 #007acc);
                 color: #ffffff;
-                border: 1px solid #d0d0d0;
+                border: 1px solid #0070a0;
             }
-
-            /* Inputs */
+            /* Inputs with focus indicator */
             QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {
                 background-color: #3a3a3a;
                 color: #e0e0e0;
                 border: 1px solid #5a5a5a;
                 border-radius: 4px;
+            }
+            QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border: 2px solid #007acc;
+            }
+            
+            /* Tooltips */
+            QToolTip {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #007acc;
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 11px;
+            }
+            
+            /* Tab Widget Styling */
+            QTabWidget::pane {
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QTabBar::tab {
+                background: #3a3a3a;
+                color: #b0b0b0;
+                padding: 8px 16px;
+                border: 1px solid #555555;
+                border-bottom: none;
+                border-radius: 4px 4px 0 0;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #2b2b2b;
+                color: #ffffff;
+                border-bottom: 2px solid #007acc;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #4a4a4a;
+                color: #e0e0e0;
             }
 
             /* Panels */
@@ -1379,32 +1417,70 @@ class GUI(QMainWindow):
             QWidget { background-color: #f0f0f0; color: #2b2b2b; }
             QLabel { color: #2b2b2b; }
 
-            /* Buttons: contrast on light background */
+            /* Buttons: contrast on light background with subtle gradient */
             QPushButton {
-                background-color: #404040;    /* dark gray button */
+                background: qlineargradient(y1:0, y2:1, stop:0 #505050, stop:1 #404040);
                 color: #ffffff;               /* white text */
-                border: 1px solid #404040;    /* dark gray border */
-                border-radius: 2px;
-                padding: 5px 10px;
+                border: 1px solid #303030;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #505050;
+                background: qlineargradient(y1:0, y2:1, stop:0 #606060, stop:1 #505050);
             }
             QPushButton:pressed {
-                background-color: #303030;
+                background: qlineargradient(y1:0, y2:1, stop:0 #353535, stop:1 #303030);
             }
             QPushButton:checked {
-                background-color: #007acc;
+                background: qlineargradient(y1:0, y2:1, stop:0 #0090e0, stop:1 #007acc);
                 color: #ffffff;
-                border: 1px solid #404040;
+                border: 1px solid #0070a0;
             }
-
-            /* Inputs */
+            /* Inputs with focus indicator */
             QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {
                 background-color: #ffffff;
                 color: #2b2b2b;
                 border: 1px solid #cccccc;
                 border-radius: 4px;
+            }
+            QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border: 2px solid #007acc;
+            }
+            
+            /* Tooltips */
+            QToolTip {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #007acc;
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 11px;
+            }
+            
+            /* Tab Widget Styling */
+            QTabWidget::pane {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QTabBar::tab {
+                background: #e8e8e8;
+                color: #555555;
+                padding: 8px 16px;
+                border: 1px solid #cccccc;
+                border-bottom: none;
+                border-radius: 4px 4px 0 0;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #ffffff;
+                color: #2b2b2b;
+                border-bottom: 2px solid #007acc;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #f5f5f5;
+                color: #2b2b2b;
             }
 
             /* Panels */
@@ -10975,6 +11051,15 @@ class GUI(QMainWindow):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
+    
+    # Set modern font based on platform
+    if sys.platform == 'win32':
+        app.setFont(QFont("Segoe UI", 11))
+    elif sys.platform == 'darwin':
+        app.setFont(QFont("SF Pro", 11))
+    else:
+        app.setFont(QFont("Inter", 11))
+    
     plt.style.use('dark_background')
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(53, 53, 53))
