@@ -10711,7 +10711,7 @@ class GUI(QMainWindow):
                 # Per-cell coloring: use cell_id if available
                 cell_id = r.get('cell_id')
                 if cell_id is not None:
-                    color = list_colors_default[int(cell_id) % len(list_colors_default)]
+                    color = list_colors_default[r['channel'] % len(list_colors_default)]
                     title = f'Cell {cell_id} - Ch {r["channel"]} (n={r.get("n_trajectories", "?")})'
                 else:
                     color = list_colors_default[r['channel'] % len(list_colors_default)]
