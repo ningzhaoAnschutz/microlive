@@ -1005,7 +1005,8 @@ class GaussianFilter():
 
 class Intensity():
     def __init__(self, original_image, spot_size=5, array_spot_location_z_y_x=None, 
-                 use_max_projection=False, optimize_spot_size=False, allow_subpixel_repositioning=False):
+                 use_max_projection=False, optimize_spot_size=False, allow_subpixel_repositioning=False,
+                 fast_gaussian_fit=True):
         self.original_image = original_image
         if array_spot_location_z_y_x is None:
             self.array_spot_location_z_y_x = np.array([[0, 0, 0]])
@@ -1022,6 +1023,7 @@ class Intensity():
         self.use_maximum_projection = use_max_projection
         self.optimize_spot_size = optimize_spot_size
         self.allow_subpixel_repositioning = allow_subpixel_repositioning
+        self.fast_gaussian_fit = fast_gaussian_fit  # Use moment-based (fast) vs full Gaussian fit
 
     def two_dimensional_gaussian(self, xy, amplitude, x0, y0, sigma_x, sigma_y, offset):
         (x, y) = xy
@@ -1186,35 +1188,64 @@ class Intensity():
                     spot_data = frame_data[y_min:y_max, x_min:x_max, i].astype(float)
                     
                     try:
-                        # 1. Background subtraction for moment calculation
-                        bg_val = np.min(spot_data)
-                        img_sub = spot_data - bg_val
-                        img_sub[img_sub < 0] = 0
-                        total_mass = np.sum(img_sub) + 1e-9
-
-                        # 2. Grid coordinates
-                        h_crop, w_crop = img_sub.shape
-                        Y, X = np.indices((h_crop, w_crop))
-
-                        # 3. First Moments (Centroid)
-                        com_x = np.sum(X * img_sub) / total_mass
-                        com_y = np.sum(Y * img_sub) / total_mass
-
-                        # 4. Second Moments (Variance -> Sigma)
-                        var_x = np.sum((X - com_x)**2 * img_sub) / total_mass
-                        var_y = np.sum((Y - com_y)**2 * img_sub) / total_mass
-                        
-                        sigma_x_est = np.sqrt(var_x)
-                        sigma_y_est = np.sqrt(var_y)
-
-                        best_fit = {
-                            'amplitude': np.max(img_sub),
-                            'x_position': com_x, 
-                            'y_position': com_y,
-                            'sigma_x': sigma_x_est, 
-                            'sigma_y': sigma_y_est,
-                            'offset': bg_val
-                        }
+                        if self.fast_gaussian_fit:
+                            # FAST PATH: Moment-based estimation (faster but less accurate)
+                            bg_val = np.percentile(spot_data, 5)
+                            img_sub = spot_data - bg_val
+                            img_sub[img_sub < 0] = 0
+                            total_mass = np.sum(img_sub) + 1e-9
+                            
+                            h_crop, w_crop = img_sub.shape
+                            Y, X = np.indices((h_crop, w_crop))
+                            com_x = np.sum(X * img_sub) / total_mass
+                            com_y = np.sum(Y * img_sub) / total_mass
+                            
+                            var_x = np.sum((X - com_x)**2 * img_sub) / total_mass
+                            var_y = np.sum((Y - com_y)**2 * img_sub) / total_mass
+                            
+                            sigma_x_est = max(np.sqrt(var_x), 0.8)
+                            sigma_y_est = max(np.sqrt(var_y), 0.8)
+                            amplitude_est = np.max(img_sub)
+                            
+                            best_fit = {
+                                'amplitude': amplitude_est,
+                                'x_position': com_x, 
+                                'y_position': com_y,
+                                'sigma_x': sigma_x_est, 
+                                'sigma_y': sigma_y_est,
+                                'offset': bg_val
+                            }
+                        else:
+                            # ACCURATE PATH: Full 2D Gaussian fitting (slower but accurate)
+                            best_fit, _ = self.fit_2D_gaussian(spot_data)
+                            
+                            # If Gaussian fit failed, fall back to moment-based estimation
+                            if best_fit is None:
+                                bg_val = np.percentile(spot_data, 5)
+                                img_sub = spot_data - bg_val
+                                img_sub[img_sub < 0] = 0
+                                total_mass = np.sum(img_sub) + 1e-9
+                                
+                                h_crop, w_crop = img_sub.shape
+                                Y, X = np.indices((h_crop, w_crop))
+                                com_x = np.sum(X * img_sub) / total_mass
+                                com_y = np.sum(Y * img_sub) / total_mass
+                                
+                                var_x = np.sum((X - com_x)**2 * img_sub) / total_mass
+                                var_y = np.sum((Y - com_y)**2 * img_sub) / total_mass
+                                
+                                sigma_x_est = max(np.sqrt(var_x), 0.8)
+                                sigma_y_est = max(np.sqrt(var_y), 0.8)
+                                amplitude_est = np.max(img_sub)
+                                
+                                best_fit = {
+                                    'amplitude': amplitude_est,
+                                    'x_position': com_x, 
+                                    'y_position': com_y,
+                                    'sigma_x': sigma_x_est, 
+                                    'sigma_y': sigma_y_est,
+                                    'offset': bg_val
+                                }
                     except:
                         best_fit = None
                 # --- OPTIMIZATION END ---
@@ -3733,7 +3764,8 @@ class ParticleTracking:
                  use_maximum_projection=False, separate_clusters_and_spots=False,
                  maximum_range_search_pixels=10, link_using_3d_coordinates=False,
                  neighbor_strategy='KDTree', generate_random_particles=False,
-                 number_of_random_particles_trajectories=None,step_size_in_sec=1.0, verbose=False):
+                 number_of_random_particles_trajectories=None, step_size_in_sec=1.0, 
+                 fast_gaussian_fit=True, verbose=False):
 
         self.verbose = verbose
         if len(image.shape) != 5:
@@ -3808,6 +3840,7 @@ class ParticleTracking:
             number_of_random_particles_trajectories = 50
         self.number_of_random_particles_trajectories = number_of_random_particles_trajectories
         self.step_size_in_sec = step_size_in_sec
+        self.fast_gaussian_fit = fast_gaussian_fit
 
     def _normalize_mask_to_tyx(self, mask, T):
         """
@@ -4707,11 +4740,11 @@ class DataProcessing():
                     )
                 else:
                     cluster_spot_size = self.yx_spot_size_in_px
-                intensity_ts,_,snr_ts, _, _, psf_amplitude_ts, psf_sigma_ts,intensities_total_ts = Intensity(original_image=self.image, spot_size=cluster_spot_size, array_spot_location_z_y_x=ts[:,0:3],  use_max_projection=self.use_maximum_projection).calculate_intensity()
+                intensity_ts,_,snr_ts, _, _, psf_amplitude_ts, psf_sigma_ts,intensities_total_ts = Intensity(original_image=self.image, spot_size=cluster_spot_size, array_spot_location_z_y_x=ts[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
             if num_nuc >0:
-                intensity_spots_nuc, _ ,snr_spots_nuc, _, _, psf_amplitude_nuc, psf_sigma_nuc,intensities_total_spots_nuc = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_nuc[:,0:3],  use_max_projection=self.use_maximum_projection).calculate_intensity()
+                intensity_spots_nuc, _ ,snr_spots_nuc, _, _, psf_amplitude_nuc, psf_sigma_nuc,intensities_total_spots_nuc = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_nuc[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
             if num_cyto >0 :
-                intensity_spots_cyto, _ ,snr_spots_cyto, _, _,psf_amplitude_cyto, psf_sigma_cyto,intensities_total_spots_cyto = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_cytosol_only[:,0:3],  use_max_projection=self.use_maximum_projection).calculate_intensity()
+                intensity_spots_cyto, _ ,snr_spots_cyto, _, _,psf_amplitude_cyto, psf_sigma_cyto,intensities_total_spots_cyto = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_cytosol_only[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
             if num_cyto_clusters >0:
                 if self.use_fixed_size_for_intensity_calculation == False:
                     #cluster_cyto_spot_size = (clusters_cytosol_only[:,3]*self.yx_spot_size_in_px).astype('int')
@@ -4721,7 +4754,7 @@ class DataProcessing():
                     )
                 else:
                     cluster_cyto_spot_size = self.yx_spot_size_in_px
-                intensity_clusters_cytosol_only, _ ,snr_clusters_cytosol_only,_,_,psf_amplitude_clusters_cytosol_only, psf_sigma_clusters_cytosol_only, intensities_total_clusters_cyto_only= Intensity(original_image=self.image, spot_size=cluster_cyto_spot_size, array_spot_location_z_y_x=clusters_cytosol_only[:,0:3], use_max_projection=self.use_maximum_projection).calculate_intensity()
+                intensity_clusters_cytosol_only, _ ,snr_clusters_cytosol_only,_,_,psf_amplitude_clusters_cytosol_only, psf_sigma_clusters_cytosol_only, intensities_total_clusters_cyto_only= Intensity(original_image=self.image, spot_size=cluster_cyto_spot_size, array_spot_location_z_y_x=clusters_cytosol_only[:,0:3], use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
 
             # Check each condition and append the relevant arrays if detected
             intensity_arrays = []

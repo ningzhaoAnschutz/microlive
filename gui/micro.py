@@ -753,6 +753,7 @@ class Metadata:
                 
                 write_subsection('Options')
                 write_attr('Use Fixed Spot Size for Intensity', 'use_fixed_size_for_intensity_calculation')
+                write_attr('Fast Gaussian Fit', 'fast_gaussian_fit')
                 if self.use_maximum_projection:
                     write_value('Projection Mode', '2D Maximum Projection (Trackpy)')
                 else:
@@ -886,6 +887,7 @@ class GUI(QMainWindow):
         self.image_source_combo_value = "Original Image"
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
+        self.fast_gaussian_fit = True  # Use fast moment-based PSF estimation by default
         # Registration state
         self.registered_image = None  # [T,Z,Y,X,C] registered image
         self.registration_roi = None  # (y_min, y_max, x_min, x_max)
@@ -5962,6 +5964,7 @@ class GUI(QMainWindow):
                 use_fixed_size_for_intensity_calculation=use_fixed_size_for_intensity_calculation,
                 link_using_3d_coordinates=link_using_3d_coordinates,
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
+                fast_gaussian_fit=self.fast_gaussian_fit,
             ).run()
         except SubnetOversizeException as e:
             QMessageBox.warning(
@@ -6120,6 +6123,9 @@ class GUI(QMainWindow):
     def update_use_fixed_size_intensity(self, state):
         self.use_fixed_size_for_intensity_calculation = (state == Qt.Checked)
 
+    def update_fast_gaussian_fit(self, state):
+        self.fast_gaussian_fit = (state == Qt.Checked)
+
     def update_tracking_sliders(self):
         """
         Sync the Tracking-tab intensity controls to the current channel's display parameters.
@@ -6204,6 +6210,7 @@ class GUI(QMainWindow):
             use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
             link_particles=False,
             step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
+            fast_gaussian_fit=self.fast_gaussian_fit,
         ).run()
         progress.close()
         # Store tracking results
@@ -6238,6 +6245,7 @@ class GUI(QMainWindow):
                 generate_random_particles=True,
                 number_of_random_particles_trajectories=self.random_points_input.value(),
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
+                fast_gaussian_fit=self.fast_gaussian_fit,
             )
             rand_list, _ = random_tracking.run()
             self.df_random_spots = rand_list[0] if rand_list else pd.DataFrame()
@@ -6661,6 +6669,7 @@ class GUI(QMainWindow):
                 generate_random_particles=True,
                 number_of_random_particles_trajectories=self.random_points_input.value(),
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
+                fast_gaussian_fit=self.fast_gaussian_fit,
             )
             random_df_list, _ = random_tracking.run()
             self.df_random_spots = random_df_list[0] if random_df_list else pd.DataFrame()
@@ -7077,13 +7086,19 @@ class GUI(QMainWindow):
         
         # Group 4: Intensity Calculation
         intensity_calc_group = QGroupBox("Intensity Calculation")
-        intensity_calc_layout = QVBoxLayout(intensity_calc_group)
+        intensity_calc_layout = QHBoxLayout(intensity_calc_group)
         tracking_right_main_layout.addWidget(intensity_calc_group)
         
-        self.fixed_size_intensity_checkbox = QCheckBox("Use Fixed Size for Intensity Calculation")
+        self.fixed_size_intensity_checkbox = QCheckBox("Use Fixed Size")
         self.fixed_size_intensity_checkbox.setChecked(self.use_fixed_size_for_intensity_calculation)
         self.fixed_size_intensity_checkbox.stateChanged.connect(self.update_use_fixed_size_intensity)
         intensity_calc_layout.addWidget(self.fixed_size_intensity_checkbox)
+        
+        self.fast_gaussian_fit_checkbox = QCheckBox("Fast Gaussian Fit")
+        self.fast_gaussian_fit_checkbox.setChecked(True)  # Default to fast mode
+        self.fast_gaussian_fit_checkbox.setToolTip("Use moment-based PSF estimation (faster but less accurate)")
+        self.fast_gaussian_fit_checkbox.stateChanged.connect(self.update_fast_gaussian_fit)
+        intensity_calc_layout.addWidget(self.fast_gaussian_fit_checkbox)
         # Control: Random Point Generation
         random_points_group = QGroupBox("Control Spots: Random Locations")
         random_points_layout = QFormLayout(random_points_group)
@@ -10253,6 +10268,10 @@ class GUI(QMainWindow):
             self.ax_threshold_hist.set_facecolor('black')
             self.ax_threshold_hist.axis('off')
             self.canvas_threshold_hist.draw_idle()
+        # Reset fast gaussian fit checkbox to default (True)
+        if hasattr(self, 'fast_gaussian_fit_checkbox'):
+            self.fast_gaussian_fit = True
+            self.fast_gaussian_fit_checkbox.setChecked(True)
 
     def reset_msd_tab(self):
         """Reset the MSD tab to its initial state."""
