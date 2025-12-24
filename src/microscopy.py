@@ -5008,13 +5008,22 @@ class DataProcessing():
 class ParticleMotion:
 
     def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False, microns_per_pixel_z=None):
-        self.microns_per_pixel = microns_per_pixel
-        self.microns_per_pixel_z = microns_per_pixel_z if microns_per_pixel_z is not None else microns_per_pixel
-        self.step_size_in_sec = step_size_in_sec
+        # Ensure scalar conversion for all numeric parameters (handles numpy arrays with 1 element)
+        def to_scalar(val):
+            if val is None:
+                return None
+            if hasattr(val, 'item'):  # numpy array with 1 element
+                return val.item()
+            return val
+        
+        self.microns_per_pixel = float(to_scalar(microns_per_pixel))
+        self.step_size_in_sec = float(to_scalar(step_size_in_sec))
+        mpp_z = to_scalar(microns_per_pixel_z)
+        self.microns_per_pixel_z = float(mpp_z) if mpp_z is not None else self.microns_per_pixel
         self.show_plot = show_plot 
         self.remove_drift = remove_drift
         self.plot_name = plot_name
-        self.max_fit_points = max_fit_points  # Maximum number of points to use for fitting the initial linear regime
+        self.max_fit_points = int(to_scalar(max_fit_points)) if max_fit_points is not None else 20
         self.is_3d = is_3d  # If True, use 3D MSD calculation (D = slope/6), else 2D (D = slope/4)
         if 'spot_type' in trackpy_dataframe.columns:
             if len(trackpy_dataframe['spot_type'].unique()) > 1:
