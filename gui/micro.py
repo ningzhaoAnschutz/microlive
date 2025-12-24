@@ -10647,7 +10647,8 @@ class GUI(QMainWindow):
         if is_multi_auto:
             ax = fig.add_subplot(111)
             for idx, r in enumerate(results):
-                color = list_colors_default[idx % len(list_colors_default)]
+                # Use actual channel number for color, not loop index
+                color = list_colors_default[r['channel'] % len(list_colors_default)]
                 self.plots.plot_autocorrelation(
                     mean_correlation                   = r['mean_corr'],
                     error_correlation                  = r['std_corr'],
