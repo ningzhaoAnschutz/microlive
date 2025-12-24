@@ -24,9 +24,8 @@ out-*
 masks_*
 mask_*
 tests/
-test*/
-test*
 filtered_images_*/
+results*/
 kk*
 test_simulation/
 database*
