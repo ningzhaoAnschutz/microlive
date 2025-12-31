@@ -71,9 +71,15 @@ import bigfish.plot as plot
 import bigfish.detection as detection
 ###  Cellpose imports
 import contextlib, io
+import logging
 _f = io.StringIO()
 with contextlib.redirect_stdout(_f), contextlib.redirect_stderr(_f):
     from cellpose import models, denoise
+
+# Suppress Cellpose verbose logging (only show warnings and errors)
+logging.getLogger('cellpose').setLevel(logging.WARNING)
+logging.getLogger('cellpose.core').setLevel(logging.WARNING)
+logging.getLogger('cellpose.models').setLevel(logging.WARNING)
 ### Matplotlib imports
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -1971,7 +1977,6 @@ class CellposeTimeSeries:
         
         # Create output array
         if self.use_memmap:
-            import tempfile
             tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
             full_masks = np.memmap(
                 tmp_file.name, 
@@ -3210,34 +3215,80 @@ class TrackPyDetection:
         '''
         if len(self.image.shape) == 4:
             # 3D image: [Z, Y, X, C]
-            spot_channel = np.max(self.image[:, :, :, self.channels_spots],axis=0)   
-        # Calculating Sigma with  the parameters for the PSF.
+            spot_channel = np.max(self.image[:, :, :, self.channels_spots], axis=0)   
+        else:
+            spot_channel = self.image[:, :, self.channels_spots]
+        
+        # Ensure diameter is odd (TrackPy requirement)
+        diameter = int(self.spot_diameter)
+        if diameter % 2 == 0:
+            diameter += 1  # Make it odd
+        
+        # Calculating Sigma with the parameters for the PSF.
         spot_radius_px = detection.get_object_radius_pixel(
                         voxel_size_nm=(self.voxel_size_yx, self.voxel_size_yx), 
-                        object_radius_nm=(self.voxel_size_yx*(self.yx_spot_size_in_px//2) , self.voxel_size_yx*(self.yx_spot_size_in_px//2)), ndim=2)  
+                        object_radius_nm=(self.voxel_size_yx*(self.yx_spot_size_in_px//2), 
+                                         self.voxel_size_yx*(self.yx_spot_size_in_px//2)), ndim=2)  
         sigma = spot_radius_px
+        
         ## SPOT DETECTION
         try:
-            rna_filtered = stack.log_filter(spot_channel, sigma) # LoG filter
+            rna_filtered = stack.log_filter(spot_channel, sigma)  # LoG filter
         except ValueError:
             print('Error during the log filter calculation, try using larger parameters values for the psf')
             rna_filtered = stack.remove_background_gaussian(spot_channel, sigma)
 
         # Determine threshold for spot detection
-        if self.threshold_for_spot_detection is not None:
-            threshold = self.threshold_for_spot_detection
+        # The user-provided threshold is based on the RAW image histogram.
+        # We need to convert this to a percentile-based threshold on the FILTERED image.
+        if self.threshold_for_spot_detection is not None and self.threshold_for_spot_detection > 0:
+            # Calculate the percentile of the user threshold in the raw image
+            raw_max = np.percentile(spot_channel, 99.9)
+            raw_min = np.percentile(spot_channel[spot_channel > 0], 1) if np.any(spot_channel > 0) else 0
+            
+            # Normalize user threshold to a 0-1 range based on raw image
+            if raw_max > raw_min:
+                threshold_percentile = (self.threshold_for_spot_detection - raw_min) / (raw_max - raw_min)
+                threshold_percentile = np.clip(threshold_percentile, 0.01, 0.99)
+            else:
+                threshold_percentile = 0.5
+            
+            # Apply this percentile to the filtered image to get the actual minmass threshold
+            filtered_positive = rna_filtered[rna_filtered > 0]
+            if len(filtered_positive) > 0:
+                filtered_min = np.percentile(filtered_positive, 1)
+                filtered_max = np.percentile(filtered_positive, 99.9)
+                # Map the percentile to the filtered image range
+                threshold = filtered_min + threshold_percentile * (filtered_max - filtered_min)
+                # Apply a scaling factor based on diameter (minmass scales with particle area)
+                threshold = threshold * (diameter ** 2) * 0.1  # Empirical scaling
+            else:
+                threshold = 0
         else:
-            # Automatic threshold using Otsu's method
-            image_flat = rna_filtered.flatten()
-            threshold = threshold_otsu(image_flat)
+            # Automatic threshold using Otsu's method on filtered image
+            filtered_flat = rna_filtered[rna_filtered > 0].flatten() if np.any(rna_filtered > 0) else rna_filtered.flatten()
+            if len(filtered_flat) > 0:
+                threshold = threshold_otsu(filtered_flat)
+            else:
+                threshold = 0
+        
+        # Ensure threshold is not negative (LoG can produce negative values)
+        threshold = max(0, threshold)
         
         # Detect spots using TrackPy
-        f = tp.locate(rna_filtered, diameter=self.spot_diameter, minmass=threshold, characterize=True)
+        f = tp.locate(rna_filtered, diameter=diameter, minmass=threshold, characterize=True)
+        
         # Extract coordinates and intensity
-        x = f['x'].values  # x-coordinate
-        y = f['y'].values  # y-coordinate
+        if len(f) > 0:
+            x = f['x'].values  # x-coordinate
+            y = f['y'].values  # y-coordinate
+        else:
+            x = np.array([])
+            y = np.array([])
+            
         # Since the image is 2D after projection, z can be set to 0
         z = np.zeros_like(x)
+        
         # We assume the median mass represents a single RNA molecule.
         if 'mass' in f.columns and len(f) > 0:
             masses = f['mass'].values
@@ -3248,7 +3299,7 @@ class TrackPyDetection:
             reference_mass = np.median(sorted_mass[:num_lower])
             
             if reference_mass <= 0:
-                reference_mass = np.median(masses) # Fallback to standard median
+                reference_mass = np.median(masses)  # Fallback to standard median
             
             if reference_mass > 0:
                 calculated_size = np.round(masses / reference_mass)
@@ -3259,7 +3310,7 @@ class TrackPyDetection:
             # Fallback if no mass or no spots
             size = np.ones_like(x, dtype=int)
 
-        clusters_and_spots = np.column_stack((z, y, x, size))
+        clusters_and_spots = np.column_stack((z, y, x, size)) if len(x) > 0 else np.empty((0, 4))
        
         return clusters_and_spots, rna_filtered, threshold
 
@@ -3355,12 +3406,42 @@ class BigFISH():
                 rna_filtered = stack.remove_background_gaussian(rna, sigma)
         else:
             rna_filtered = stack.remove_background_gaussian(rna, sigma)
-        # Automatic threshold detection.
-        mask = detection.local_maximum_detection(rna_filtered, min_distance=sigma) # local maximum detection        
-        if not (self.threshold_for_spot_detection is None):
-            threshold = self.threshold_for_spot_detection
+        
+        # Automatic local maximum detection
+        mask = detection.local_maximum_detection(rna_filtered, min_distance=sigma)
+        
+        # Threshold determination
+        # The user-provided threshold is based on the RAW image histogram.
+        # We need to convert this to a percentile-based threshold on the FILTERED image.
+        if self.threshold_for_spot_detection is not None and self.threshold_for_spot_detection > 0:
+            # Calculate the percentile of the user threshold in the raw image
+            raw_max = np.percentile(rna, 99.9)
+            raw_min = np.percentile(rna[rna > 0], 1) if np.any(rna > 0) else 0
+            
+            # Normalize user threshold to a 0-1 range based on raw image
+            if raw_max > raw_min:
+                threshold_percentile = (self.threshold_for_spot_detection - raw_min) / (raw_max - raw_min)
+                threshold_percentile = np.clip(threshold_percentile, 0.01, 0.99)
+            else:
+                threshold_percentile = 0.5
+            
+            # Apply this percentile to the filtered image to get the actual threshold
+            filtered_positive = rna_filtered[rna_filtered > 0]
+            if len(filtered_positive) > 0:
+                filtered_min = np.percentile(filtered_positive, 1)
+                filtered_max = np.percentile(filtered_positive, 99.9)
+                # Map the percentile to the filtered image range
+                threshold = filtered_min + threshold_percentile * (filtered_max - filtered_min)
+            else:
+                # Fallback to automated threshold
+                threshold = detection.automated_threshold_setting(rna_filtered, mask)
         else:
-            threshold = detection.automated_threshold_setting(rna_filtered, mask) # thresholding
+            # Automatic threshold using BigFISH's method
+            threshold = detection.automated_threshold_setting(rna_filtered, mask)
+        
+        # Ensure threshold is not negative (LoG can produce negative values)
+        threshold = max(0, threshold)
+        
         spots, _ = detection.spots_thresholding(rna_filtered, mask, threshold, remove_duplicate=True)
         
         # Decomposing dense regions

@@ -9,6 +9,7 @@ Author: Luis Aguilera
 
 import sys
 import os
+import gc
 import logging
 import re
 import cv2
@@ -100,13 +101,14 @@ from PyQt5.QtWidgets import (
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib import patches
+from matplotlib.widgets import RectangleSelector
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,)
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from functools import partial
 from scipy.optimize import curve_fit
-from scipy.ndimage import gaussian_filter, label, center_of_mass
+from scipy.ndimage import gaussian_filter, label, center_of_mass, distance_transform_edt
 from scipy.stats import linregress
 import trackpy as tp
 from trackpy.linking.utils import SubnetOversizeException
@@ -950,6 +952,10 @@ class GUI(QMainWindow):
         self.total_frames = 0
         self.tracking_remove_background_checkbox = False
         self.tracking_vis_merged = False
+        
+        # Tracking tab zoom feature - ROI for visualization
+        self.tracking_zoom_roi = None  # (x_min, x_max, y_min, y_max) or None for full view
+        self.tracking_zoom_selector = None  # RectangleSelector instance
         self.plots = Plots(self)
         self.use_multi = False
         mi.Banner().print_banner()
@@ -2517,6 +2523,13 @@ class GUI(QMainWindow):
                 scalebar = ScaleBar(microns_per_pixel, units='um', length_fraction=0.2,
                                     location='lower right', box_color='black', color='white', font_properties={'size': 10})
                 self.ax_display.add_artist(scalebar)
+            
+            # Add thin border to show image boundaries
+            H, W = self.image_stack.shape[2], self.image_stack.shape[3]
+            img_border = patches.Rectangle((0, 0), W-1, H-1, linewidth=0.8, 
+                                            edgecolor='#555555', facecolor='none', linestyle='-')
+            self.ax_display.add_patch(img_border)
+            
             self.figure_display.tight_layout()
         self.canvas_display.draw_idle()
 
@@ -3342,8 +3355,6 @@ class GUI(QMainWindow):
                     self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
         else:
             # Apply expansion from originals
-            from scipy.ndimage import distance_transform_edt
-            
             def expand_labeled_mask(mask, expansion_pixels):
                 """Expand each label in a mask without overlaps (Voronoi-like)."""
                 if mask is None:
@@ -3463,8 +3474,6 @@ class GUI(QMainWindow):
                     self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
         else:
             # Apply erosion from originals
-            from scipy.ndimage import distance_transform_edt
-            
             def shrink_labeled_mask(mask, shrink_pixels):
                 """Shrink each label in a mask by eroding from boundaries."""
                 if mask is None:
@@ -3886,7 +3895,6 @@ class GUI(QMainWindow):
         
         try:
             # Load the mask
-            import tifffile
             mask_data = tifffile.imread(filepath)
             
             # Analyze dimensions
@@ -4667,22 +4675,69 @@ class GUI(QMainWindow):
         - Bottom: Channel buttons, time slider, mode dropdown, registration buttons
         """
         layout = QVBoxLayout(self.registration_tab)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        
+        # --- Workflow Instructions ---
+        instructions_frame = QFrame()
+        instructions_frame.setStyleSheet("""
+            QFrame {
+                background-color: #2a2a3a;
+                border: 1px solid #444;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        instructions_layout = QVBoxLayout(instructions_frame)
+        instructions_layout.setContentsMargins(10, 8, 10, 8)
+        instructions_layout.setSpacing(4)
+        
+        workflow_label = QLabel("📋 <b>Workflow:</b>  ① Draw ROI on the left image (click & drag)  →  ② Click 'Perform Registration'")
+        workflow_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        instructions_layout.addWidget(workflow_label)
+        
+        # ROI Status indicator
+        roi_status_layout = QHBoxLayout()
+        roi_status_layout.setSpacing(10)
+        
+        self.roi_status_label = QLabel("⬜ ROI: Not Selected")
+        self.roi_status_label.setStyleSheet("color: #ff9900; font-size: 11px; font-weight: bold;")
+        roi_status_layout.addWidget(self.roi_status_label)
+        
+        roi_status_layout.addStretch()
+        
+        # Registration status
+        self.registration_status_label = QLabel("")
+        self.registration_status_label.setStyleSheet("color: #888888; font-size: 10px;")
+        roi_status_layout.addWidget(self.registration_status_label)
+        
+        instructions_layout.addLayout(roi_status_layout)
+        layout.addWidget(instructions_frame)
         
         # --- Top: Dual image panels ---
         panels_layout = QHBoxLayout()
         panels_layout.setSpacing(10)
         
         # Left panel: Original Image
-        left_panel = QWidget()
+        left_panel = QFrame()
+        left_panel.setStyleSheet("""
+            QFrame {
+                border: 2px solid #555;
+                border-radius: 4px;
+                background-color: #1a1a1a;
+            }
+        """)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(4, 4, 4, 4)
         left_layout.setSpacing(2)
-        left_layout.addWidget(QLabel("Original Image - Click and drag to draw ROI rectangle"))
+        
+        left_title = QLabel("🖼️ Original Image")
+        left_title.setStyleSheet("color: white; font-weight: bold; font-size: 11px; border: none; background: transparent;")
+        left_layout.addWidget(left_title)
+        
         self.figure_reg_original = Figure()
-        self.figure_reg_original.patch.set_facecolor('black')
-        self.figure_reg_original.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        self.figure_reg_original.patch.set_facecolor('#1a1a1a')
+        self.figure_reg_original.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
         self.canvas_reg_original = FigureCanvas(self.figure_reg_original)
         self.ax_reg_original = self.figure_reg_original.add_subplot(111)
         self.ax_reg_original.set_facecolor('black')
@@ -4691,14 +4746,25 @@ class GUI(QMainWindow):
         panels_layout.addWidget(left_panel)
         
         # Right panel: Registered Image
-        right_panel = QWidget()
+        right_panel = QFrame()
+        right_panel.setStyleSheet("""
+            QFrame {
+                border: 2px solid #555;
+                border-radius: 4px;
+                background-color: #1a1a1a;
+            }
+        """)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(4, 4, 4, 4)
         right_layout.setSpacing(2)
-        right_layout.addWidget(QLabel("Registered Image"))
+        
+        right_title = QLabel("✅ Registered Image")
+        right_title.setStyleSheet("color: white; font-weight: bold; font-size: 11px; border: none; background: transparent;")
+        right_layout.addWidget(right_title)
+        
         self.figure_reg_result = Figure()
-        self.figure_reg_result.patch.set_facecolor('black')
-        self.figure_reg_result.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        self.figure_reg_result.patch.set_facecolor('#1a1a1a')
+        self.figure_reg_result.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
         self.canvas_reg_result = FigureCanvas(self.figure_reg_result)
         self.ax_reg_result = self.figure_reg_result.add_subplot(111)
         self.ax_reg_result.set_facecolor('black')
@@ -4708,23 +4774,34 @@ class GUI(QMainWindow):
         
         layout.addLayout(panels_layout, stretch=1)
         
-        # --- Channel buttons ---
+        # --- Controls row: Channel + Time slider ---
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(15)
+        
+        # Channel buttons
         channel_layout = QHBoxLayout()
+        channel_layout.setSpacing(5)
         channel_layout.addWidget(QLabel("Channel:"))
         self.channel_buttons_reg = []
         self.channel_buttons_layout_reg = QHBoxLayout()
         channel_layout.addLayout(self.channel_buttons_layout_reg)
-        channel_layout.addStretch()
-        layout.addLayout(channel_layout)
+        controls_layout.addLayout(channel_layout)
         
-        # --- Time slider and play button ---
+        # Separator
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.VLine)
+        sep1.setStyleSheet("color: #555;")
+        controls_layout.addWidget(sep1)
+        
+        # Time slider
         time_layout = QHBoxLayout()
+        time_layout.setSpacing(5)
         time_layout.addWidget(QLabel("Time:"))
         self.time_slider_reg = QSlider(Qt.Horizontal)
         self.time_slider_reg.setMinimum(0)
         self.time_slider_reg.setMaximum(0)
         self.time_slider_reg.valueChanged.connect(self.on_registration_time_changed)
-        time_layout.addWidget(self.time_slider_reg)
+        time_layout.addWidget(self.time_slider_reg, stretch=1)
         
         self.frame_label_reg = QLabel("0/0")
         self.frame_label_reg.setMinimumWidth(50)
@@ -4734,31 +4811,72 @@ class GUI(QMainWindow):
         self.play_button_reg.setFixedWidth(40)
         self.play_button_reg.clicked.connect(self.toggle_playback_registration)
         time_layout.addWidget(self.play_button_reg)
-        layout.addLayout(time_layout)
+        controls_layout.addLayout(time_layout, stretch=1)
         
-        # --- Mode dropdown ---
+        layout.addLayout(controls_layout)
+        
+        # --- Action row: Mode + Buttons ---
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(15)
+        
+        # Mode dropdown
         mode_layout = QHBoxLayout()
-        mode_layout.addWidget(QLabel("Registration Mode:"))
+        mode_layout.setSpacing(5)
+        mode_layout.addWidget(QLabel("Mode:"))
         self.registration_mode_combo = QComboBox()
         self.registration_mode_combo.addItems(['RIGID_BODY', 'TRANSLATION', 'SCALED_ROTATION', 'AFFINE'])
         self.registration_mode_combo.setCurrentText('RIGID_BODY')
+        self.registration_mode_combo.setMinimumWidth(140)
         self.registration_mode_combo.currentTextChanged.connect(self.on_registration_mode_changed)
         mode_layout.addWidget(self.registration_mode_combo)
-        mode_layout.addStretch()
-        layout.addLayout(mode_layout)
+        action_layout.addLayout(mode_layout)
         
-        # --- Buttons ---
-        buttons_layout = QHBoxLayout()
-        self.perform_registration_btn = QPushButton("Perform Registration")
-        self.perform_registration_btn.setMinimumHeight(40)
+        action_layout.addStretch()
+        
+        # Main action button - PROMINENT
+        self.perform_registration_btn = QPushButton("▶  Perform Registration")
+        self.perform_registration_btn.setMinimumHeight(45)
+        self.perform_registration_btn.setMinimumWidth(220)
+        self.perform_registration_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.perform_registration_btn.clicked.connect(self.perform_registration)
-        buttons_layout.addWidget(self.perform_registration_btn)
+        action_layout.addWidget(self.perform_registration_btn)
         
-        self.remove_registration_btn = QPushButton("Remove Registration")
-        self.remove_registration_btn.setMinimumHeight(40)
+        # Remove button - less prominent
+        self.remove_registration_btn = QPushButton("✕ Remove")
+        self.remove_registration_btn.setMinimumHeight(45)
+        self.remove_registration_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #555;
+                color: #ccc;
+                font-size: 11px;
+                border-radius: 6px;
+                border: none;
+                padding: 0 15px;
+            }
+            QPushButton:hover {
+                background-color: #dc3545;
+                color: white;
+            }
+        """)
         self.remove_registration_btn.clicked.connect(self.remove_registration)
-        buttons_layout.addWidget(self.remove_registration_btn)
-        layout.addLayout(buttons_layout)
+        action_layout.addWidget(self.remove_registration_btn)
+        
+        layout.addLayout(action_layout)
         
         # --- ROI drawing state ---
         self.reg_roi_start = None
@@ -4877,6 +4995,13 @@ class GUI(QMainWindow):
         self.registration_roi = (y_min, y_max, x_min, x_max)
         self.reg_roi_start = None
         
+        # Update ROI status label
+        if hasattr(self, 'roi_status_label'):
+            roi_w = x_max - x_min
+            roi_h = y_max - y_min
+            self.roi_status_label.setText(f"✅ ROI: {roi_w} × {roi_h} px")
+            self.roi_status_label.setStyleSheet("color: #00cc66; font-size: 11px; font-weight: bold;")
+        
         # Update display
         self.plot_registration_panels()
     
@@ -4889,16 +5014,23 @@ class GUI(QMainWindow):
         ch = self.current_channel
         cmap = cmap_list_imagej[ch % len(cmap_list_imagej)]
         
+        # Get image dimensions
+        H, W = self.image_stack.shape[2], self.image_stack.shape[3]
+        
         # --- Original panel ---
         self.ax_reg_original.clear()
-        self.ax_reg_original.set_facecolor('black')
-        self.ax_reg_original.axis('off')
+        self.ax_reg_original.set_facecolor('#1a1a1a')
         
         # Max Z projection of current frame and channel
         img_orig = np.max(self.image_stack[self.current_frame, :, :, :, ch], axis=0)
         # Use configurable percentile values for contrast (consistent with other tabs)
         vmin, vmax = np.percentile(img_orig, [self.display_min_percentile, self.display_max_percentile])
         self.ax_reg_original.imshow(img_orig, cmap=cmap, vmin=vmin, vmax=vmax)
+        
+        # Draw image border to show boundaries
+        img_border = patches.Rectangle((0, 0), W-1, H-1, linewidth=1.5, 
+                                        edgecolor='#666666', facecolor='none', linestyle='-')
+        self.ax_reg_original.add_patch(img_border)
         
         # Draw ROI rectangle if exists
         if self.registration_roi is not None:
@@ -4907,13 +5039,13 @@ class GUI(QMainWindow):
                                        linewidth=2, edgecolor='cyan', facecolor='none')
             self.ax_reg_original.add_patch(rect)
         
-        self.figure_reg_original.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        self.ax_reg_original.axis('off')
+        self.figure_reg_original.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
         self.canvas_reg_original.draw_idle()
         
         # --- Registered panel ---
         self.ax_reg_result.clear()
-        self.ax_reg_result.set_facecolor('black')
-        self.ax_reg_result.axis('off')
+        self.ax_reg_result.set_facecolor('#1a1a1a')
         
         if self.registered_image is not None:
             img_reg = np.max(self.registered_image[self.current_frame, :, :, :, ch], axis=0)
@@ -4924,6 +5056,12 @@ class GUI(QMainWindow):
             else:
                 vmin, vmax = 0, 1
             self.ax_reg_result.imshow(img_reg, cmap=cmap, vmin=vmin, vmax=vmax)
+            
+            # Draw image border
+            img_border_reg = patches.Rectangle((0, 0), W-1, H-1, linewidth=1.5, 
+                                                edgecolor='#666666', facecolor='none', linestyle='-')
+            self.ax_reg_result.add_patch(img_border_reg)
+            
             # Draw ROI rectangle on registered image too
             if self.registration_roi is not None:
                 y_min, y_max, x_min, x_max = self.registration_roi
@@ -4931,10 +5069,11 @@ class GUI(QMainWindow):
                                               linewidth=2, edgecolor='cyan', facecolor='none')
                 self.ax_reg_result.add_patch(rect_reg)
         else:
-            self.ax_reg_result.text(0.5, 0.5, "No registration yet", ha='center', va='center',
-                                     color='gray', fontsize=12, transform=self.ax_reg_result.transAxes)
+            self.ax_reg_result.text(0.5, 0.5, "Click 'Perform Registration' to start", ha='center', va='center',
+                                     color='#888888', fontsize=11, transform=self.ax_reg_result.transAxes)
         
-        self.figure_reg_result.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        self.ax_reg_result.axis('off')
+        self.figure_reg_result.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
         self.canvas_reg_result.draw_idle()
     
     def perform_registration(self):
@@ -4996,6 +5135,10 @@ class GUI(QMainWindow):
             if hasattr(self, 'plot_cellpose_results'):
                 self.plot_cellpose_results()
             self.statusBar().showMessage(f"Registration complete using {self.registration_mode} mode.")
+            # Update registration status label
+            if hasattr(self, 'registration_status_label'):
+                self.registration_status_label.setText(f"✅ Registered ({self.registration_mode})")
+                self.registration_status_label.setStyleSheet("color: #00cc66; font-size: 10px; font-weight: bold;")
         except Exception as e:
             QMessageBox.critical(self, "Registration Error", str(e))
         finally:
@@ -5011,6 +5154,12 @@ class GUI(QMainWindow):
             except:
                 pass
             self.reg_roi_rect = None
+        # Reset status labels
+        if hasattr(self, 'roi_status_label'):
+            self.roi_status_label.setText("⬜ ROI: Not Selected")
+            self.roi_status_label.setStyleSheet("color: #ff9900; font-size: 11px; font-weight: bold;")
+        if hasattr(self, 'registration_status_label'):
+            self.registration_status_label.setText("")
         self.plot_registration_panels()
         self.statusBar().showMessage("Registration removed.")
     
@@ -5624,8 +5773,6 @@ class GUI(QMainWindow):
 # =============================================================================
 
     def compute_photobleaching(self):
-        import gc  # For memory management with large images
-        
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
@@ -6458,7 +6605,6 @@ class GUI(QMainWindow):
     def on_intensity_changed(self, value):
         self.display_tracking_visualization()
 
-
     
     def format_time(self, seconds):
         """Convert time in seconds to 'M min S s' or 'S s' string format."""
@@ -6466,11 +6612,89 @@ class GUI(QMainWindow):
         remaining_seconds = int(seconds % 60)
         return f"{minutes} min {remaining_seconds} s" if minutes > 0 else f"{remaining_seconds} s"
 
+    def _on_tracking_zoom_select(self, eclick, erelease):
+        """Handle ROI selection from right-click drag on tracking canvas."""
+        if self.image_stack is None:
+            return
+        
+        x1, y1 = eclick.xdata, eclick.ydata
+        x2, y2 = erelease.xdata, erelease.ydata
+        
+        # Handle None values (click outside axes)
+        if x1 is None or x2 is None or y1 is None or y2 is None:
+            return
+        
+        # Calculate ROI bounds
+        x_min, x_max = min(x1, x2), max(x1, x2)
+        y_min, y_max = min(y1, y2), max(y1, y2)
+        
+        # Enforce minimum ROI size (50x50 pixels)
+        if (x_max - x_min) < 50 or (y_max - y_min) < 50:
+            return
+        
+        # Clamp to image bounds
+        _, _, H, W, _ = self.image_stack.shape
+        x_min = max(0, x_min)
+        x_max = min(W, x_max)
+        y_min = max(0, y_min)
+        y_max = min(H, y_max)
+        
+        # Store ROI
+        self.tracking_zoom_roi = (x_min, x_max, y_min, y_max)
+        
+        # Update label
+        if hasattr(self, 'tracking_zoom_label'):
+            self.tracking_zoom_label.setText(f"🔍 ROI: X[{int(x_min)}:{int(x_max)}] Y[{int(y_min)}:{int(y_max)}]")
+            self.tracking_zoom_label.setStyleSheet("color: #00d4aa; font-size: 10px; font-weight: bold;")
+        
+        # Redraw with zoom
+        self.plot_tracking()
+
+    def _on_tracking_canvas_click(self, event):
+        """Handle mouse clicks on tracking canvas - double-click to reset zoom."""
+        if event.dblclick:
+            self._reset_tracking_zoom()
+
+    def _reset_tracking_zoom(self):
+        """Reset zoom to show full image."""
+        self.tracking_zoom_roi = None
+        
+        # Update label
+        if hasattr(self, 'tracking_zoom_label'):
+            self.tracking_zoom_label.setText("🔍 Full View")
+            self.tracking_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # Redraw without zoom
+        self.plot_tracking()
+
     def plot_tracking(self):
-        self.figure_tracking.clear()
-        self.ax_tracking = self.figure_tracking.add_subplot(111)
+        # Check if ax_tracking is still valid (in the figure's axes list)
+        ax_valid = (hasattr(self, 'ax_tracking') and 
+                   self.ax_tracking is not None and 
+                   self.ax_tracking in self.figure_tracking.axes)
+        
+        if ax_valid:
+            # Clear axes content instead of entire figure to preserve RectangleSelector
+            self.ax_tracking.clear()
+        else:
+            # Need to create new axes
+            self.figure_tracking.clear()
+            self.ax_tracking = self.figure_tracking.add_subplot(111)
+            # Initialize RectangleSelector only when creating new axes
+            self.tracking_zoom_selector = RectangleSelector(
+                self.ax_tracking,
+                self._on_tracking_zoom_select,
+                useblit=True,
+                button=[1],  # Left mouse button only
+                minspanx=5, minspany=5,
+                spancoords='pixels',
+                interactive=False,
+                props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+            )
+        
         self.ax_tracking.set_facecolor('black')
         self.ax_tracking.axis('off')
+        
         SCALE_SPOTS = self.scale_spots()
         image_to_use = self.get_current_image_source()
         if image_to_use is None:
@@ -6501,14 +6725,36 @@ class GUI(QMainWindow):
         if self.tracking_remove_background_checkbox.isChecked():
             mask = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(self.image_stack.shape[2:4], dtype=int)
             display_image = display_image * mask
+        
         min_p = self.min_percentile_spinbox_tracking.value() if hasattr(self, 'min_percentile_spinbox_tracking') else self.tracking_min_percentile
         max_p = self.max_percentile_spinbox_tracking.value() if hasattr(self, 'max_percentile_spinbox_tracking') else 99.95
-        rescaled_image = mi.Utilities().convert_to_int8(
-            display_image,
-            rescale=True,
-            min_percentile=min_p,
-            max_percentile=max_p
-        )
+        
+        # If zoomed, calculate percentiles based on ROI only
+        if self.tracking_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+            roi_data = display_image[int(y_min):int(y_max), int(x_min):int(x_max)]
+            if roi_data.size > 0:
+                # Calculate actual min/max values from ROI for rescaling
+                roi_min = np.percentile(roi_data[roi_data > 0], min_p) if np.any(roi_data > 0) else 0
+                roi_max = np.percentile(roi_data[roi_data > 0], max_p) if np.any(roi_data > 0) else 1
+                # Manual rescaling based on ROI percentiles
+                rescaled_image = np.clip((display_image - roi_min) / (roi_max - roi_min + 1e-10) * 255, 0, 255).astype(np.uint8)
+                rescaled_image = rescaled_image[..., np.newaxis]  # Add channel dim for consistency
+            else:
+                rescaled_image = mi.Utilities().convert_to_int8(
+                    display_image,
+                    rescale=True,
+                    min_percentile=min_p,
+                    max_percentile=max_p
+                )
+        else:
+            rescaled_image = mi.Utilities().convert_to_int8(
+                display_image,
+                rescale=True,
+                min_percentile=min_p,
+                max_percentile=max_p
+            )
+        
         if params['low_sigma'] > 0:
             rescaled_image = gaussian_filter(rescaled_image, sigma=params['low_sigma'])
         if params['sigma'] > 0:
@@ -6518,6 +6764,13 @@ class GUI(QMainWindow):
         normalized_image = normalized_image[..., 0]
         cmap_imagej = cmap_list_imagej[ch % len(cmap_list_imagej)]
         self.ax_tracking.imshow(normalized_image, cmap=cmap_imagej, vmin=0, vmax=1)
+        
+        # Apply zoom immediately after imshow to prevent other elements from resetting limits
+        if self.tracking_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+            self.ax_tracking.set_xlim(x_min, x_max)
+            self.ax_tracking.set_ylim(y_max, y_min)  # Inverted for image coordinates
+        
         dpi = self.figure_tracking.get_dpi()
         marker_scale = dpi / 100.0
         
@@ -6577,13 +6830,25 @@ class GUI(QMainWindow):
                 legend_handles.append(cluster_legend)
                 legend_labels.append(f"Clusters: {count_clusters}")
             if self.show_cluster_size_checkbox.isChecked():
-                for _, row in df_frame.iterrows():
+                # Filter to ROI if zoomed
+                df_to_label = df_frame
+                if self.tracking_zoom_roi is not None:
+                    x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+                    df_to_label = df_frame[(df_frame['x'] >= x_min) & (df_frame['x'] <= x_max) &
+                                          (df_frame['y'] >= y_min) & (df_frame['y'] <= y_max)]
+                for _, row in df_to_label.iterrows():
                     self.ax_tracking.text(row['x']+8, row['y'],
                                            f"{int(row['cluster_size'])}",
                                            color='white', fontsize=8,
                                            ha='center', va='center')
             if self.show_particle_id_checkbox.isChecked() and 'particle' in df_frame.columns:
-                for _, row in df_frame.iterrows():
+                # Filter to ROI if zoomed
+                df_to_label = df_frame
+                if self.tracking_zoom_roi is not None:
+                    x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+                    df_to_label = df_frame[(df_frame['x'] >= x_min) & (df_frame['x'] <= x_max) &
+                                          (df_frame['y'] >= y_min) & (df_frame['y'] <= y_max)]
+                for _, row in df_to_label.iterrows():
                     self.ax_tracking.text(row['x'], row['y'] - 8,
                                            f"{int(row['particle'])}",
                                            color='white', fontsize=6,
@@ -6593,11 +6858,21 @@ class GUI(QMainWindow):
                 particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
                 if particle_col in self.df_tracking.columns:
                     df_up_to_current = self.df_tracking[self.df_tracking['frame'] <= self.current_frame]
+                    # Filter trajectories to those with at least one point in ROI if zoomed
+                    if self.tracking_zoom_roi is not None:
+                        x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+                        particles_in_roi = df_up_to_current[
+                            (df_up_to_current['x'] >= x_min) & (df_up_to_current['x'] <= x_max) &
+                            (df_up_to_current['y'] >= y_min) & (df_up_to_current['y'] <= y_max)
+                        ][particle_col].unique()
+                        df_up_to_current = df_up_to_current[df_up_to_current[particle_col].isin(particles_in_roi)]
                     for particle_id, grp in df_up_to_current.groupby(particle_col):
                         if grp.shape[0] > 1:
                             grp = grp.sort_values('frame')
                             self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=1, color='white', alpha=0.5)
-            if legend_handles:
+            # Only show legend when viewing full image (not zoomed)
+            # because counts are for entire image, not just the zoomed region
+            if legend_handles and self.tracking_zoom_roi is None:
                 legend = self.ax_tracking.legend(legend_handles, legend_labels,
                                                  loc='upper right', bbox_to_anchor=(1, 1))
                 for text in legend.get_texts():
@@ -6672,7 +6947,26 @@ class GUI(QMainWindow):
                         font_properties=font_props
                     )
                     self.ax_tracking.add_artist(scalebar)
-        self.figure_tracking.tight_layout()
+        
+        # Add thin border to show image boundaries
+        if self.image_stack is not None:
+            H, W = self.image_stack.shape[2], self.image_stack.shape[3]
+            img_border = patches.Rectangle((0, 0), W-1, H-1, linewidth=0.8, 
+                                            edgecolor='#555555', facecolor='none', linestyle='-')
+            self.ax_tracking.add_patch(img_border)
+        
+        # Use tight_layout for proper spacing
+        try:
+            self.figure_tracking.tight_layout()
+        except Exception:
+            pass  # Ignore layout errors
+        
+        # Apply zoom AFTER tight_layout to ensure limits are not reset
+        if self.tracking_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+            self.ax_tracking.set_xlim(x_min, x_max)
+            self.ax_tracking.set_ylim(y_max, y_min)  # Inverted for image coordinates
+        
         self.canvas_tracking.draw_idle()
 
     def detect_spots(self, image, threshold, list_voxels, masks_complete_cells, masks_nuclei=None, masks_cytosol_no_nuclei=None):
@@ -6987,6 +7281,21 @@ class GUI(QMainWindow):
         self.figure_tracking.patch.set_facecolor('black')
         self.canvas_tracking = FigureCanvas(self.figure_tracking)
         
+        # Set up zoom feature: RectangleSelector for left-click drag
+        self.tracking_zoom_selector = RectangleSelector(
+            self.ax_tracking,
+            self._on_tracking_zoom_select,
+            useblit=True,
+            button=[1],  # Left mouse button only
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
+        # Connect double-click to reset zoom
+        self.canvas_tracking.mpl_connect('button_press_event', self._on_tracking_canvas_click)
+        
         # Create horizontal layout to hold canvas + Z slider
         canvas_slider_layout_tracking = QHBoxLayout()
         canvas_slider_layout_tracking.addWidget(self.canvas_tracking)
@@ -7044,6 +7353,22 @@ class GUI(QMainWindow):
         spin_layout.addWidget(QLabel("Max Int", self))
         spin_layout.addWidget(self.max_percentile_spinbox_tracking)
         tracking_left_layout.addLayout(spin_layout)
+        
+        # Zoom ROI status label and instructions
+        zoom_info_layout = QHBoxLayout()
+        zoom_info_layout.setContentsMargins(0, 2, 0, 2)
+        
+        self.tracking_zoom_label = QLabel("🔍 Full View")
+        self.tracking_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        zoom_info_layout.addWidget(self.tracking_zoom_label)
+        
+        zoom_info_layout.addStretch()
+        
+        zoom_hint_label = QLabel("Click-drag to zoom, Double-click to reset")
+        zoom_hint_label.setStyleSheet("color: #555555; font-size: 9px; font-style: italic;")
+        zoom_info_layout.addWidget(zoom_hint_label)
+        
+        tracking_left_layout.addLayout(zoom_info_layout)
         # Channel buttons horizontally
         self.channel_buttons_tracking = []
         self.channel_buttons_layout_tracking = QHBoxLayout()
@@ -7084,22 +7409,27 @@ class GUI(QMainWindow):
         checkbox_layout = QHBoxLayout()
         self.show_trajectories_checkbox = QCheckBox("Trajectories")
         self.show_trajectories_checkbox.setChecked(False)
+        self.show_trajectories_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.show_trajectories_checkbox)
         # Add cluster size QCheckbox
         self.show_cluster_size_checkbox = QCheckBox("Cluster Size")
         self.show_cluster_size_checkbox.setChecked(False)
+        self.show_cluster_size_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.show_cluster_size_checkbox)
         # Add particle ID QCheckbox
         self.show_particle_id_checkbox = QCheckBox("Particle ID")
         self.show_particle_id_checkbox.setChecked(False)
+        self.show_particle_id_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.show_particle_id_checkbox)
         # Add "Display Time Stamp" checkbox (moved from right panel)
         self.tracking_time_text_checkbox = QCheckBox("Time Stamp")
         self.tracking_time_text_checkbox.setChecked(False)
+        self.tracking_time_text_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.tracking_time_text_checkbox)
         # Add "Remove Background" checkbox (moved from right panel)
         self.tracking_remove_background_checkbox = QCheckBox("Remove Background")
         self.tracking_remove_background_checkbox.setChecked(False)
+        self.tracking_remove_background_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.tracking_remove_background_checkbox)
         # Add "Show Masks" checkbox for visualizing mask contours and IDs
         self.tracking_show_masks_checkbox = QCheckBox("Masks")
@@ -10495,6 +10825,19 @@ class GUI(QMainWindow):
             fontsize=12, color='white',
             transform=self.ax_tracking.transAxes
         )
+        
+        # Re-initialize RectangleSelector on the new axes
+        self.tracking_zoom_selector = RectangleSelector(
+            self.ax_tracking,
+            self._on_tracking_zoom_select,
+            useblit=True,
+            button=[1],  # Left mouse button only
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
         self.canvas_tracking.draw()
         if hasattr(self, 'time_slider_tracking'):
             self.time_slider_tracking.setValue(0)
@@ -10523,6 +10866,12 @@ class GUI(QMainWindow):
         if hasattr(self, 'btn_mode_2d') and hasattr(self, 'btn_mode_3d'):
             self._update_tracking_mode_buttons()
             self._update_tracking_mode_status()
+        
+        # Reset zoom ROI
+        self.tracking_zoom_roi = None
+        if hasattr(self, 'tracking_zoom_label'):
+            self.tracking_zoom_label.setText("🔍 Full View")
+            self.tracking_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
 
     def reset_msd_tab(self):
         """Reset the MSD tab to its initial state."""

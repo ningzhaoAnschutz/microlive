@@ -2,6 +2,7 @@
 import sys
 import os
 import pathlib
+import tempfile
 from pathlib import Path
 import warnings
 import getpass
@@ -92,6 +93,11 @@ except ImportError:
 
 import logging
 logging.getLogger("root").setLevel(logging.ERROR)
+
+# Suppress Cellpose verbose logging (only show warnings and errors)
+logging.getLogger('cellpose').setLevel(logging.WARNING)
+logging.getLogger('cellpose.core').setLevel(logging.WARNING)
+logging.getLogger('cellpose.models').setLevel(logging.WARNING)
 
 from mpl_toolkits.mplot3d import Axes3D  # For older versions of Matplotlib
 import matplotlib.colors as mcolors
