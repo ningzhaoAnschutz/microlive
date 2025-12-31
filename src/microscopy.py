@@ -3574,13 +3574,15 @@ class SpotDetection():
         If True, calculate the intensity of the spots.
     use_fixed_size_for_intensity_calculation : bool, optional
         If True, it uses a fixed size for the intensity calculation. The default is True.
+    fast_gaussian_fit : bool, optional
+        If True, uses moment-based (fast) PSF estimation. If False, uses full Gaussian fitting (slower but more accurate). The default is True.
 
     
     '''
     def __init__(self,image,  channels_spots ,channels_cytosol,channels_nucleus, cluster_radius_nm=500,masks_complete_cells = None, masks_nuclei  = None, masks_cytosol_no_nuclei = None,
                 dataframe=None, image_counter=0, list_voxels=[500,160], show_plot=True,image_name=None,save_all_images=True,display_spots_on_multiple_z_planes=False,
                 use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=True,yx_spot_size_in_px=None, z_spot_size_in_px=None, 
-                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True):
+                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True):
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
         # calculate the maximum projection of the axis 0 keeping the same dimensions.
@@ -3634,6 +3636,7 @@ class SpotDetection():
                 object_radius_nm=(list_voxels[0]*(z_spot_size_in_px//2), list_voxels[1]*(yx_spot_size_in_px//2), list_voxels[1]*(yx_spot_size_in_px//2)), ndim=3)
         self.calculate_intensity =calculate_intensity
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
+        self.fast_gaussian_fit = fast_gaussian_fit
 
     def get_dataframe(self):
         list_images = []
@@ -3676,7 +3679,7 @@ class SpotDetection():
             if self.calculate_intensity:
                 df_detected_spots = DataProcessing(clusters_and_spots, self.image, self.list_masks_complete_cells, self.list_masks_nuclei, self.list_masks_cytosol_no_nuclei, self.channels_cytosol,self.channels_nucleus,
                                             yx_spot_size_in_px=spot_diameter_for_intensity_px, dataframe =df_detected_spots,reset_cell_counter=reset_cell_counter,image_counter = self.image_counter ,spot_type=i,use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
-                                            number_color_channels=self.number_color_channels, use_maximum_projection=self.use_maximum_projection ).get_dataframe()
+                                            number_color_channels=self.number_color_channels, use_maximum_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit ).get_dataframe()
             else:
                 # If intensity calculation is skipped, only append spot locations
                 df_detected_spots = pd.DataFrame(clusters_and_spots, columns=['z', 'y', 'x', 'cluster_size'])
@@ -3862,12 +3865,14 @@ class ParticleTracking:
         if mask is None:
             return None
         
-        # Log original mask info for debugging
-        print(f"[ParticleTracking._normalize_mask_to_tyx] Input mask shape: {mask.shape}, ndim: {mask.ndim}, T={T}")
+        # Log original mask info for debugging (only if verbose)
+        if self.verbose:
+            print(f"[ParticleTracking._normalize_mask_to_tyx] Input mask shape: {mask.shape}, ndim: {mask.ndim}, T={T}")
         
         if mask.ndim == 2:
             # YX [Y, X] -> tile to TYX [T, Y, X]
-            print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}] (static mask across all frames)")
+            if self.verbose:
+                print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}] (static mask across all frames)")
             return np.tile(mask[np.newaxis, :, :], (T, 1, 1))
         elif mask.ndim == 3:
             # Handle edge case: 3D mask with unusual dimensions that suggest incorrect indexing
@@ -3875,30 +3880,34 @@ class ParticleTracking:
             if mask.shape[2] <= 10 and mask.shape[0] > mask.shape[2] and mask.shape[1] > mask.shape[2]:
                 # This looks like [Y, X, C] or [T, Y, C] where C was kept by mistake
                 # Try to squeeze or reduce to 2D
-                print(f"[WARNING] 3D mask {mask.shape} appears to have small third dimension (likely channels). Attempting to fix.")
+                if self.verbose:
+                    print(f"[WARNING] 3D mask {mask.shape} appears to have small third dimension (likely channels). Attempting to fix.")
                 if mask.shape[2] == 1:
                     # Just squeeze the last dimension
                     mask_2d = mask[:, :, 0]
                 else:
                     # Take max across what looks like a channel dimension
                     mask_2d = np.max(mask, axis=-1)
-                print(f"[ParticleTracking] Reduced to 2D mask {mask_2d.shape}, expanding to TYX [{T}, {mask_2d.shape[0]}, {mask_2d.shape[1]}]")
+                if self.verbose:
+                    print(f"[ParticleTracking] Reduced to 2D mask {mask_2d.shape}, expanding to TYX [{T}, {mask_2d.shape[0]}, {mask_2d.shape[1]}]")
                 return np.tile(mask_2d[np.newaxis, :, :], (T, 1, 1))
             
             # Handle edge case: (1, Y, X) where first dimension is singleton
             if mask.shape[0] == 1 and mask.shape[1] > 10 and mask.shape[2] > 10:
                 # Single frame mask, tile to T frames
-                print(f"[ParticleTracking] Expanding single-frame 3D mask {mask.shape} to TYX [{T}, {mask.shape[1]}, {mask.shape[2]}]")
+                if self.verbose:
+                    print(f"[ParticleTracking] Expanding single-frame 3D mask {mask.shape} to TYX [{T}, {mask.shape[1]}, {mask.shape[2]}]")
                 return np.tile(mask, (T, 1, 1))
             
             # Standard TYX case: Check if first dim matches T
             if mask.shape[0] == T:
                 # TYX format - verify masks actually vary across time
                 unique_per_frame = np.array([len(np.unique(mask[t])) for t in range(min(T, 5))])
-                if np.any(unique_per_frame > 1):  # At least one frame has cells
-                    print(f"[ParticleTracking] Using TYX mask as-is: {mask.shape} (time-varying)")
-                else:
-                    print(f"[WARNING] TYX mask {mask.shape} is all zeros/background. Using as-is.")
+                if self.verbose:
+                    if np.any(unique_per_frame > 1):  # At least one frame has cells
+                        print(f"[ParticleTracking] Using TYX mask as-is: {mask.shape} (time-varying)")
+                    else:
+                        print(f"[WARNING] TYX mask {mask.shape} is all zeros/background. Using as-is.")
                 return mask
             else:
                 # Dimension mismatch: T != mask.shape[0]
@@ -3910,7 +3919,8 @@ class ParticleTracking:
                 print(f"[ERROR] {error_msg}")
                 raise ValueError(error_msg)
         else:
-            print(f"[WARNING] Unknown mask format {mask.shape}, using as-is (may cause errors)")
+            if self.verbose:
+                print(f"[WARNING] Unknown mask format {mask.shape}, using as-is (may cause errors)")
             return mask
 
     def run(self):
@@ -4034,7 +4044,8 @@ class ParticleTracking:
                     image_counter=t,
                     number_color_channels=self.number_color_channels,
                     use_maximum_projection=self.use_maximum_projection,
-                    use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation
+                    use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+                    fast_gaussian_fit=self.fast_gaussian_fit
                 )
                 df_processed = dp.get_dataframe()
                 df_processed['frame'] = t
@@ -4435,9 +4446,11 @@ class DataProcessing():
         If True, it uses the maximum projection of the image will be used to calculate the intensity. The default is False.
     use_fixed_size_for_intensity_calculation : bool, optional
         If True, it uses the fixed size for the intensity calculation. The default is True and uses the yx_spot_size_in_px. Else it uses the yx_spot_size_in_px times the cluster size.
+    fast_gaussian_fit : bool, optional
+        If True, uses moment-based (fast) PSF estimation. If False, uses full Gaussian fitting (slower but more accurate). The default is True.
 
     '''
-    def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei,  channels_cytosol, channels_nucleus, yx_spot_size_in_px,  spot_type=0, dataframe =None,reset_cell_counter=False,image_counter=0,number_color_channels=None,use_maximum_projection=False,use_fixed_size_for_intensity_calculation=True):
+    def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei,  channels_cytosol, channels_nucleus, yx_spot_size_in_px,  spot_type=0, dataframe =None,reset_cell_counter=False,image_counter=0,number_color_channels=None,use_maximum_projection=False,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True):
         self.clusters_and_spots=clusters_and_spots
         self.channels_cytosol=channels_cytosol
         self.channels_nucleus=channels_nucleus
@@ -4494,6 +4507,7 @@ class DataProcessing():
         self.image_counter = image_counter
         self.use_maximum_projection = use_maximum_projection
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
+        self.fast_gaussian_fit = fast_gaussian_fit
         # This number represent the number of columns that doesnt change with the number of color channels in the image
         self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME = 18
     def get_dataframe(self):

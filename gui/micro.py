@@ -731,9 +731,14 @@ class Metadata:
                 write_section('Tracking Parameters')
                 
                 write_subsection('Spot Detection')
-                write_attr('Threshold (User Selected)', 'user_selected_threshold')
-                write_attr('Threshold (Calculated)', 'threshold_spot_detection')
-                write_attr('Max Spots for Threshold Calc', 'max_spots_for_threshold')
+                
+                # Report the final threshold used for tracking
+                final_threshold = getattr(self, 'user_selected_threshold', None)
+                if final_threshold is not None and final_threshold > 0:
+                    write_value('Final Threshold for Tracking', f'{int(final_threshold)}')
+                else:
+                    write_value('Final Threshold for Tracking', 'Not set (use Auto)')
+                
                 write_attr('YX Spot Size (px)', 'yx_spot_size_in_px')
                 write_attr('Z Spot Size (px)', 'z_spot_size_in_px')
                 write_attr('Cluster Radius (nm)', 'cluster_radius_nm')
@@ -6048,6 +6053,10 @@ class GUI(QMainWindow):
         self.canvas_threshold_hist.draw_idle()
 
     def update_threshold_value(self, value):
+        # Update the threshold value label
+        if hasattr(self, 'threshold_value_label'):
+            self.threshold_value_label.setText(f"Value: {value}")
+        
         if self.image_stack is None:
             self.ax_threshold_hist.clear()
             self.ax_threshold_hist.set_facecolor('black')
@@ -6070,18 +6079,33 @@ class GUI(QMainWindow):
         bins_to_use = desired_bins if unique_vals.size >= desired_bins else unique_vals.size
         lower_limit = 0
         upper_limit = np.percentile(intensity_values, 99.5)
+        
+        # Set figure background
+        self.figure_threshold_hist.patch.set_facecolor('#1a1a1a')
+        self.ax_threshold_hist.set_facecolor('#1a1a1a')
+        
         self.ax_threshold_hist.hist(
             intensity_values,
             bins=bins_to_use,
             range=(lower_limit, upper_limit),
             color='aliceblue',
-            edgecolor='black'
+            edgecolor='#333333'
         )
         self.ax_threshold_hist.set_xlim(lower_limit, upper_limit)
         self.ax_threshold_hist.set_yticks([])
         self.ax_threshold_hist.grid(False)
-        self.ax_threshold_hist.tick_params(axis='both', which='major', labelsize=6)
-        self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=3)
+        
+        # Make x-axis ticks visible with white color
+        self.ax_threshold_hist.tick_params(axis='x', which='major', labelsize=8, colors='white', length=3)
+        self.ax_threshold_hist.spines['bottom'].set_color('white')
+        self.ax_threshold_hist.spines['top'].set_visible(False)
+        self.ax_threshold_hist.spines['left'].set_visible(False)
+        self.ax_threshold_hist.spines['right'].set_visible(False)
+        
+        self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=2)
+        
+        # Tight layout to ensure ticks are visible
+        self.figure_threshold_hist.tight_layout(pad=0.3)
         self.canvas_threshold_hist.draw_idle()
         self.detect_spots_in_current_frame()
 
@@ -6111,8 +6135,12 @@ class GUI(QMainWindow):
 
     def update_use_maximum_projection(self, state):
         self.use_maximum_projection = (state == Qt.Checked)
+        # Update legacy label
         if hasattr(self, 'tracking_max_proj_status_label'):
             self.tracking_max_proj_status_label.setText("2D Projection is ON" if self.use_maximum_projection else "2D Projection is OFF")
+        # Update new toggle buttons and status
+        self._update_tracking_mode_buttons()
+        self._update_tracking_mode_status()
 
     def update_max_range_search_pixels(self, value):
         self.maximum_range_search_pixels = value
@@ -6160,6 +6188,133 @@ class GUI(QMainWindow):
             print(f"Random spots generation enabled with {num_points} spots.")
         else:
             print("Random spots generation disabled.")
+
+    def _set_tracking_mode(self, is_2d):
+        """Set the tracking mode (2D projection or 3D volume) and update UI."""
+        self.use_maximum_projection = is_2d
+        # Sync with legacy checkbox
+        if hasattr(self, 'use_2d_projection_checkbox'):
+            self.use_2d_projection_checkbox.blockSignals(True)
+            self.use_2d_projection_checkbox.setChecked(is_2d)
+            self.use_2d_projection_checkbox.blockSignals(False)
+        # Update button styles and status
+        self._update_tracking_mode_buttons()
+        self._update_tracking_mode_status()
+        # Update legacy label if it exists
+        if hasattr(self, 'tracking_max_proj_status_label'):
+            self.tracking_max_proj_status_label.setText("2D Projection is ON" if is_2d else "2D Projection is OFF")
+        
+        # Re-run spot detection if a threshold has been selected to update the display
+        if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None and self.user_selected_threshold > 0:
+            if self.image_stack is not None:
+                self.detect_spots_in_current_frame()
+
+    def _update_tracking_mode_buttons(self):
+        """Update the visual state of 2D/3D toggle buttons."""
+        is_2d = self.use_maximum_projection
+        
+        # Common styles
+        base_style = """
+            QPushButton {{
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 16px;
+                border: 2px solid {border_color};
+                {border_radius}
+                background-color: {bg_color};
+                color: {text_color};
+            }}
+            QPushButton:hover {{
+                background-color: {hover_color};
+            }}
+        """
+        
+        # 3D button (left side, rounded left corners)
+        if is_2d:
+            # 3D is inactive
+            style_3d = base_style.format(
+                border_color="#555555",
+                border_radius="border-top-left-radius: 6px; border-bottom-left-radius: 6px;",
+                bg_color="#2a2a2a",
+                text_color="#888888",
+                hover_color="#3a3a3a"
+            )
+        else:
+            # 3D is active
+            style_3d = base_style.format(
+                border_color="#9b59b6",
+                border_radius="border-top-left-radius: 6px; border-bottom-left-radius: 6px;",
+                bg_color="#9b59b6",
+                text_color="#ffffff",
+                hover_color="#a569bd"
+            )
+        
+        # 2D button (right side, rounded right corners)
+        if is_2d:
+            # 2D is active
+            style_2d = base_style.format(
+                border_color="#00d4aa",
+                border_radius="border-top-right-radius: 6px; border-bottom-right-radius: 6px;",
+                bg_color="#00d4aa",
+                text_color="#000000",
+                hover_color="#00e5b8"
+            )
+        else:
+            # 2D is inactive
+            style_2d = base_style.format(
+                border_color="#555555",
+                border_radius="border-top-right-radius: 6px; border-bottom-right-radius: 6px;",
+                bg_color="#2a2a2a",
+                text_color="#888888",
+                hover_color="#3a3a3a"
+            )
+        
+        if hasattr(self, 'btn_mode_3d'):
+            self.btn_mode_3d.setStyleSheet(style_3d)
+            self.btn_mode_3d.setChecked(not is_2d)
+        if hasattr(self, 'btn_mode_2d'):
+            self.btn_mode_2d.setStyleSheet(style_2d)
+            self.btn_mode_2d.setChecked(is_2d)
+
+    def _update_tracking_mode_status(self):
+        """Update the status indicator showing current tracking mode details."""
+        is_2d = self.use_maximum_projection
+        
+        if is_2d:
+            status_html = """
+                <div style='text-align: center; padding: 6px;'>
+                    <span style='color: #00d4aa; font-size: 14px; font-weight: bold;'>
+                        ✓ 2D PROJECTION MODE
+                    </span><br/>
+                    <span style='color: #aaaaaa; font-size: 11px;'>
+                        Fast detection using maximum Z-projection (Trackpy)
+                    </span>
+                </div>
+            """
+            border_color = "#00d4aa"
+        else:
+            status_html = """
+                <div style='text-align: center; padding: 6px;'>
+                    <span style='color: #9b59b6; font-size: 14px; font-weight: bold;'>
+                        ✓ 3D VOLUME MODE
+                    </span><br/>
+                    <span style='color: #aaaaaa; font-size: 11px;'>
+                        Full 3D detection across all Z-planes (Big-FISH)
+                    </span>
+                </div>
+            """
+            border_color = "#9b59b6"
+        
+        if hasattr(self, 'tracking_mode_status'):
+            self.tracking_mode_status.setText(status_html)
+            self.tracking_mode_status.setStyleSheet(f"""
+                QLabel {{
+                    background-color: rgba(40, 40, 40, 0.8);
+                    border: 2px solid {border_color};
+                    border-radius: 6px;
+                    padding: 4px;
+                }}
+            """)
 
     def detect_spots_all_frames(self):
         if self.image_stack is None:
@@ -6962,19 +7117,62 @@ class GUI(QMainWindow):
         # Title
         parameters_label = QLabel("Tracking Parameters")
         tracking_right_main_layout.addWidget(parameters_label)
-        max_proj_tracking_group = QGroupBox("2D Projection")
-        max_proj_tracking_layout = QVBoxLayout()
+        
+        # ========== Enhanced 2D/3D Mode Toggle Section ==========
+        mode_group = QGroupBox("Tracking Mode")
+        mode_main_layout = QVBoxLayout(mode_group)
+        mode_main_layout.setSpacing(8)
+        
+        # Segmented toggle button container
+        toggle_container = QWidget()
+        toggle_layout = QHBoxLayout(toggle_container)
+        toggle_layout.setContentsMargins(0, 0, 0, 0)
+        toggle_layout.setSpacing(0)
+        
+        # Create 3D button (left side)
+        self.btn_mode_3d = QPushButton("📦 3D Volume")
+        self.btn_mode_3d.setCheckable(True)
+        self.btn_mode_3d.setMinimumHeight(36)
+        self.btn_mode_3d.setCursor(Qt.PointingHandCursor)
+        
+        # Create 2D button (right side)
+        self.btn_mode_2d = QPushButton("🔲 2D Projection")
+        self.btn_mode_2d.setCheckable(True)
+        self.btn_mode_2d.setMinimumHeight(36)
+        self.btn_mode_2d.setCursor(Qt.PointingHandCursor)
+        
+        toggle_layout.addWidget(self.btn_mode_3d)
+        toggle_layout.addWidget(self.btn_mode_2d)
+        
+        # Style for the toggle buttons
+        self._update_tracking_mode_buttons()
+        
+        # Connect buttons (exclusive selection)
+        self.btn_mode_2d.clicked.connect(lambda: self._set_tracking_mode(is_2d=True))
+        self.btn_mode_3d.clicked.connect(lambda: self._set_tracking_mode(is_2d=False))
+        
+        mode_main_layout.addWidget(toggle_container)
+        
+        # Status indicator with detailed description
+        self.tracking_mode_status = QLabel()
+        self.tracking_mode_status.setAlignment(Qt.AlignCenter)
+        self.tracking_mode_status.setMinimumHeight(40)
+        self._update_tracking_mode_status()
+        mode_main_layout.addWidget(self.tracking_mode_status)
+        
+        # Keep legacy checkbox hidden but functional for compatibility
         self.use_2d_projection_checkbox = QCheckBox("Use 2D Projection for Tracking")
-        # Initialize checkbox using flag
         self.use_2d_projection_checkbox.setChecked(self.use_maximum_projection)
         self.use_2d_projection_checkbox.stateChanged.connect(self.update_use_maximum_projection)
-        max_proj_tracking_layout.addWidget(self.use_2d_projection_checkbox)
-        status_text = "2D Projection is ON" if self.use_maximum_projection else "2D Projection is OFF"
-        self.tracking_max_proj_status_label = QLabel(status_text)
-        self.tracking_max_proj_status_label.setStyleSheet("color: limegreen")
-        max_proj_tracking_layout.addWidget(self.tracking_max_proj_status_label)
-        max_proj_tracking_group.setLayout(max_proj_tracking_layout)
-        tracking_right_main_layout.addWidget(max_proj_tracking_group)
+        self.use_2d_projection_checkbox.setVisible(False)  # Hidden, new UI handles this
+        mode_main_layout.addWidget(self.use_2d_projection_checkbox)
+        
+        # Hidden legacy label (kept for compatibility)
+        self.tracking_max_proj_status_label = QLabel()
+        self.tracking_max_proj_status_label.setVisible(False)
+        mode_main_layout.addWidget(self.tracking_max_proj_status_label)
+        
+        tracking_right_main_layout.addWidget(mode_group)
         # Group 1: Source & Threshold
         source_threshold_group = QGroupBox("Source (Select Raw Image or Photobleaching Corrected)")
         source_threshold_layout = QVBoxLayout(source_threshold_group)
@@ -6991,12 +7189,16 @@ class GUI(QMainWindow):
         # Threshold Selection & Histogram
         threshold_group = QGroupBox("Threshold Selection")
         threshold_layout = QVBoxLayout(threshold_group)
+        threshold_layout.setSpacing(4)
+        threshold_layout.setContentsMargins(6, 6, 6, 6)
         source_threshold_layout.addWidget(threshold_group)
-        self.figure_threshold_hist, self.ax_threshold_hist = plt.subplots(figsize=(6, 1))
+        
+        # Histogram - reduced height for compact UI
+        self.figure_threshold_hist, self.ax_threshold_hist = plt.subplots(figsize=(6, 0.8))
         self.canvas_threshold_hist = FigureCanvas(self.figure_threshold_hist)
-        self.canvas_threshold_hist.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.canvas_threshold_hist.setMaximumHeight(300)
-        self.canvas_threshold_hist.setMinimumHeight(200)
+        self.canvas_threshold_hist.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.canvas_threshold_hist.setMaximumHeight(140)
+        self.canvas_threshold_hist.setMinimumHeight(100)
         # Initialize threshold histogram as blank black panel
         self.figure_threshold_hist.clear()
         self.ax_threshold_hist = self.figure_threshold_hist.add_subplot(111)
@@ -7004,15 +7206,57 @@ class GUI(QMainWindow):
         self.ax_threshold_hist.axis('off')
         self.canvas_threshold_hist.draw()
         threshold_layout.addWidget(self.canvas_threshold_hist)
+        
+        # Instructional label with threshold value
+        slider_instruction_container = QWidget()
+        slider_instruction_layout = QHBoxLayout(slider_instruction_container)
+        slider_instruction_layout.setContentsMargins(0, 2, 0, 0)
+        slider_instruction_layout.setSpacing(4)
+        
+        instruction_label = QLabel("◀ Drag to set threshold ▶")
+        instruction_label.setStyleSheet("color: #888888; font-size: 10px;")
+        slider_instruction_layout.addWidget(instruction_label)
+        
+        slider_instruction_layout.addStretch()
+        
+        self.threshold_value_label = QLabel("Value: --")
+        self.threshold_value_label.setStyleSheet("color: #00d4aa; font-size: 11px; font-weight: bold;")
+        slider_instruction_layout.addWidget(self.threshold_value_label)
+        
+        threshold_layout.addWidget(slider_instruction_container)
+        
+        # Threshold Slider with styled handle
         self.threshold_slider = QSlider(Qt.Horizontal)
         self.threshold_slider.setMinimum(0)
         self.threshold_slider.setMaximum(10000)
         self.threshold_slider.setValue(0)
-        self.threshold_slider.setTickPosition(QSlider.TicksBelow)
-        self.threshold_slider.setTickInterval(10)
+        self.threshold_slider.setTickPosition(QSlider.NoTicks)  # Remove ticks for cleaner look
+        self.threshold_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #444;
+                height: 6px;
+                background: #2a2a2a;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #00d4aa;
+                border: 2px solid #00b894;
+                width: 16px;
+                height: 16px;
+                margin: -6px 0;
+                border-radius: 9px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #00e5bb;
+                border: 2px solid #00d4aa;
+            }
+            QSlider::sub-page:horizontal {
+                background: #00d4aa;
+                border-radius: 3px;
+            }
+        """)
         self.threshold_slider.valueChanged.connect(self.update_threshold_value)
         threshold_layout.addWidget(self.threshold_slider)
-        threshold_layout.addStretch()
         # Create a new group box for Spot Detection and Tracking
         spot_det_track_group = QGroupBox("Spot Detection and Tracking")
         spot_det_track_layout = QHBoxLayout(spot_det_track_group)
@@ -10268,10 +10512,17 @@ class GUI(QMainWindow):
             self.ax_threshold_hist.set_facecolor('black')
             self.ax_threshold_hist.axis('off')
             self.canvas_threshold_hist.draw_idle()
+        # Reset threshold value label
+        if hasattr(self, 'threshold_value_label'):
+            self.threshold_value_label.setText("Value: --")
         # Reset fast gaussian fit checkbox to default (True)
         if hasattr(self, 'fast_gaussian_fit_checkbox'):
             self.fast_gaussian_fit = True
             self.fast_gaussian_fit_checkbox.setChecked(True)
+        # Update 2D/3D mode toggle buttons to reflect current state
+        if hasattr(self, 'btn_mode_2d') and hasattr(self, 'btn_mode_3d'):
+            self._update_tracking_mode_buttons()
+            self._update_tracking_mode_status()
 
     def reset_msd_tab(self):
         """Reset the MSD tab to its initial state."""
@@ -10477,13 +10728,11 @@ class GUI(QMainWindow):
                 cell_df = trackpy_df.copy()
             
             if len(cell_df) == 0:
-                print(f"MSD: Cell {cell_id} has no data, skipping")
                 continue
             
             particles = cell_df['particle'].unique()
             cell_msd_values = []
             cell_D_values = []
-            print(f"MSD: Processing Cell {cell_id} with {len(particles)} particles")
             
             for particle_id in particles:
                 traj = cell_df[cell_df['particle'] == particle_id]
@@ -10510,7 +10759,6 @@ class GUI(QMainWindow):
                     continue
             
             # Store per-cell summary
-            print(f"MSD: Cell {cell_id} computed {len(cell_D_values)} D values")
             if cell_D_values:
                 self.msd_per_cell[cell_id] = {
                     'D_values': cell_D_values,
