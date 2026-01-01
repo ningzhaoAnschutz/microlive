@@ -5286,7 +5286,22 @@ class CropArray():
             df_crops['frame'] = 0
         self.df_crops = df_crops
         self.image = image
-        self.number_particles = len(df_crops['particle'].unique())
+        
+        # Create unique_particle to handle multi-cell scenarios
+        # (particles in different cells can have the same ID)
+        if 'unique_particle' in df_crops.columns:
+            self.particle_col = 'unique_particle'
+        elif 'cell_id' in df_crops.columns:
+            self.df_crops = self.df_crops.copy()
+            self.df_crops['unique_particle'] = (
+                self.df_crops['cell_id'].astype(str) + '_' + 
+                self.df_crops['particle'].astype(str)
+            )
+            self.particle_col = 'unique_particle'
+        else:
+            self.particle_col = 'particle'
+        
+        self.number_particles = len(self.df_crops[self.particle_col].unique())
         self.normalize_each_particle = normalize_each_particle
     
     def run(self):
@@ -5294,8 +5309,8 @@ class CropArray():
         mean_crop = np.full((self.crop_size * self.number_particles, self.crop_size, self.number_color_channels), np.nan)
         first_snapshots = np.full((self.crop_size * self.number_particles, self.crop_size, self.number_color_channels), np.nan)
 
-        for particle_idx, particle_id in enumerate(self.df_crops['particle'].unique()):
-            df_particle = self.df_crops[self.df_crops['particle'] == particle_id]
+        for particle_idx, particle_id in enumerate(self.df_crops[self.particle_col].unique()):
+            df_particle = self.df_crops[self.df_crops[self.particle_col] == particle_id]
             list_crops = [[] for _ in range(self.number_color_channels)]
             found_first_appearance = [False] * self.number_color_channels  # Track first appearance for each channel
 
