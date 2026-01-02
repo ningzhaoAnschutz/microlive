@@ -33,6 +33,7 @@ class GUI(QMainWindow):
 #### Key Attributes
 
 **Core Image Data:**
+
 ```python
 image_stack: np.ndarray           # 5D array [T, Z, Y, X, C] - main image data
 corrected_image: np.ndarray       # Photobleaching corrected image stack
@@ -42,6 +43,7 @@ number_color_channels: int        # Number of imaging channels
 ```
 
 **Metadata & Properties:**
+
 ```python
 voxel_yx_nm: float               # XY pixel size in nanometers
 voxel_z_nm: float                # Z voxel size in nanometers
@@ -52,6 +54,7 @@ selected_image_name: str         # Current image identifier
 ```
 
 **Analysis Results:**
+
 ```python
 df_tracking: pd.DataFrame         # Particle tracking results
 correlation_results: list        # Correlation analysis results
@@ -61,6 +64,7 @@ has_tracked: bool                # Flag indicating tracking completion
 ```
 
 **Display & Navigation:**
+
 ```python
 current_frame: int                # Current time frame index (0-based)
 current_channel: int              # Current channel index (0-based)
@@ -73,6 +77,7 @@ merged_mode: bool                 # Channel merging state
 ```
 
 **Tracking Parameters:**
+
 ```python
 # Detection Parameters (consistent with User Guide ranges)
 yx_spot_size_in_px: int          # Spot size in XY pixels (range: 3-15, default: 5)
@@ -94,6 +99,7 @@ separate_clusters_and_spots: bool # Separate cluster/spot analysis (default: Fal
 ```
 
 **Segmentation Parameters:**
+
 ```python
 segmentation_mode: str           # "manual", "watershed", "cellpose", "None"
 use_max_proj_for_segmentation: bool # Use Z projection for segmentation
@@ -104,6 +110,7 @@ watershed_threshold_factor: float    # Watershed threshold factor
 ```
 
 **Correlation Parameters:**
+
 ```python
 correlation_fit_type: str        # "linear" or "exponential"
 de_correlation_threshold: float  # Decorrelation threshold (default: 0.01)
@@ -117,6 +124,7 @@ index_max_lag_for_fit: int       # Maximum lag for fitting
 ```
 
 **Photobleaching Parameters:**
+
 ```python
 photobleaching_calculated: bool  # Correction applied flag
 photobleaching_mode: str         # "inside_cell", "outside_cell", "use_circular_region" , "entire_image"
@@ -125,6 +133,7 @@ photobleaching_data: dict        # Photobleaching analysis results
 ```
 
 **Visualization Parameters:**
+
 ```python
 # Tracking Visualization
 tracking_vis_merged: bool        # Merged channel display mode
@@ -594,8 +603,14 @@ class ParticleTracking:
         
         Returns
         -------
-        list
-            List of trajectory DataFrames, one per linked trajectory
+        list of pd.DataFrame
+            List of trajectory DataFrames, one per channel in channels_spots.
+            Each DataFrame contains a spot_type column with the actual imaging 
+            channel number (not an index). For example, if channels_spots=[2,1], 
+            spots from channel 2 will have spot_type=2, and spots from channel 1 
+            will have spot_type=1.
+        filtered_image_stack : ndarray
+            The filtered image stack used for detection.
         """
 ```
 
@@ -655,6 +670,13 @@ class SpotDetection:
             XY spot size from GUI parameter (default uses GUI setting)
         z_spot_size_in_px : int, optional
             Z spot size from GUI parameter (default uses GUI setting)
+        
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame containing detected spots with spot_type column set to the 
+            actual imaging channel number (not an index). For example, if 
+            channels_spots=[2,1], spots from channel 2 will have spot_type=2.
         """
 ```
 
@@ -688,7 +710,8 @@ class DataProcessing:
         masks_nuclei : ndarray
             Nuclear segmentation masks
         spot_type : int
-            Identifier for spot channel/type
+            The actual imaging channel number from which spots were detected.
+            For example, if detecting spots in channel 2, spot_type will be 2.
         use_fixed_size_for_intensity_calculation : bool
             Use fixed aperture vs. cluster-size-dependent aperture
         """
@@ -726,6 +749,7 @@ class ParticleDetectionCNN(nn.Module):
 ```
 
 **Network Layers:**
+
 - **Conv1**: 1→16 channels, 3×3 kernel, ReLU, 2×2 MaxPool
 - **Conv2**: 16→32 channels, 3×3 kernel, ReLU, 2×2 MaxPool  
 - **Conv3**: 32→64 channels, 3×3 kernel, ReLU, 2×2 MaxPool
@@ -737,6 +761,7 @@ class ParticleDetectionCNN(nn.Module):
 The ML model is trained on multiple data sources to ensure robust performance across diverse experimental conditions:
 
 #### 1. Real Microscopy Data
+
 ```python
 def create_crops_from_image(real_image, df_tracking, minimal_snr=0.8, 
                            grid_size=11, selected_color_channel=0):
@@ -771,6 +796,7 @@ def create_crops_from_image(real_image, df_tracking, minimal_snr=0.8,
 ```
 
 #### 2. Simulated Gaussian Spots
+
 ```python
 def plot_spot(amplitude=None, sigma=None, grid_size=11, mu_x=None, mu_y=None,
               percentage_noise=None, create_spot=False, number_spots=1):
@@ -795,6 +821,7 @@ def plot_spot(amplitude=None, sigma=None, grid_size=11, mu_x=None, mu_y=None,
 ```
 
 #### 3. Human-Annotated Ground Truth
+
 The model incorporates expert human annotations from multiple researchers to establish consensus ground truth:
 
 ```python
@@ -804,18 +831,21 @@ flag_vector_consensus = np.sum([annotator_a, annotator_b, annotator_c, annotator
 ```
 
 **Inter-annotator Agreement:**
+
 - Pearson correlations between expert annotators: 0.65-0.85
 - Consensus threshold: ≥50% agreement across annotators
 
 ### Training Pipeline
 
 **Data Composition:**
+
 - Real microscopy crops: 40% (1000 positive + 500 negative samples)
 - Simulated single spots: 25% (500 samples)
 - Simulated double spots: 10% (256 samples)  
 - Human-validated crops: 25% (consensus annotations)
 
 **Training Parameters:**
+
 ```python
 batch_size = 256
 num_epochs = 51,200  # (batch_size × 200)
@@ -826,6 +856,7 @@ validation_split = 0.2
 ```
 
 **Data Augmentation:**
+
 - Random rotation (±180°)
 - Intensity normalization to [0, 255]
 - Gaussian noise injection
@@ -836,12 +867,14 @@ validation_split = 0.2
 The ML method demonstrates superior performance compared to traditional intensity-based approaches:
 
 **Accuracy Metrics:**
+
 - **ML (Real Data)**: 85-92% accuracy
 - **ML (Simulated Data)**: 88-95% accuracy  
 - **ML (Human-Validated)**: 90-96% accuracy
 - **Traditional SNR Method**: 75-82% accuracy
 
 **Validation Protocol:**
+
 ```python
 def calculate_performance(predicted, ground_truth):
     TP = true_positives
@@ -887,6 +920,7 @@ def compute_colocalization(self):
 ### Model Files and Training Notebooks
 
 **Key Components:**
+
 - `modeling/machine_learning/ML_SpotDetection.py`: CNN implementation and training functions
 - `modeling/machine_learning/MachineLearning_spot_detection.ipynb`: Interactive model training
 - `modeling/machine_learning/ML_Pipeline_and_Data_Validation.ipynb`: Complete training pipeline
@@ -924,11 +958,13 @@ These columns are always present after successful tracking:
 For each imaging channel N (where N = 0, 1, 2, ...), the following intensity columns are automatically generated. The specific measurements depend on the "Use fixed size for intensity calculation" setting in the Tracking tab.
 
 **Background-Subtracted Intensity (Primary measurement):**
+
 | Column | Type | Description | Units | Calculation Method |
 |--------|------|-------------|-------|-------------------|
 | `spot_int_ch_N` | float | Integrated intensity using disk-doughnut method | counts | See [User Guide: Distribution Analysis](user_guide.md#distribution-analysis) |
 
 **Additional Intensity Measurements:**
+
 | Column | Type | Description | Units |
 |--------|------|-------------|-------|
 | `total_spot_int_ch_N` | float | Sum of all pixel values within spot region | counts |
@@ -946,10 +982,12 @@ These columns provide information about spot detection and clustering results:
 |--------|------|-------------|-------|----------------|
 | `cluster_size` | int | Number of spots grouped in cluster (1 = individual spot) | spots | Always (3D mode provides detailed clustering) |
 | `is_cluster` | bool | Whether particle is part of a multi-spot cluster | - | When cluster_size > 1 |
-| `spot_type` | int | Channel identifier for analysis | - | Multi-channel tracking |
+| `spot_type` | int | Actual imaging channel number used for detection | - | Always present |
 | `spot_id` | int | Unique spot identifier within each frame | - | Always |
+| `unique_particle` | str | Hierarchical unique particle identifier combining cell_id, spot_type, and particle number (format: `cell_id_spot_type_particle`) | - | When segmentation available |
 
 **Cluster Size Interpretation** (see [User Guide: Tracking Algorithms](user_guide.md#tracking-algorithms)):
+
 - `cluster_size = 1`: Individual isolated spot
 - `cluster_size = 2-5`: Small molecular complexes  
 - `cluster_size > 5`: Large assemblies or transcriptional factories
@@ -1000,6 +1038,7 @@ The tracking DataFrame is generated through the following pipeline:
 ### Usage Examples
 
 **Access specific particle trajectory:**
+
 ```python
 # Get all data points for particle ID 42
 particle_data = df_tracking[df_tracking['particle'] == 42]
@@ -1009,6 +1048,7 @@ particle_timecourse = particle_data.sort_values('frame')
 ```
 
 **Extract intensity time course (for Correlation Analysis):**
+
 ```python
 # Get channel 0 intensity over time for particle 42
 particle_42 = df_tracking[df_tracking['particle'] == 42].sort_values('frame')
@@ -1021,6 +1061,7 @@ if time_interval_seconds is not None:
 ```
 
 **Filter by cellular localization (requires segmentation):**
+
 ```python
 # Get only nuclear spots
 nuclear_spots = df_tracking[df_tracking['is_nuc'] == True]
@@ -1033,6 +1074,7 @@ complete_cell_spots = df_tracking[df_tracking['is_cell_fragmented'] == 0]
 ```
 
 **Quality control and analysis:**
+
 ```python
 # Calculate trajectory lengths (for minimum length filtering)
 trajectory_lengths = df_tracking.groupby('particle').size()

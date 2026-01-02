@@ -3179,6 +3179,12 @@ class TrackPyDetection:
         Intensity threshold for spot detection. If None, an automatic threshold is calculated using Otsu's method. Default is None.
     save_files : bool, optional
         If True, saves output plots as image files. Default is True.
+    
+    Note
+    ----
+    This class returns raw spot coordinates without a spot_type column. The spot_type 
+    column is assigned by the calling SpotDetection class, which sets it to the actual 
+    imaging channel number (not an index).
     '''
 
     def __init__(self, image, channels_spots, voxel_size_yx=150, yx_spot_size_in_px=5, 
@@ -3348,6 +3354,12 @@ class BigFISH():
         Uses Big_FISH log_filter. The default is True.
     threshold_for_spot_detection: scalar or None.
         Indicates the intensity threshold used for spot detection, the default is None, and indicates that the threshold is calculated automatically.
+    
+    Note
+    ----
+    This class returns raw spot coordinates without a spot_type column. The spot_type 
+    column is assigned by the calling SpotDetection class, which sets it to the actual 
+    imaging channel number (not an index).
     '''
     def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False):
         if len(image.shape)<4:
@@ -3630,7 +3642,13 @@ class SpotDetection():
     masks_cytosol_no_nuclei :  NumPy array
         Masks for every cytosol detected in the image are indicated by the array\'s values, where 0 indicates the background in the image, and integer numbers indicate the ith mask in the image. Array with format [Y, X].
     dataframe : Pandas Dataframe 
-        Pandas dataframe with the following columns. image_id, cell_id, spot_id, nuc_loc_y, nuc_loc_x, cyto_loc_y, cyto_loc_x, nuc_area_px, cyto_area_px, cell_area_px, z, y, x, is_nuc, is_cluster, cluster_size, spot_type, is_cell_fragmented. The default is None.
+        Pandas dataframe with the following columns. image_id, cell_id, spot_id, nuc_loc_y, 
+        nuc_loc_x, cyto_loc_y, cyto_loc_x, nuc_area_px, cyto_area_px, cell_area_px, z, y, x, 
+        is_nuc, is_cluster, cluster_size, spot_type, is_cell_fragmented. The default is None.
+        
+        Note: The spot_type column contains the actual imaging channel number from which spots 
+        were detected (not an index). For example, if channels_spots=[2,1], spots detected in 
+        channel 2 will have spot_type=2, and spots from channel 1 will have spot_type=1.
     image_counter : int, optional
         counter for the number of images in the folder. The default is zero.
     list_voxels : List of tupples or None
@@ -3758,14 +3776,17 @@ class SpotDetection():
             spot_diameter_for_intensity_px = int(np.max((self.spot_radius_px[1]*2, self.MINIMUM_SPOT_SIZE_IN_PX)))
             
             if self.calculate_intensity:
+                # Use actual channel number for spot_type (not index)
+                actual_channel = self.list_channels_spots[i]
                 df_detected_spots = DataProcessing(clusters_and_spots, self.image, self.list_masks_complete_cells, self.list_masks_nuclei, self.list_masks_cytosol_no_nuclei, self.channels_cytosol,self.channels_nucleus,
-                                            yx_spot_size_in_px=spot_diameter_for_intensity_px, dataframe =df_detected_spots,reset_cell_counter=reset_cell_counter,image_counter = self.image_counter ,spot_type=i,use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+                                            yx_spot_size_in_px=spot_diameter_for_intensity_px, dataframe =df_detected_spots,reset_cell_counter=reset_cell_counter,image_counter = self.image_counter ,spot_type=actual_channel,use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
                                             number_color_channels=self.number_color_channels, use_maximum_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit ).get_dataframe()
             else:
                 # If intensity calculation is skipped, only append spot locations
                 df_detected_spots = pd.DataFrame(clusters_and_spots, columns=['z', 'y', 'x', 'cluster_size'])
                 df_detected_spots['image_id'] = self.image_counter
-                df_detected_spots['spot_type'] = i
+                # Use actual channel number for spot_type (not index)
+                df_detected_spots['spot_type'] = self.list_channels_spots[i]
                 # remove spots that are not inside ANY mask - combine all masks
                 if self.list_masks_complete_cells is not None and len(self.list_masks_complete_cells) > 0:
                     # Combine all masks into one binary mask
@@ -3838,6 +3859,16 @@ class ParticleTracking:
         Number of random trajectories to generate. Default is None.
     step_size_in_sec : float, optional
         Time step size in seconds for random trajectories. Default is 1.0.
+    
+    Returns
+    -------
+    list_dfs_traj : list of pd.DataFrame
+        List of DataFrames, one per channel in channels_spots, containing tracked particles.
+        Each DataFrame contains the spot_type column with the actual channel number 
+        (not an index). For example, if channels_spots=[2,1], spots from channel 2 will 
+        have spot_type=2, and spots from channel 1 will have spot_type=1.
+    filtered_image_stack : ndarray
+        The filtered image stack used for detection.
     '''
     def __init__(self, image, channels_spots, list_voxels, channels_cytosol, channels_nucleus,
                  remove_clusters=False, maximum_spots_cluster=None, min_length_trajectory=10,
@@ -4043,7 +4074,7 @@ class ParticleTracking:
                             'y': y,
                             'x': x,
                             'cluster_size': 1,
-                            'spot_type': 0,
+                            'spot_type': self.channels_spots[0],  # Use actual channel number
                             'is_cell_fragmented': 0,
                             'frame': t
                         }
@@ -4084,7 +4115,7 @@ class ParticleTracking:
                             'y': y,
                             'x': x,
                             'cluster_size': 1,
-                            'spot_type': 0,
+                            'spot_type': self.channels_spots[0],  # Use actual channel number
                             'is_cell_fragmented': 0,
                             'frame': t
                         }
@@ -4119,7 +4150,7 @@ class ParticleTracking:
                     channels_cytosol=self.channels_cytosol,
                     channels_nucleus=self.channels_nucleus,
                     yx_spot_size_in_px=self.yx_spot_size_in_px,
-                    spot_type=0,
+                    spot_type=self.channels_spots[0],  # Use actual channel number
                     dataframe=None,
                     reset_cell_counter=True,
                     image_counter=t,
@@ -4248,7 +4279,8 @@ class ParticleTracking:
 
             list_dfs_traj = []
             counter = 0
-            for spot_type in range(len(self.channels_spots)):
+            # Iterate over actual channel numbers (spot_type now stores actual channel, not index)
+            for spot_type in self.channels_spots:
                 df_spot = df_all[df_all['spot_type'] == spot_type]
                 # Use masks_tyx for per-frame cell assignment when available
                 reference_mask = self.masks_tyx[0] if self.masks_tyx is not None else self.masks
@@ -4516,7 +4548,9 @@ class DataProcessing():
     yx_spot_size_in_px : int
         Size of the spot in pixels.
     spot_type : int, optional
-        A label indicating the spot type, this counter starts at zero, increasing with the number of channels containing spots. The default is zero.
+        The actual imaging channel number from which spots were detected.
+        For example, if detecting spots in channel 2, spot_type should be 2.
+        The default is 0 (channel 0).
     dataframe : Pandas dataframe or None.
         Pandas dataframe with the following columns. image_id, cell_id, spot_id, nuc_loc_y, nuc_loc_x, cyto_loc_y, cyto_loc_x, nuc_area_px, cyto_area_px, cell_area_px, z, y, x, is_nuc, is_cluster, cluster_size, spot_type, is_cell_fragmented. The default is None.
     reset_cell_counter : bool
@@ -5134,6 +5168,42 @@ class DataProcessing():
 
 
 class ParticleMotion:
+    '''
+    Calculate Mean Squared Displacement (MSD) and diffusion coefficients from particle tracking data.
+    
+    This class computes ensemble-averaged MSD curves and fits them to extract diffusion coefficients.
+    It supports both 2D and 3D tracking data.
+    
+    Parameters
+    ----------
+    trackpy_dataframe : pd.DataFrame
+        DataFrame containing particle tracking data with columns: particle, frame, x, y, (z optional).
+        If the DataFrame contains a spot_type column with multiple unique values, the data will be 
+        filtered by the spot_type parameter.
+    microns_per_pixel : float, optional
+        Pixel size in microns for XY dimensions. Default is 1.
+    step_size_in_sec : float, optional
+        Time interval between frames in seconds. Default is 1.
+    max_lagtime : int, optional
+        Maximum lag time for MSD calculation. Default is 100.
+    show_plot : bool, optional
+        Whether to display the MSD plot. Default is True.
+    remove_drift : bool, optional
+        Whether to remove ensemble drift before MSD calculation. Default is False.
+    spot_type : int, optional
+        The actual imaging channel number to filter by. Only used if the DataFrame contains 
+        multiple unique spot_type values. For example, if your data has spots from channels 
+        2 and 1 (spot_type values 2 and 1), pass spot_type=2 to analyze only channel 2 spots.
+        Default is 0.
+    plot_name : str or None, optional
+        Filename for saving the plot. Default is None (no save).
+    max_fit_points : int, optional
+        Maximum number of points to use for linear fit. Default is 20.
+    is_3d : bool, optional
+        If True, use 3D MSD calculation (D = slope/6). If False, use 2D (D = slope/4). Default is False.
+    microns_per_pixel_z : float or None, optional
+        Pixel size in microns for Z dimension. If None, uses microns_per_pixel. Default is None.
+    '''
 
     def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False, microns_per_pixel_z=None):
         # Ensure scalar conversion for all numeric parameters (handles numpy arrays with 1 element)
@@ -5287,16 +5357,24 @@ class CropArray():
         self.df_crops = df_crops
         self.image = image
         
-        # Create unique_particle to handle multi-cell scenarios
-        # (particles in different cells can have the same ID)
+        # Create unique_particle to handle multi-cell and multi-channel scenarios
+        # (particles in different cells/channels can have the same ID)
         if 'unique_particle' in df_crops.columns:
             self.particle_col = 'unique_particle'
         elif 'cell_id' in df_crops.columns:
             self.df_crops = self.df_crops.copy()
-            self.df_crops['unique_particle'] = (
-                self.df_crops['cell_id'].astype(str) + '_' + 
-                self.df_crops['particle'].astype(str)
-            )
+            # Include spot_type if available to distinguish channels
+            if 'spot_type' in self.df_crops.columns:
+                self.df_crops['unique_particle'] = (
+                    self.df_crops['cell_id'].astype(str) + '_' + 
+                    self.df_crops['spot_type'].astype(str) + '_' +
+                    self.df_crops['particle'].astype(str)
+                )
+            else:
+                self.df_crops['unique_particle'] = (
+                    self.df_crops['cell_id'].astype(str) + '_' + 
+                    self.df_crops['particle'].astype(str)
+                )
             self.particle_col = 'unique_particle'
         else:
             self.particle_col = 'particle'
@@ -5369,7 +5447,9 @@ class ColocalizationDistance():
         Pandas dataframe with the following columns. image_id, cell_id, spot_id, nuc_loc_y, nuc_loc_x, cyto_loc_y, cyto_loc_x, nuc_area_px, cyto_area_px, cell_area_px, z, y, x, is_nuc, is_cluster, cluster_size, spot_type, is_cell_fragmented. 
         The default must contain spots detected in two different color channels.
     list_spot_type_to_compare : list, optional
-        List indicating the combination of two values in spot_type to compare from the dataframe. The default is list_spot_type_to_compare =[0,1] indicating that spot_types 0 and 1 are compared.
+        List of two actual channel numbers to compare for colocalization.
+        For example, [1, 3] compares spots detected in channel 1 vs channel 3.
+        The default [0, 1] compares channels 0 and 1.
     time_point : int, optional.
         Integer indicating the time point at which the data was collected. This number is displayed as a column in the final dataframe. The default value is 0.
     threshold_intensity_0 : int, optional
@@ -5567,7 +5647,29 @@ class PointSpreadFunction():
         self.half_spot_z = crop_size_z // 2
         self.crop_size_xy = crop_size_xy
         self.crop_size_z = crop_size_z
-        self.number_particles = len(df_crops['particle'].unique())
+        
+        # Create unique_particle to handle multi-cell and multi-channel scenarios
+        if 'unique_particle' in df_crops.columns:
+            self.particle_col = 'unique_particle'
+        elif 'cell_id' in df_crops.columns:
+            df_crops = df_crops.copy()
+            # Include spot_type if available to distinguish channels
+            if 'spot_type' in df_crops.columns:
+                df_crops['unique_particle'] = (
+                    df_crops['cell_id'].astype(str) + '_' + 
+                    df_crops['spot_type'].astype(str) + '_' +
+                    df_crops['particle'].astype(str)
+                )
+            else:
+                df_crops['unique_particle'] = (
+                    df_crops['cell_id'].astype(str) + '_' + 
+                    df_crops['particle'].astype(str)
+                )
+            self.particle_col = 'unique_particle'
+        else:
+            self.particle_col = 'particle'
+        
+        self.number_particles = len(df_crops[self.particle_col].unique())
         self.df_crops = df_crops
         self.max_frame = df_crops['frame'].max()
         self.image = image
@@ -5689,8 +5791,8 @@ class PointSpreadFunction():
         list_average_crop = []
         list_all_crops = [[[[] for _ in range(self.max_frame + 1)] for _ in range(self.number_color_channels)] for _ in range(self.number_particles)]
         
-        for particle_idx, particle_id in enumerate(self.df_crops['particle'].unique()):
-            df_particle = self.df_crops[self.df_crops['particle'] == particle_id]
+        for particle_idx, particle_id in enumerate(self.df_crops[self.particle_col].unique()):
+            df_particle = self.df_crops[self.df_crops[self.particle_col] == particle_id]
             list_crops = [[] for _ in range(self.number_color_channels)]
             
             for i in range(self.max_frame + 1):
@@ -6819,13 +6921,29 @@ class Utilities():
         array_a, array_b, particles : (np.ndarray, np.ndarray, List[str])
         """
         df = dataframe.copy()
-        # Stable unique_particle key
+        # Stable unique_particle key (includes spot_type for multi-channel support)
         has_image_id = ('image_id' in df.columns)
         has_cell_id  = ('cell_id'  in df.columns)
-        if has_image_id and has_cell_id:
+        has_spot_type = ('spot_type' in df.columns)
+        
+        # Build unique_particle with all available identifiers
+        if has_image_id and has_cell_id and has_spot_type:
+            df['unique_particle'] = (
+                df['image_id'].astype(str) + '_' +
+                df['cell_id'].astype(str) + '_' +
+                df['spot_type'].astype(str) + '_' +
+                df['particle'].astype(str)
+            )
+        elif has_image_id and has_cell_id:
             df['unique_particle'] = (
                 df['image_id'].astype(str) + '_' +
                 df['cell_id'].astype(str)  + '_' +
+                df['particle'].astype(str)
+            )
+        elif has_cell_id and has_spot_type:
+            df['unique_particle'] = (
+                df['cell_id'].astype(str) + '_' +
+                df['spot_type'].astype(str) + '_' +
                 df['particle'].astype(str)
             )
         elif has_image_id:
@@ -8117,10 +8235,26 @@ class Utilities():
         df = dataframe.copy()
         has_image_id = ('image_id' in df.columns)
         has_cell_id  = ('cell_id'  in df.columns)
-        if has_image_id and has_cell_id:
+        has_spot_type = ('spot_type' in df.columns)
+        
+        # Build unique_particle with all available identifiers (including spot_type for multi-channel)
+        if has_image_id and has_cell_id and has_spot_type:
             df['unique_particle'] = (
                 df['image_id'].astype(str) + '_' +
                 df['cell_id'].astype(str) + '_' +
+                df['spot_type'].astype(str) + '_' +
+                df['particle'].astype(str)
+            )
+        elif has_image_id and has_cell_id:
+            df['unique_particle'] = (
+                df['image_id'].astype(str) + '_' +
+                df['cell_id'].astype(str) + '_' +
+                df['particle'].astype(str)
+            )
+        elif has_cell_id and has_spot_type:
+            df['unique_particle'] = (
+                df['cell_id'].astype(str) + '_' +
+                df['spot_type'].astype(str) + '_' +
                 df['particle'].astype(str)
             )
         elif has_image_id:
@@ -11800,13 +11934,14 @@ class Plots():
         list_file_plots_distributions =[]
         list_file_plots_cell_size_vs_num_spots =[]
         list_file_plots_cell_intensity_vs_num_spots =[]
-        # extracting data for each spot type
-        for i in range (number_channels_spots):
-            number_of_spots_per_cell, number_of_spots_per_cell_cytosol, number_of_spots_per_cell_nucleus, number_of_TS_per_cell, ts_size, cell_size, number_cells, nuc_size, cyto_size = Utilities().df_extract_data(dataframe,spot_type=i,minimum_spots_cluster=minimum_spots_cluster)
-            file_plots_cell_intensity_vs_num_spots = Plots().plot_cell_intensity_spots(dataframe, number_of_spots_per_cell_nucleus, number_of_spots_per_cell_cytosol,output_identification_string,spot_type=i)
-            file_plots_spot_intensity_distributions = Plots().plot_spot_intensity_distributions(dataframe,output_identification_string=output_identification_string,remove_outliers=True,spot_type=i) 
-            file_plots_distributions = Plots().plotting_results_as_distributions(number_of_spots_per_cell, number_of_spots_per_cell_cytosol, number_of_spots_per_cell_nucleus, ts_size, number_of_TS_per_cell, minimum_spots_cluster, output_identification_string=output_identification_string,spot_type=i)
-            file_plots_cell_size_vs_num_spots = Plots().plot_cell_size_spots(channels_cytosol, channels_nucleus, cell_size, number_of_spots_per_cell, cyto_size, number_of_spots_per_cell_cytosol, nuc_size, number_of_spots_per_cell_nucleus,output_identification_string=output_identification_string,spot_type=i)
+        # extracting data for each spot type (iterate over actual channel numbers)
+        channels_spots_list = channels_spots if isinstance(channels_spots, list) else [channels_spots]
+        for spot_ch in channels_spots_list:
+            number_of_spots_per_cell, number_of_spots_per_cell_cytosol, number_of_spots_per_cell_nucleus, number_of_TS_per_cell, ts_size, cell_size, number_cells, nuc_size, cyto_size = Utilities().df_extract_data(dataframe,spot_type=spot_ch,minimum_spots_cluster=minimum_spots_cluster)
+            file_plots_cell_intensity_vs_num_spots = Plots().plot_cell_intensity_spots(dataframe, number_of_spots_per_cell_nucleus, number_of_spots_per_cell_cytosol,output_identification_string,spot_type=spot_ch)
+            file_plots_spot_intensity_distributions = Plots().plot_spot_intensity_distributions(dataframe,output_identification_string=output_identification_string,remove_outliers=True,spot_type=spot_ch) 
+            file_plots_distributions = Plots().plotting_results_as_distributions(number_of_spots_per_cell, number_of_spots_per_cell_cytosol, number_of_spots_per_cell_nucleus, ts_size, number_of_TS_per_cell, minimum_spots_cluster, output_identification_string=output_identification_string,spot_type=spot_ch)
+            file_plots_cell_size_vs_num_spots = Plots().plot_cell_size_spots(channels_cytosol, channels_nucleus, cell_size, number_of_spots_per_cell, cyto_size, number_of_spots_per_cell_cytosol, nuc_size, number_of_spots_per_cell_nucleus,output_identification_string=output_identification_string,spot_type=spot_ch)
             # Appending list of files
             list_file_plots_spot_intensity_distributions.append(file_plots_spot_intensity_distributions)
             list_file_plots_distributions.append(file_plots_distributions)

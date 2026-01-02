@@ -956,6 +956,11 @@ class GUI(QMainWindow):
         # Tracking tab zoom feature - ROI for visualization
         self.tracking_zoom_roi = None  # (x_min, x_max, y_min, y_max) or None for full view
         self.tracking_zoom_selector = None  # RectangleSelector instance
+        
+        # Import/Display tab zoom feature - ROI for visualization
+        self.display_zoom_roi = None  # (x_min, x_max, y_min, y_max) or None for full view
+        self.display_zoom_selector = None  # RectangleSelector instance
+        
         self.plots = Plots(self)
         self.use_multi = False
         mi.Banner().print_banner()
@@ -2427,9 +2432,86 @@ class GUI(QMainWindow):
             if hasattr(self, 'ax_tracking_vis'):
                 self.display_tracking_visualization()
 
+    def _on_display_zoom_select(self, eclick, erelease):
+        """Handle ROI selection from left-click drag on display/import canvas."""
+        if self.image_stack is None:
+            return
+        
+        x1, y1 = eclick.xdata, eclick.ydata
+        x2, y2 = erelease.xdata, erelease.ydata
+        
+        # Handle None values (click outside axes)
+        if x1 is None or x2 is None or y1 is None or y2 is None:
+            return
+        
+        # Calculate ROI bounds
+        x_min, x_max = min(x1, x2), max(x1, x2)
+        y_min, y_max = min(y1, y2), max(y1, y2)
+        
+        # Enforce minimum ROI size (50x50 pixels)
+        if (x_max - x_min) < 50 or (y_max - y_min) < 50:
+            return
+        
+        # Clamp to image bounds
+        _, _, H, W, _ = self.image_stack.shape
+        x_min = max(0, x_min)
+        x_max = min(W, x_max)
+        y_min = max(0, y_min)
+        y_max = min(H, y_max)
+        
+        # Store ROI
+        self.display_zoom_roi = (x_min, x_max, y_min, y_max)
+        
+        # Update label
+        if hasattr(self, 'display_zoom_label'):
+            self.display_zoom_label.setText(f"🔍 ROI: X[{int(x_min)}:{int(x_max)}] Y[{int(y_min)}:{int(y_max)}]")
+            self.display_zoom_label.setStyleSheet("color: #00d4aa; font-size: 10px; font-weight: bold;")
+        
+        # Redraw with zoom
+        self.plot_image()
+
+    def _on_display_canvas_click(self, event):
+        """Handle mouse clicks on display canvas - double-click to reset zoom."""
+        if event.dblclick:
+            self._reset_display_zoom()
+
+    def _reset_display_zoom(self):
+        """Reset display/import tab zoom to show full image."""
+        self.display_zoom_roi = None
+        
+        # Update label
+        if hasattr(self, 'display_zoom_label'):
+            self.display_zoom_label.setText("🔍 Full View")
+            self.display_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # Redraw without zoom
+        self.plot_image()
+
     def plot_image(self):
-        self.figure_display.clear()
-        self.ax_display = self.figure_display.add_subplot(111)
+        # Check if ax_display is still valid (in the figure's axes list)
+        ax_valid = (hasattr(self, 'ax_display') and 
+                   self.ax_display is not None and 
+                   self.ax_display in self.figure_display.axes)
+        
+        if ax_valid:
+            # Clear axes content instead of entire figure to preserve RectangleSelector
+            self.ax_display.clear()
+        else:
+            # Need to create new axes
+            self.figure_display.clear()
+            self.ax_display = self.figure_display.add_subplot(111)
+            # Initialize RectangleSelector only when creating new axes
+            self.display_zoom_selector = RectangleSelector(
+                self.ax_display,
+                self._on_display_zoom_select,
+                useblit=True,
+                button=[1],  # Left mouse button only
+                minspanx=5, minspany=5,
+                spancoords='pixels',
+                interactive=False,
+                props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+            )
+        
         self.ax_display.set_facecolor('black')
         self.ax_display.axis('off')
         if self.image_stack is not None:
@@ -2530,7 +2612,18 @@ class GUI(QMainWindow):
                                             edgecolor='#555555', facecolor='none', linestyle='-')
             self.ax_display.add_patch(img_border)
             
-            self.figure_display.tight_layout()
+            # Use tight_layout for proper spacing
+            try:
+                self.figure_display.tight_layout()
+            except Exception:
+                pass  # Ignore layout errors
+            
+            # Apply zoom AFTER tight_layout to ensure limits are not reset
+            if self.display_zoom_roi is not None:
+                x_min, x_max, y_min, y_max = self.display_zoom_roi
+                self.ax_display.set_xlim(x_min, x_max)
+                self.ax_display.set_ylim(y_max, y_min)  # Inverted for image coordinates
+                
         self.canvas_display.draw_idle()
 
     def update_z(self, value):
@@ -2889,6 +2982,22 @@ class GUI(QMainWindow):
         self.figure_display, self.ax_display = plt.subplots(figsize=(8, 8))
         self.figure_display.patch.set_facecolor('black')
         self.canvas_display = FigureCanvas(self.figure_display)
+        
+        # Set up zoom feature: RectangleSelector for left-click drag
+        self.display_zoom_selector = RectangleSelector(
+            self.ax_display,
+            self._on_display_zoom_select,
+            useblit=True,
+            button=[1],  # Left mouse button only
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
+        # Connect double-click to reset zoom
+        self.canvas_display.mpl_connect('button_press_event', self._on_display_canvas_click)
+        
         # Create a horizontal layout to hold the canvas and the Z slider
         canvas_slider_layout = QHBoxLayout()
         canvas_slider_layout.addWidget(self.canvas_display)
@@ -2945,6 +3054,15 @@ class GUI(QMainWindow):
         self.play_button_display.clicked.connect(self.play_pause_display)
         controls_layout.addWidget(self.play_button_display)
         display_left_layout.addLayout(controls_layout)
+        
+        # Zoom info layout
+        zoom_info_layout = QHBoxLayout()
+        self.display_zoom_label = QLabel("🔍 Full View")
+        self.display_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        zoom_info_layout.addWidget(self.display_zoom_label)
+        zoom_info_layout.addStretch()
+        display_left_layout.addLayout(zoom_info_layout)
+        
         # Right side
         display_right_layout = QVBoxLayout()
         display_main_layout.addLayout(display_right_layout, 1)
@@ -5240,7 +5358,7 @@ class GUI(QMainWindow):
             btn_clear_imported_masks (QPushButton)
             masks_imported (bool): True if masks were imported vs generated
             # Cellpose-specific attributes (Cellpose shares the segmentation canvas):
-            cellpose_cyto_* and cellpose_nuc_* inputs (model, channel, diameter, flow)
+            cellpose_cyto_* and cellpose_nuc_* inputs (model, channel, diameter)
             btn_run_cyto, btn_run_nuc (QPushButton)
             num_masks_slider, min_frames_slider, cell_expansion_slider, cell_shrink_slider
             chk_remove_border_cells, chk_remove_unpaired_cells (QCheckBox)
@@ -5479,12 +5597,6 @@ class GUI(QMainWindow):
         self.cellpose_cyto_diameter_input.setValue(150)
         cyto_layout.addRow("Diameter (px):", self.cellpose_cyto_diameter_input)
         
-        self.cellpose_cyto_flow_input = QDoubleSpinBox()
-        self.cellpose_cyto_flow_input.setRange(0, 1)
-        self.cellpose_cyto_flow_input.setSingleStep(0.1)
-        self.cellpose_cyto_flow_input.setValue(0.4)
-        cyto_layout.addRow("Flow Threshold:", self.cellpose_cyto_flow_input)
-        
         self.chk_optimize_cyto = QCheckBox("Optimize Parameters")
         self.chk_optimize_cyto.setChecked(False)
         cyto_layout.addRow(self.chk_optimize_cyto)
@@ -5514,12 +5626,6 @@ class GUI(QMainWindow):
         self.cellpose_nuc_diameter_input.setRange(0, 1000)
         self.cellpose_nuc_diameter_input.setValue(60)
         nuc_layout.addRow("Diameter (px):", self.cellpose_nuc_diameter_input)
-        
-        self.cellpose_nuc_flow_input = QDoubleSpinBox()
-        self.cellpose_nuc_flow_input.setRange(0, 1)
-        self.cellpose_nuc_flow_input.setSingleStep(0.1)
-        self.cellpose_nuc_flow_input.setValue(0.4)
-        nuc_layout.addRow("Flow Threshold:", self.cellpose_nuc_flow_input)
         
         self.chk_optimize_nuc = QCheckBox("Optimize Parameters")
         self.chk_optimize_nuc.setChecked(False)
@@ -5607,7 +5713,7 @@ class GUI(QMainWindow):
         
         self.cell_expansion_slider = QSlider(Qt.Horizontal)
         self.cell_expansion_slider.setMinimum(0)
-        self.cell_expansion_slider.setMaximum(10)
+        self.cell_expansion_slider.setMaximum(20)
         self.cell_expansion_slider.setValue(0)
         self.cell_expansion_slider.setTickPosition(QSlider.TicksBelow)
         self.cell_expansion_slider.setTickInterval(1)
@@ -5627,7 +5733,7 @@ class GUI(QMainWindow):
         
         self.cell_shrink_slider = QSlider(Qt.Horizontal)
         self.cell_shrink_slider.setMinimum(0)
-        self.cell_shrink_slider.setMaximum(10)
+        self.cell_shrink_slider.setMaximum(20)
         self.cell_shrink_slider.setValue(0)
         self.cell_shrink_slider.setTickPosition(QSlider.TicksBelow)
         self.cell_shrink_slider.setTickInterval(1)
@@ -6580,11 +6686,13 @@ class GUI(QMainWindow):
         particle_id = current.data(Qt.UserRole)
         if particle_id is None:
             return
-        self.selected_particle_id = int(particle_id)
+        self.selected_particle_id = particle_id  # Keep as-is (can be string like "1_0")
         if getattr(self, 'playing', False):
             self.play_pause()
         if not self.df_tracking.empty:
-            frames = self.df_tracking[self.df_tracking['particle'] == self.selected_particle_id]['frame']
+            # Use unique_particle if available, otherwise fall back to particle
+            particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+            frames = self.df_tracking[self.df_tracking[particle_col] == particle_id]['frame']
             if not frames.empty:
                 first_frame = int(frames.min())
                 self.update_frame(first_frame)
@@ -7134,11 +7242,19 @@ class GUI(QMainWindow):
                 if 'particle' not in df_tracking.columns or df_tracking['particle'].nunique() == 0:
                     raise ValueError("No particles detected or 'particle' column missing.")
                 
-                # Create unique_particle column to avoid duplicate particle IDs across cells
+                # Create unique_particle column to avoid duplicate particle IDs across cells/channels
                 if 'cell_id' in df_tracking.columns:
-                    df_tracking['unique_particle'] = (
-                        df_tracking['cell_id'].astype(str) + '_' + df_tracking['particle'].astype(str)
-                    )
+                    # Include spot_type if available for multi-channel support
+                    if 'spot_type' in df_tracking.columns:
+                        df_tracking['unique_particle'] = (
+                            df_tracking['cell_id'].astype(str) + '_' + 
+                            df_tracking['spot_type'].astype(str) + '_' +
+                            df_tracking['particle'].astype(str)
+                        )
+                    else:
+                        df_tracking['unique_particle'] = (
+                            df_tracking['cell_id'].astype(str) + '_' + df_tracking['particle'].astype(str)
+                        )
                 else:
                     df_tracking['unique_particle'] = df_tracking['particle'].astype(str)
                 
@@ -9163,7 +9279,9 @@ class GUI(QMainWindow):
             found_spot = False
             if item:
                 pid = item.data(Qt.UserRole)
-                dfm = self.df_tracking[(self.df_tracking['particle'] == pid) & (self.df_tracking['frame'] == self.current_frame)]
+                # Use unique_particle if available, otherwise fall back to particle
+                particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+                dfm = self.df_tracking[(self.df_tracking[particle_col] == pid) & (self.df_tracking['frame'] == self.current_frame)]
                 if not dfm.empty:
                     spot_coord = (int(dfm.iloc[0]['y']), int(dfm.iloc[0]['x']))
                     found_spot = True
@@ -10701,6 +10819,25 @@ class GUI(QMainWindow):
             fontsize=12, color='white',
             transform=self.ax_display.transAxes
         )
+        
+        # Reset zoom state
+        self.display_zoom_roi = None
+        if hasattr(self, 'display_zoom_label'):
+            self.display_zoom_label.setText("🔍 Full View")
+            self.display_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # Recreate RectangleSelector for new axes
+        self.display_zoom_selector = RectangleSelector(
+            self.ax_display,
+            self._on_display_zoom_select,
+            useblit=True,
+            button=[1],
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
         self.canvas_display.draw()
         self.time_slider_display.setValue(0)
         self.play_button_display.setText("Play")
@@ -11423,8 +11560,6 @@ class GUI(QMainWindow):
             self.cellpose_cyto_channel_input.setValue(default_cyto_ch)
         if hasattr(self, 'cellpose_cyto_diameter_input'):
             self.cellpose_cyto_diameter_input.setValue(120)
-        if hasattr(self, 'cellpose_cyto_flow_input'):
-            self.cellpose_cyto_flow_input.setValue(0.4)
         if hasattr(self, 'chk_optimize_cyto'):
             self.chk_optimize_cyto.setChecked(False)
         
@@ -11438,8 +11573,6 @@ class GUI(QMainWindow):
             self.cellpose_nuc_channel_input.setValue(0)
         if hasattr(self, 'cellpose_nuc_diameter_input'):
             self.cellpose_nuc_diameter_input.setValue(60)
-        if hasattr(self, 'cellpose_nuc_flow_input'):
-            self.cellpose_nuc_flow_input.setValue(0.4)
         if hasattr(self, 'chk_optimize_nuc'):
             self.chk_optimize_nuc.setChecked(False)
         
@@ -12000,9 +12133,13 @@ class GUI(QMainWindow):
                 self.reset_tracking_visualization_tab()
                 return
             self.tracked_particles_list.clear()
-            for pid in sorted(self.df_tracking['particle'].unique()):
-                count = int((self.df_tracking['particle'] == pid).sum())
-                item = QListWidgetItem(f"{pid}:{count}")
+            # Use unique_particle if available, otherwise fall back to particle
+            particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+            for pid in sorted(self.df_tracking[particle_col].unique(), key=str):
+                count = int((self.df_tracking[particle_col] == pid).sum())
+                # Display cell_id and particle number if using unique_particle
+                display_text = f"{pid}:{count}"
+                item = QListWidgetItem(display_text)
                 item.setData(Qt.UserRole, pid)
                 self.tracked_particles_list.addItem(item)
             if self.tracked_particles_list.count() > 0 and self.tracked_particles_list.currentRow() < 0:

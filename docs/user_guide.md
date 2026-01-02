@@ -1090,8 +1090,9 @@ For each imaging channel N (where N = 0, 1, 2, ...), the following intensity col
 |--------|------|-------------|-------|
 | `cluster_size` | int | Number of spots grouped in cluster (1 = individual spot) | spots |
 | `is_cluster` | bool | Whether particle is part of a multi-spot cluster | - |
-| `spot_type` | int | Channel identifier for analysis | - |
+| `spot_type` | int | Actual imaging channel number used for spot detection (e.g., if tracking channel 2, spot_type=2) | - |
 | `spot_id` | int | Unique spot identifier within each frame | - |
+| `unique_particle` | str | Hierarchical unique particle identifier (format: `cell_id_spot_type_particle` when segmentation is available, or `particle` otherwise). This ensures particles are uniquely identified across cells AND channels in multi-cell, multi-channel experiments. | - |
 
 #### Cellular Localization Data (When Segmentation Available)
 
