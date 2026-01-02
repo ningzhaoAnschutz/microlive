@@ -340,6 +340,34 @@ class Banner:
 
 
 class Photobleaching:
+    """Apply photobleaching correction to time-lapse microscopy images.
+    
+    Fits exponential decay I(t) = I0 * exp(-k * t) per channel and corrects
+    intensities to restore signal lost to photobleaching.
+    
+    Args:
+        image_TZYXC: 5D image array with shape [T, Z, Y, X, C].
+        mask_YX: 2D binary mask [Y, X] defining ROI. If 3D [T, Y, X], max-projected.
+        show_plot: Display fitting and correction plots. Defaults to True.
+        mode: ROI selection mode. Options:
+            - 'inside_cell': Use mask_YX as ROI (default)
+            - 'outside_cell': Use inverse of mask_YX
+            - 'use_circular_region': Circular ROI centered on mask or image center
+            - 'entire_image': Use full image
+        precalulated_list_decay_rates: Pre-computed [k, I0] pairs per channel.
+        plot_name: File path to save plots. Defaults to None (no save).
+        radius: Radius in pixels for 'use_circular_region' mode. Defaults to 50.
+        time_interval_seconds: Time between frames in seconds. Defaults to 1.0.
+        min_intensity_threshold: Skip correction if initial intensity below this. Defaults to 10.
+        verbose: Print progress messages. Defaults to False.
+    
+    Attributes:
+        mean_intensities: Mean intensity per frame per channel, shape [T, C].
+        err_intensities: Standard error of intensities, shape [T, C].
+        mask: Final 2D binary mask [Y, X] used for calculations.
+        list_decay_rates: Fitted parameters [k0, I0_0, k1, I0_1, ...] for each channel.
+    """
+    
     def __init__(
         self,
         image_TZYXC,
@@ -386,9 +414,18 @@ class Photobleaching:
         self.min_intensity_threshold = min_intensity_threshold
     
     def calculate_photobleaching(self):
-        """
-        Fits a simple exponential decay model: I(t) = I0 * exp(-k * t)
-        Uses log-linear fitting exactly like the working reference code.
+        """Fit exponential decay model to mean intensities per channel.
+        
+        Uses constrained nonlinear curve fitting with log-linear fallback.
+        Skips channels with <5% intensity decrease or insufficient data.
+        
+        Returns:
+            list: Flattened list [k0, I0_0, k1, I0_1, ...] where:
+                - k: Decay rate constant (1/s)
+                - I0: Fitted initial intensity
+        
+        Side Effects:
+            Sets self.mean_intensities [T, C] and self.err_intensities [T, C].
         """
         def create_circular_mask(h, w, center=None, radius=None):
             if center is None:
@@ -427,19 +464,26 @@ class Photobleaching:
                     mean_intensities[i, ch] = np.mean(masked_pixels)
                     err_intensities[i, ch] = np.std(masked_pixels)
         self.mean_intensities = mean_intensities
-        self.err_intensities = err_intensities/ np.sqrt(np.sum(mask))  # Standard error of the mean
+        # Standard error of the mean (guard against empty mask)
+        mask_sum = max(1, np.sum(mask))
+        self.err_intensities = err_intensities / np.sqrt(mask_sum)
         time_array = np.arange(T, dtype=float) * self.time_interval_seconds
         params = []
         for ch in range(C):
             raw_intensities = mean_intensities[:, ch]
             if len(raw_intensities) < 2:
                 params.extend([0.0, 0.01])  # [k_fit, I0_fit]
-                print(f"Warning: Not enough data for channel {ch}. No correction applied.")
+                logging.debug(f"Photobleaching: Not enough data for channel {ch}. No correction applied.")
+                continue
+            # Guard against division by zero if initial intensity is 0
+            if raw_intensities[0] <= 0:
+                params.extend([0.0, 0.01])
+                logging.debug(f"Photobleaching: Initial intensity is zero for channel {ch}. No correction applied.")
                 continue
             intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / raw_intensities[0]
             if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
                 params.extend([0.0, raw_intensities[0]])  # [k_fit=0, I0_fit=initial_intensity]
-                print(f"Warning: Photobleaching correction not necessary for channel {ch}. No correction applied.")
+                logging.debug(f"Photobleaching: Correction not necessary for channel {ch}. No correction applied.")
                 continue
             
             # Use constrained nonlinear fitting instead of log-linear
@@ -475,7 +519,7 @@ class Photobleaching:
                 I0_fit, k_fit = popt
             except Exception as e:
                 # Fallback to log-linear if curve_fit fails
-                print(f"Warning: curve_fit failed for channel {ch}, using log-linear fit. Error: {e}")
+                logging.debug(f"Photobleaching: curve_fit failed for channel {ch}, using log-linear fit. Error: {e}")
                 k_fit = -slope
                 I0_fit = np.exp(intercept)
             
@@ -505,12 +549,21 @@ class Photobleaching:
         return params
 
     def apply_photobleaching_correction(self):
-        """
-        Applies photobleaching correction normalized to the initial intensity (t=0).
-        The correction factor is I_fit(0) / I_fit(t), ensuring the initial frame is unchanged.
+        """Apply photobleaching correction normalized to initial intensity.
         
-        MEMORY OPTIMIZED: Processes frames one at a time instead of creating a full float32 copy.
-        Corrected intensities are computed analytically from correction factors.
+        Correction factor: I_fit(0) / I_fit(t), so t=0 frame is unchanged.
+        Memory-optimized: processes one frame at a time.
+        
+        Returns:
+            tuple: (corrected_image, photobleaching_data)
+                - corrected_image: np.ndarray [T, Z, Y, X, C] uint16
+                - photobleaching_data: dict with keys:
+                    - 'decay_rates': [k0, I0_0, k1, I0_1, ...]
+                    - 'time_array': np.ndarray [T] in seconds
+                    - 'mean_intensities': np.ndarray [T, C] original
+                    - 'err_intensities': np.ndarray [T, C] original SEM
+                    - 'mean_intensities_corrected': np.ndarray [T, C]
+                    - 'err_intensities_corrected': np.ndarray [T, C]
         """
         params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
         T, Z, Y, X, C = self.image_TZYXC.shape
@@ -562,13 +615,13 @@ class Photobleaching:
             # (Final intensity is naturally low after photobleaching - that's expected)
             initial_intensity = raw_intensities[0] if len(raw_intensities) > 0 else 0.0
             if initial_intensity < self.min_intensity_threshold:
-                print(f"Warning: Photobleaching correction skipped for channel {ch} "
+                logging.debug(f"Photobleaching: Correction skipped for channel {ch} "
                       f"(initial intensity {initial_intensity:.2f} < {self.min_intensity_threshold}).")
                 correction_factors_per_ch[ch] = np.ones(T)  # No correction
                 continue
             
             if len(time_array) < 2:
-                print(f"Skipping photobleaching correction for channel {ch} (not enough data points).")
+                logging.debug(f"Photobleaching: Skipping correction for channel {ch} (not enough data points).")
                 correction_factors_per_ch[ch] = np.ones(T)
                 continue
             
@@ -577,14 +630,14 @@ class Photobleaching:
             # Skip if intensity doesn't decrease significantly (< 5% decrease)
             if intensity_decrease < 0.05 or np.mean(np.diff(raw_intensities)) >= 0:
                 if self.verbose:
-                    print(f"Photobleaching correction not necessary for channel {ch}. No correction applied.")
+                    logging.debug(f"Photobleaching: Correction not necessary for channel {ch}. No correction applied.")
                 correction_factors_per_ch[ch] = np.ones(T)
                 continue
             
             # Skip if intensity decays too much (> 95% decrease) - correction would be unreliable
             # because we'd be dividing by near-zero values at the end
             if intensity_decrease > 0.95:
-                print(f"Warning: Photobleaching correction skipped for channel {ch} "
+                logging.debug(f"Photobleaching: Correction skipped for channel {ch} "
                       f"(extreme decay {intensity_decrease*100:.1f}% - correction would be unreliable).")
                 correction_factors_per_ch[ch] = np.ones(T)  # No correction
                 continue
@@ -604,7 +657,7 @@ class Photobleaching:
         corrected_image = np.zeros_like(self.image_TZYXC, dtype=np.uint16)
         
         if self.verbose:
-            print(f"Applying photobleaching correction frame-by-frame ({T} frames)...")
+            logging.debug(f"Photobleaching: Applying correction frame-by-frame ({T} frames)...")
         for i in range(T):
             # Process this frame
             frame_float = self.image_TZYXC[i].astype(np.float32)
@@ -615,7 +668,7 @@ class Photobleaching:
             
             # Progress indicator every 50 frames
             if ((i + 1) % 50 == 0 or i == T - 1) and self.verbose:
-                print(f"  Frame {i + 1}/{T} completed")
+                logging.debug(f"Photobleaching: Frame {i + 1}/{T} completed")
         
         # Compute corrected mean intensities analytically (no need to re-scan image)
         # corrected_intensity = original_intensity * correction_factor
@@ -660,17 +713,24 @@ class Photobleaching:
 
 
 class ReadLif:
-    """
-    Read .lif files and extract images, metadata, and per-scene laser/spectro info.
-
+    """Read Leica .lif files and extract images with metadata.
+    
+    Uses BioImage (aicsimageio) for image reading and readlif for metadata.
+    Supports lazy loading, TIFF/PNG export, and laser/spectral info extraction.
+    
     Args:
-        path (str or Path):      The path to the .lif file.
-        show_metadata (bool):    Whether to print metadata to stdout.
-        save_tif (bool):         Whether to export each scene as OME-TIFF.
-        save_png (bool):         Whether to export each scene as PNG.
-        format (str):            Axis order for returned arrays (e.g. 'TZYXC').
-        lazy (bool):             If True, pixel data loads on demand.
+        path: Path to the .lif file (str or Path).
+        show_metadata: Print metadata to stdout. Defaults to True.
+        save_tif: Export each scene as OME-TIFF (TCZYX format). Defaults to False.
+        save_png: Export each scene as PNG. Defaults to False.
+        format: Axis order for returned arrays. Defaults to 'TZYXC'.
+        lazy: If True, pixel data loads on demand. Defaults to False.
+    
+    Attributes:
+        path: Path object to the .lif file.
+        _aics: BioImage handle for the file.
     """
+    
     def __init__(self, path, show_metadata=True, save_tif=False, save_png=False,
                  format='TZYXC', lazy=False):
         # Path setup
@@ -690,13 +750,21 @@ class ReadLif:
         self._aics = BioImage(str(self.path))
 
     def read(self):
-        """
-        Reads all scenes and returns a tuple:
-          ( list_images, list_names,
-            pixel_XY, pixel_Z,
-            channel_names, num_channels,
-            list_time_intervals, bit_depth,
-            list_laser_lines, list_intensities, list_wave_ranges )
+        """Read all scenes from the .lif file.
+        
+        Returns:
+            tuple: 11-element tuple containing:
+                - list_images (list[np.ndarray]): Image arrays per scene, shape per format.
+                - list_names (list[str]): Scene names.
+                - pixel_XY (float): XY pixel size in microns.
+                - pixel_Z (float): Z pixel size in microns.
+                - channel_names (list[str]): Channel name labels.
+                - num_channels (int): Number of channels.
+                - list_time_intervals (list[float]): Time between frames per scene (s).
+                - bit_depth (int): Image bit depth.
+                - list_laser_lines (list[list[int]]): Laser wavelengths per scene.
+                - list_intensities (list[list[float]]): Laser intensities per scene.
+                - list_wave_ranges (list[list[tuple]]): Spectral ranges per scene.
         """
         # attempt to open LIF metadata
         try:
@@ -754,24 +822,6 @@ class ReadLif:
                 print("-"*40)
             stem = f"{self.path.stem}_{idx}"
             outdir = self.path.parent / "images_reformatted"
-            # if self.save_tif:
-            #     outdir.mkdir(parents=True, exist_ok=True)
-            #     tifffile.imwrite(
-            #         outdir / f"{stem}.ome.tif",
-            #         arr,
-            #         imagej=False,
-            #         metadata={
-            #             'axes': self.format,
-            #             'PhysicalSizeX': pixel_XY,
-            #             'PhysicalSizeY': pixel_XY,
-            #             'PhysicalSizeZ': pixel_Z,
-            #             'TimeIncrement': ti,
-            #             'TimeIncrementUnit': 's',
-            #             'SignificantBits': bit_depth,
-            #             'Channel': {'Name': ch_names},
-            #         }
-            #     )
-            # outdir = self.path.parent / "images_reformatted"
             if self.save_tif:
                 outdir.mkdir(parents=True, exist_ok=True)
                 # Transpose from TZYXC (internal format) to TCZYX (OME-TIFF standard)
@@ -824,22 +874,33 @@ class ReadLif:
         )
   
     def read_scene(self, image_index: int):
-        """Return the raw numpy array for a single scene index."""
+        """Read a single scene by index.
+        
+        Args:
+            image_index: Zero-based scene index.
+        
+        Returns:
+            np.ndarray: Image array with shape defined by self.format.
+        
+        Raises:
+            IndexError: If image_index is out of range.
+        """
         if not (0 <= image_index < len(self._aics.scenes)):
             raise IndexError("Scene index out of range")
         self._aics.set_scene(image_index)
         return self._aics.get_image_data(self.format)
 
     def get_laser_info(self, image_index: int):
-        """
-        For the given scene index returns a triple:
-          ( laser_lines, intensities, wave_ranges )
-
-        * laser_lines  : [405, 488, …] ints (per-scene)
-        * intensities  : [0.000, 2.300, …] floats (per-scene)
-        * wave_ranges  : [(b,e), …] tuples of ints (global Spectro windows)
-
-        Missing blocks simply yield empty lists.
+        """Extract laser and spectral info for a scene from LIF XML metadata.
+        
+        Args:
+            image_index: Zero-based scene index.
+        
+        Returns:
+            tuple: (laser_lines, intensities, wave_ranges)
+                - laser_lines (list[int]): Wavelengths in nm, e.g., [405, 488, 561].
+                - intensities (list[float]): Laser power percentages.
+                - wave_ranges (list[tuple]): Spectral windows as (start_nm, end_nm).
         """
         try:
             lif  = LifFile(self.path)
@@ -898,26 +959,20 @@ class ReadLif:
         return laser_lines, intensities, wave_ranges
 
 class ConvertFormat:
-    """
-    A class to convert images between different dimension formats.
-
-    This class allows conversion of images with any order of dimensions to a desired format.
-    It can handle adding missing dimensions, swapping axes, and reducing dimensions.
-
-    Parameters
-    ----------
-    image : np.ndarray
-        The input image array.
-    original_order : list of str
-        A list representing the dimension order of the input image.
-        Possible dimensions are 'T' (time), 'Z' (depth), 'Y' (height), 'X' (width), 'C' (channel).
-    desired_order : list of str
-        A list representing the desired dimension order in the output image.
-
-    Methods
-    -------
-    convert():
-        Converts the image to the desired format and returns the converted image.
+    """Convert images between different dimension formats (axis orders).
+    
+    Handles adding missing dimensions, swapping axes, and reducing dimensions
+    via max-projection.
+    
+    Args:
+        image: Input image array (any shape).
+        original_order: Current axis order, e.g., ['T', 'Z', 'Y', 'X', 'C'].
+        desired_order: Target axis order, e.g., ['T', 'C', 'Z', 'Y', 'X'].
+    
+    Valid dimensions: 'T' (time), 'Z' (depth), 'Y' (height), 'X' (width), 'C' (channel).
+    
+    Example:
+        >>> img_tczyx = ConvertFormat(img, ['T','Z','Y','X','C'], ['T','C','Z','Y','X']).convert()
     """
 
     def __init__(self, image: np.ndarray, original_order: list, desired_order: list):
@@ -929,6 +984,7 @@ class ConvertFormat:
         self._validate_dimensions()
 
     def _validate_dimensions(self):
+        """Validate that dimension labels are valid and match image shape."""
         for dim in self.original_order + self.desired_order:
             if dim not in self.valid_dims:
                 raise ValueError(f"Invalid dimension '{dim}'. Valid dimensions are {self.valid_dims}.")
@@ -937,6 +993,13 @@ class ConvertFormat:
                              f"number of dimensions in image {self.image.ndim}.")
 
     def convert(self):
+        """Convert image to desired axis order.
+        
+        Returns:
+            np.ndarray: Image with axes in desired_order.
+                Missing dimensions are added with size 1.
+                Extra dimensions are max-projected.
+        """
         orig_dim_indices = {dim: idx for idx, dim in enumerate(self.original_order)}
         img = self.image
         dims_to_reduce = [dim for dim in self.original_order if dim not in self.desired_order]
@@ -955,32 +1018,24 @@ class ConvertFormat:
     
 
 class GaussianFilter():
-    '''
-    This class is intended to apply high and low bandpass filters to the video. The format of the video must be [Z, Y, X, C]. This class uses **difference_of_gaussians** from skimage.filters.
-
-    Parameters
-
-    video : NumPy array
-        Array of images with dimensions [Z, Y, X, C].
-    sigma : float, optional
-        Sigma value for the gaussian filter. The default is 1.
+    """Apply Gaussian smoothing filter to time-lapse video.
     
-
-    '''
-    def __init__(self, video:np.ndarray, sigma:float = 1):
-        # Making the values for the filters are odd numbers
+    Args:
+        video: Image array with dimensions [T, Y, X, C] (note: docstring said Z but code uses T).
+        sigma: Gaussian sigma value in pixels. Defaults to 1.
+    """
+    
+    def __init__(self, video: np.ndarray, sigma: float = 1):
         self.video = video
         self.sigma = sigma
         self.NUMBER_OF_CORES = cpu_count()
+    
     def apply_filter(self):
-        '''
-        This method applies high and low bandpass filters to the video.
-
-        Returns
+        """Apply Gaussian filter to each frame and channel.
         
-        video_filtered : np.uint16
-            Filtered video resulting from the bandpass process. Array with format [T, Y, X, C].
-        '''
+        Returns:
+            np.ndarray: Filtered video as uint16 with shape [T, Y, X, C].
+        """
         video_bp_filtered_float = np.zeros_like(self.video, dtype = np.float64)
         video_filtered = np.zeros_like(self.video, dtype = np.uint16)
         number_time_points, number_channels   = self.video.shape[0], self.video.shape[3]
@@ -999,6 +1054,26 @@ class GaussianFilter():
 
 
 class Intensity():
+    """Calculate spot intensities using disk-doughnut background subtraction.
+    
+    Measures spot intensity with local background correction, PSF fitting,
+    and signal-to-noise ratio calculation for each spot across all channels.
+    
+    Args:
+        original_image: Image array with shape [Z, Y, X, C].
+        spot_size: Diameter in pixels for intensity measurement. Defaults to 5.
+            Can be int (same for all) or array of ints (per-spot).
+        array_spot_location_z_y_x: Spot coordinates as [N, 3] array with (z, y, x).
+        use_max_projection: Use Z max-projection instead of exact Z slice. Defaults to False.
+        optimize_spot_size: Search for optimal spot size (5-11 px). Slower. Defaults to False.
+        allow_subpixel_repositioning: Search ±2px for better center. Defaults to False.
+        fast_gaussian_fit: Use moment-based (fast) vs full Gaussian fit. Defaults to True.
+    
+    Attributes:
+        number_spots: Number of spots to measure.
+        number_channels: Number of imaging channels.
+    """
+    
     def __init__(self, original_image, spot_size=5, array_spot_location_z_y_x=None, 
                  use_max_projection=False, optimize_spot_size=False, allow_subpixel_repositioning=False,
                  fast_gaussian_fit=True):
@@ -1018,9 +1093,10 @@ class Intensity():
         self.use_maximum_projection = use_max_projection
         self.optimize_spot_size = optimize_spot_size
         self.allow_subpixel_repositioning = allow_subpixel_repositioning
-        self.fast_gaussian_fit = fast_gaussian_fit  # Use moment-based (fast) vs full Gaussian fit
+        self.fast_gaussian_fit = fast_gaussian_fit
 
     def two_dimensional_gaussian(self, xy, amplitude, x0, y0, sigma_x, sigma_y, offset):
+        """Evaluate 2D Gaussian at given coordinates."""
         (x, y) = xy
         g = offset + amplitude * np.exp(
             -(((x - x0) ** 2) / (2 * sigma_x**2) + ((y - y0) ** 2) / (2 * sigma_y**2))
@@ -1116,6 +1192,19 @@ class Intensity():
         return best_fit, best_x, best_y
 
     def calculate_intensity(self):
+        """Calculate intensity metrics for all spots across all channels.
+        
+        Returns:
+            tuple: 8-element tuple of arrays, each with shape [N_spots, N_channels]:
+                - intensities: Background-subtracted intensity (disk - doughnut mean).
+                - intensities_std: Standard deviation within disk region.
+                - intensities_snr: Signal-to-noise ratio (disk-bg) / std(bg).
+                - intensities_background_mean: Mean background from doughnut.
+                - intensities_background_std: Std of background from doughnut.
+                - psfs_amplitude: PSF peak amplitude from Gaussian fit (or NaN).
+                - psfs_sigma: Average PSF sigma in pixels (or NaN if fit failed).
+                - intensities_total: Total integrated intensity (sum of disk pixels).
+        """
         def return_crop(image: np.ndarray, x: int, y: int, spot_range):
             # Ensure indices are integers
             x, y = int(x), int(y)
@@ -1241,7 +1330,7 @@ class Intensity():
                                     'sigma_y': sigma_y_est,
                                     'offset': bg_val
                                 }
-                    except:
+                    except Exception:
                         best_fit = None
                 # --- OPTIMIZATION END ---
 
@@ -1316,20 +1405,14 @@ class Intensity():
         )
 
 class RemoveExtrema:
-    '''
-    This class removes extreme values from an image array by clipping intensity values based on specified percentiles.
-
-    Parameters
-    ----------
-    image : np.ndarray
-        Array of images with dimensions [Y, X], [Y, X, C], [Z, Y, X, C], or [T, Z, Y, X, C].
-    min_percentile : float, optional
-        Lower bound percentile to normalize intensity. Default is 1.
-    max_percentile : float, optional
-        Upper bound percentile to normalize intensity. Default is 99.
-    selected_channels : list of int or None, optional
-        List of channel indices to apply the extrema removal. If None, applies to all channels. Default is None.
-    '''
+    """Clip image intensity values based on percentile thresholds.
+    
+    Args:
+        image: Image array with shape [Y, X], [Y, X, C], [Z, Y, X, C], or [T, Z, Y, X, C].
+        min_percentile: Lower percentile for clipping. Defaults to 1.
+        max_percentile: Upper percentile for clipping. Defaults to 99.
+        selected_channels: Channel indices to process, or None for all. Defaults to None.
+    """
 
     def __init__(self, image: np.ndarray, min_percentile: float = 1, max_percentile: float = 99, selected_channels=None):
         self.image = image
@@ -1345,14 +1428,11 @@ class RemoveExtrema:
             raise ValueError("selected_channels must be an int, list of ints, or None.")
 
     def remove_outliers(self):
-        '''
-        Normalizes the values of an image by clipping extreme values based on specified percentiles.
-
-        Returns
-        -------
-        normalized_image : np.ndarray
-            Normalized image with the same dimensions as the input image.
-        '''
+        """Clip extreme intensity values based on percentile thresholds.
+        
+        Returns:
+            np.ndarray: Clipped image as uint16 with same shape as input.
+        """
         normalized_image = self.image.copy().astype(np.float32)
         num_dims = normalized_image.ndim
         # Handle different image formats
@@ -1395,19 +1475,14 @@ class RemoveExtrema:
         return normalized_image.astype(np.uint16)
 
     def _process_slice(self, image_slice):
-        '''
-        Clips the values of a 2D image slice based on the specified percentiles.
-
-        Parameters
-        ----------
-        image_slice : np.ndarray
-            2D array representing an image slice.
-
-        Returns
-        -------
-        np.ndarray
-            The processed image slice.
-        '''
+        """Clip a single 2D slice based on percentiles.
+        
+        Args:
+            image_slice: 2D array [Y, X].
+        
+        Returns:
+            np.ndarray: Clipped 2D slice.
+        """
         if np.max(image_slice) == 0:
             return image_slice
         min_val = np.percentile(image_slice, self.min_percentile)
@@ -1417,28 +1492,30 @@ class RemoveExtrema:
 
 
 class Cellpose():
-    '''
-    This class is intended to detect cells by image masking using `Cellpose <https://github.com/MouseLand/cellpose>`_ . The class uses optimization to maximize the number of cells or maximize the size of the detected cells.
-    For a complete description of Cellpose check the `Cellpose documentation <https://cellpose.readthedocs.io/en/latest/>`_ .
+    """Cell segmentation using Cellpose deep learning models.
     
-    Parameters
+    Supports automatic parameter optimization to maximize cell detection.
+    See https://cellpose.readthedocs.io for Cellpose documentation.
     
-    image : NumPy array
-        Array of images with dimensions [Z, Y, X, C].
-    num_iterations : int, optional
-        Number of iterations for the optimization process. The default is 5.
-    channels : List, optional
-        List with the channels in the image. For gray images use [0, 0], for RGB images with intensity for cytosol and nuclei use [0, 1] . The default is [0, 0].
-    diameter : float, optional
-        Average cell size. The default is 120.
-    model_type : str, optional
-        Cellpose model type the options are 'cyto' for cytosol or 'nuclei' for the nucleus. The default is 'cyto'.
-    selection_method : str, optional
-        Option to use the optimization algorithm to maximize the number of cells or maximize the size options are 'max_area' or 'max_cells' or 'max_cells_and_area'. The default is 'max_cells_and_area'.
-    NUMBER_OF_CORES : int, optional
-        The number of CPU cores to use for parallel computing. The default is 1.
-    '''
-    def __init__(self, image:np.ndarray, num_iterations:int = 3, channels:list = [0, 0], diameter:float = 120, model_type:str = 'cyto3', selection_method:str = 'max_cells_and_area', NUMBER_OF_CORES:int=1,pretrained_model=None,selection_metric='max_cells'):
+    Args:
+        image: Image array with shape [Y, X, C] or [Z, Y, X, C].
+        num_iterations: Number of optimization iterations. Defaults to 3.
+        channels: Cellpose channel specification [cytosol, nucleus]. Defaults to [0, 0].
+        diameter: Expected cell diameter in pixels. Defaults to 120.
+        model_type: Cellpose model ('cyto', 'cyto3', or 'nuclei'). Defaults to 'cyto3'.
+        selection_method: Optimization target. Options:
+            - 'max_cells': Maximize number of detected cells
+            - 'max_area': Maximize total cell area  
+            - 'max_cells_and_area': Balance both (default)
+            - None: No optimization, use default parameters
+        NUMBER_OF_CORES: CPU cores for parallel optimization. Defaults to 1.
+        pretrained_model: Path to custom pretrained model. Defaults to None.
+        selection_metric: Metric for best parameter selection. Defaults to 'max_cells'.
+    """
+    
+    def __init__(self, image:np.ndarray, num_iterations:int = 3, channels:list = None, diameter:float = 120, model_type:str = 'cyto3', selection_method:str = 'max_cells_and_area', NUMBER_OF_CORES:int=1,pretrained_model=None,selection_metric='max_cells'):
+        if channels is None:
+            channels = [0, 0]
         def preprocess_image(image):
             image = exposure.rescale_intensity(image)            # Enhance contrast
             image = exposure.equalize_adapthist(image)
@@ -1463,16 +1540,14 @@ class Cellpose():
         self.pretrained_model=pretrained_model
         self.minimun_diameter_ratio = 0.5
         self.maximum_diameter_ratio = 2.5
+    
     def calculate_masks(self):
-        '''
-        This method performs the process of image masking using **Cellpose**.
+        """Run Cellpose segmentation with optional parameter optimization.
         
-        Returns
-        
-        selected_masks : NumPy array
-            NumPy array with values between 0 and the number of detected cells in the image,
-            where an integer larger than zero represents the masked area for each cell, and 0 represents the background in the image.
-        '''
+        Returns:
+            np.ndarray: Labeled mask array [Y, X] where each cell has unique integer ID.
+                0 = background, 1..N = cell IDs.
+        """
         # Check if GPU is available
         os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
         use_gpu = torch.cuda.is_available() or torch.backends.mps.is_available()
@@ -1481,7 +1556,7 @@ class Cellpose():
             if self.model_type == 'cyto3':
                 model = denoise.CellposeDenoiseModel(gpu=use_gpu, model_type="cyto3",
                                      restore_type="denoise_cyto3")
-                print('Model cyto3 loaded')
+                logging.debug('Cellpose: Model cyto3 loaded')
             else:
                 model = models.Cellpose(gpu=use_gpu, model_type=self.model_type)  # model_type = 'cyto' or 'nuclei'
         else:
@@ -1510,7 +1585,7 @@ class Cellpose():
         def run_cellpose(flow_threshold, diameter):
             nonlocal model
             gpu_status = getattr(model, 'gpu', 'unknown')
-            logging.info(f"Running Cellpose with flow_threshold={flow_threshold}, diameter={diameter}, gpu={gpu_status}")
+            logging.debug(f"Cellpose: Running with flow_threshold={flow_threshold}, diameter={diameter}, gpu={gpu_status}")
             try:
                 with PatchMPSFloat64():
                     masks = model.eval(
@@ -1522,7 +1597,7 @@ class Cellpose():
                         min_size=self.MINIMUM_CELL_AREA,
                         channels=self.channels,
                     )[0]
-                logging.info(f"Cellpose eval finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
+                logging.debug(f"Cellpose: Eval finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
                 # Removing artifacts
                 masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
             except RuntimeError as e:
@@ -1580,7 +1655,7 @@ class Cellpose():
             return metric, masks, params
         # If no optimization is desired (selection_method is None)
         if self.selection_method is None:
-            logging.info("Running Cellpose (no optimization)")
+            logging.debug("Cellpose: Running (no optimization)")
             try:
                 with PatchMPSFloat64():
                     selected_masks = model.eval(
@@ -1592,7 +1667,7 @@ class Cellpose():
                         min_size=self.MINIMUM_CELL_AREA,
                         channels=self.channels,
                     )[0]
-                logging.info(f"Cellpose eval finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
+                logging.debug(f"Cellpose: Eval finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
             except RuntimeError as e:
                 if "sparse" in str(e) and torch.backends.mps.is_available():
                     logging.warning(f"MPS sparse error detected: {e}. Attempting to run on GPU with resample=False.")
@@ -2041,9 +2116,20 @@ class CellposeTimeSeries:
 
 
 class CellSegmentationWatershed:
+    """Cell segmentation using gradient-based Watershed algorithm.
+    
+    Args:
+        image: Input image [Y, X], [Y, X, C], or [Z, Y, X, C].
+        footprint_size: Morphological footprint size. Defaults to 3.
+        expected_radius: Approximate cell radius in pixels. Defaults to 200.
+        threshold_method: 'otsu' or 'li' for foreground detection. Defaults to 'li'.
+        threshold_factor: Multiplier for threshold adjustment. Defaults to 1.0.
+        markers_method: 'local' (local maxima) or 'distance' (label whole mask). Defaults to 'local'.
+        canny_sigma: Sigma for Canny edge detection. Defaults to 2.0.
+        min_object_size: Minimum object size in pixels. Defaults to 500.
+        separation_size: Disk size for morphological separation. Defaults to 1.
     """
-    Enhanced cell segmentation using a gradient-based Watershed algorithm.
-    """
+    
     def __init__(self, 
                  image: np.ndarray, 
                  footprint_size = 3,
@@ -2054,28 +2140,6 @@ class CellSegmentationWatershed:
                  canny_sigma=2.0,
                  min_object_size=500,
                  separation_size=1):
-        """
-        Parameters
-        ----------
-        image : np.ndarray
-            Your input image, either [Y, X], [Y, X, C], or [Z, Y, X, C].
-        expected_radius : float
-            Approximate cell radius in pixels (default=200).
-        threshold_method : str
-            'otsu' or 'li' threshold for initial foreground detection (default='li').
-        threshold_factor : float
-            Factor to multiply or divide the base threshold (default=1.0).
-        markers_method : str
-            Either 'local' (local maxima in distance transform) or 'distance' (label the whole mask).
-        canny_sigma : float
-            Sigma for Canny edge detection. Edges can help split touching cells. 
-            Lower means more edges, higher means fewer edges (default=2).
-        min_object_size : int
-            The smallest object size to keep (default=500).
-        separation_size : int
-            The disk size for final erosion or morphological separation. 
-            If there's only one cell, we skip or reduce this (default=3).
-        """
         self.image = image
         self.expected_radius = expected_radius
         self.threshold_method = threshold_method
@@ -2086,7 +2150,11 @@ class CellSegmentationWatershed:
         self.separation_size = separation_size
 
     def apply_watershed(self):
-        # 1. Prepare 2D image
+        """Apply watershed segmentation to detect cells.
+        
+        Returns:
+            np.ndarray: Binary mask [Y, X] of the largest, most-centered cell.
+        """
         if self.image.ndim == 4:  # [Z, Y, X, C]
             image_2d = np.max(self.image, axis=0)
         elif self.image.ndim == 3 and self.image.shape[2] <= 4:  # [Y, X, C]
@@ -2272,30 +2340,41 @@ class CellSegmentationWatershed_standard:
 
 
 class CellSegmentation():
-    '''
-    This class is intended to detect cells in microscope images using `Cellpose <https://github.com/MouseLand/cellpose>`_ . This class segments the nucleus and cytosol for every cell detected in the image. The class uses optimization to generate the meta-parameters used by cellpose. For a complete description of Cellpose check the `Cellpose documentation <https://cellpose.readthedocs.io/en/latest/>`_ .
+    """Dual-compartment cell segmentation using Cellpose.
     
-    Parameters
+    Segments both nucleus and cytosol for each cell using Cellpose models,
+    with automatic parameter optimization for best segmentation quality.
     
-    image : NumPy array
-        Array of images with dimensions [Z, Y, X, C] or maximum projection with dimensions [Y, X, C], [Y,X].    
-    channels_cytosol : List of int
-        List with integers indicating the index of channels for the cytosol segmentation. The default is None.
-    channels_nucleus : list of int
-        List with integers indicating the index of channels for the nucleus segmentation. The default is None. 
-    diameter_cytosol : int, optional
-        Average cytosol size in pixels. The default is 150.
-    diameter_nucleus : int, optional
-        Average nucleus size in pixels. The default is 100.
-    optimization_segmentation_method: str
-        Method used for the segmentation. The options are: \'default\', \'intensity_segmentation\', \'z_slice_segmentation_marker\', \'gaussian_filter_segmentation\', 'diameter_segmentation', and None.
-    remove_fragmented_cells: bool, optional
-        If true, it removes masks in the border of the image. The default is False.
-    show_plot : bool, optional
-        If true, it shows a plot with the detected masks. The default is True.
-    image_name : str or None.
-        Name for the image with detected spots. The default is None.
-    '''
+    Args:
+        image: Image array [Z, Y, X, C], [Y, X, C], or [Y, X].
+        channels_cytosol: Channel indices for cytosol segmentation. Defaults to None.
+        channels_nucleus: Channel indices for nucleus segmentation. Defaults to None.
+        diameter_cytosol: Expected cell diameter in pixels. Defaults to 150.
+        diameter_nucleus: Expected nucleus diameter in pixels. Defaults to 100.
+        optimization_segmentation_method: Optimization method. Options:
+            - 'default': Use Cellpose defaults
+            - 'intensity_segmentation': Optimize by intensity
+            - 'z_slice_segmentation_marker': Optimize across Z slices
+            - 'gaussian_filter_segmentation': Apply Gaussian filter
+            - 'diameter_segmentation': Optimize diameter
+            - None: No optimization
+        remove_fragmented_cells: Remove masks touching image border. Defaults to False.
+        show_plot: Display segmentation plot. Defaults to True.
+        image_name: Base name for saving images. Defaults to None.
+        NUMBER_OF_CORES: CPU cores for parallel processing. Defaults to 1.
+        running_in_pipeline: Pipeline mode flag. Defaults to False.
+        model_nuc_segmentation: Cellpose model for nucleus. Defaults to 'nuclei'.
+        model_cyto_segmentation: Cellpose model for cytosol. Defaults to 'cyto3'.
+        pretrained_model_nuc_segmentation: Custom model path for nucleus. Defaults to None.
+        pretrained_model_cyto_segmentation: Custom model path for cytosol. Defaults to None.
+        selection_metric: Optimization metric ('max_cells', 'max_area', 'max_cells_and_area').
+        num_iterations: Optimization iterations. Defaults to 5.
+    
+    Returns:
+        tuple: (masks_cytosol, masks_nuclei, masks_cytosol_no_nuclei)
+            Each is a labeled mask [Y, X] with 0=background, N=cell ID.
+    """
+    
     def __init__(self, image:np.ndarray, channels_cytosol = None, channels_nucleus= None, diameter_cytosol:float = 150, diameter_nucleus:float = 100, optimization_segmentation_method='default', remove_fragmented_cells:bool=False, show_plot: bool = True, image_name = None,NUMBER_OF_CORES=1, running_in_pipeline = False, model_nuc_segmentation= 'nuclei', model_cyto_segmentation = 'cyto3',pretrained_model_nuc_segmentation=None, pretrained_model_cyto_segmentation=None,selection_metric='max_cells_and_area', num_iterations=5):
         self.image = image
         self.channels_cytosol = channels_cytosol
@@ -3140,41 +3219,25 @@ class LineProfile:
 
 
 class TrackPyDetection:
-    '''
-    This class detects spots in microscope images using TrackPy.
-    The format of the image must be [Z, Y, X, C] for 3D images or [Y, X, C] for 2D images.
-
-    Parameters
-    ----------
-    image : NumPy array
-        Array of images with dimensions [Z, Y, X, C] or [Y, X, C].
-    channels_spots : int
-        Specific channel index that contains spot signals.
-    voxel_size_z : float, optional
-        Height of a voxel along the z-axis in nanometers. Default is 300.
-    voxel_size_yx : float, optional
-        Size of a voxel on the yx-plane in nanometers. Default is 150.
-    show_plot : bool, optional
-        If True, displays plots of detected spots. Default is False.
-    image_name : str or None, optional
-        Base name for saving output images. Default is None.
-    save_all_images : bool, optional
-        If True, saves plots for all z-slices (for 3D images). Default is False.
-    display_spots_on_multiple_z_planes : bool, optional
-        If True, displays spots on adjacent z-planes. Default is False.
-    use_log_filter_for_spot_detection : bool, optional
-        If True, applies a Gaussian filter for spot detection. Default is True.
-    threshold_for_spot_detection : float or None, optional
-        Intensity threshold for spot detection. If None, an automatic threshold is calculated using Otsu's method. Default is None.
-    save_files : bool, optional
-        If True, saves output plots as image files. Default is True.
+    """Detect spots in microscopy images using TrackPy.
     
-    Note
-    ----
-    This class returns raw spot coordinates without a spot_type column. The spot_type 
-    column is assigned by the calling SpotDetection class, which sets it to the actual 
-    imaging channel number (not an index).
-    '''
+    Applies LoG filter and TrackPy's locate function for spot detection.
+    Returns raw coordinates; spot_type column is assigned by SpotDetection.
+    
+    Args:
+        image: Image array [Z, Y, X, C] or [Y, X, C].
+        channels_spots: Channel index containing spot signal.
+        voxel_size_yx: XY pixel size in nanometers. Defaults to 150.
+        yx_spot_size_in_px: Expected spot size in pixels. Defaults to 5.
+        show_plot: Display detection plots. Defaults to False.
+        image_name: Base name for saving images. Defaults to None.
+        save_all_images: Save plots for all z-slices. Defaults to False.
+        spot_diameter: Diameter for TrackPy locate (must be odd). Defaults to 5.
+        display_spots_on_multiple_z_planes: Show spots on adjacent Z. Defaults to False.
+        use_max_projection: Use Z max-projection. Defaults to True.
+        threshold_for_spot_detection: Detection threshold. If None, uses Otsu. Defaults to None.
+        save_files: Save output plots. Defaults to False.
+    """
 
     def __init__(self, image, channels_spots, voxel_size_yx=150, yx_spot_size_in_px=5, 
                  show_plot=False, image_name=None, save_all_images=False, spot_diameter=5,
@@ -3196,18 +3259,14 @@ class TrackPyDetection:
         self.spot_diameter = spot_diameter
 
     def detect(self):
-        '''
-        Detects spots using TrackPy.
-
-        Returns
-        -------
-        clusters_and_spots : np.ndarray
-            Array with shape (nb_clusters, 4). Each row contains (z, y, x, num_spots_in_cluster).
-        rna_filtered : np.ndarray
-            Filtered image array, same shape as input.
-        threshold : float
-            Threshold used for spot detection.
-        '''
+        """Run TrackPy spot detection.
+        
+        Returns:
+            tuple: (clusters_and_spots, rna_filtered, threshold)
+                - clusters_and_spots: np.ndarray [N, 4] with columns (z, y, x, cluster_size).
+                - rna_filtered: LoG-filtered image, same shape as input.
+                - threshold: Detection threshold used.
+        """
         if len(self.image.shape) == 4:
             # 3D image: [Z, Y, X, C]
             spot_channel = np.max(self.image[:, :, :, self.channels_spots], axis=0)   
@@ -3318,44 +3377,36 @@ class TrackPyDetection:
 
 
 class BigFISH():
-    '''
-    This class is intended to detect spots in microscope images using `Big-FISH <https://github.com/fish-quant/big-fish>`_ Copyright © 2020, Arthur Imbert. The format of the image must be  [Z, Y, X, C].
+    """Detect spots in microscopy images using Big-FISH library.
     
-    Parameters
+    Uses LoG filtering and DBSCAN clustering for 3D spot detection.
+    See https://big-fish.readthedocs.io for full documentation.
+    Copyright © 2020, Arthur Imbert (BSD 3-Clause License).
     
-    The description of the parameters is taken from `Big-FISH <https://github.com/fish-quant/big-fish>`_ BSD 3-Clause License. Copyright © 2020, Arthur Imbert. For a complete description of the parameters used check the `Big-FISH documentation <https://big-fish.readthedocs.io/en/stable/>`_ .
+    Args:
+        image: Image array [Z, Y, X, C] or [Y, X, C].
+        channels_spots: Channel index containing spot signal.
+        voxel_size_z: Z voxel size in nanometers. Defaults to 300.
+        voxel_size_yx: XY voxel size in nanometers. Defaults to 103.
+        cluster_radius_nm: Max distance for DBSCAN clustering in nm. Defaults to 350.
+        yx_spot_size_in_px: Expected XY spot size in pixels. Defaults to 5.
+        z_spot_size_in_px: Expected Z spot size in pixels. Defaults to 2.
+        show_plot: Display detection plots. Defaults to False.
+        image_name: Base name for saving images. Defaults to None.
+        save_all_images: Save all z-plane plots. Defaults to False.
+        display_spots_on_multiple_z_planes: Show spots on adjacent Z. Defaults to False.
+        use_log_filter_for_spot_detection: Apply LoG filter. Defaults to True.
+        threshold_for_spot_detection: Detection threshold. If None, uses auto. Defaults to None.
+        save_files: Save output files. Defaults to False.
+        decompose_alpha: Dense region decomposition alpha. Defaults to 0.3.
+        decompose_beta: Dense region decomposition beta. Defaults to 2.
+        decompose_gamma: Dense region decomposition gamma. Defaults to 5.
+        decompose_dense_regions: Enable dense region decomposition. Defaults to False.
     
-    image : NumPy array
-        Array of images with dimensions [Z, Y, X, C]  or [Y, X, C].
-    channels_spots : int
-        Specific channel with spots that are used for the quantification
-    voxel_size_z : int, optional
-        Height of a voxel, along the z axis, in nanometers. The default is 300.
-    voxel_size_yx : int, optional
-        Size of a voxel on the yx plan in nanometers. The default is 150.
-    cluster_radius_nm : int, optional
-        Maximum distance between two samples for one to be considered as in the neighborhood of the other. Radius expressed in nanometer.
-    minimum_spots_cluster : int, optional
-        Number of spots in a neighborhood for a point to be considered as a core point (from which a cluster is expanded). This includes the point itself.
-    show_plot : bool, optional
-        If True shows a 2D maximum projection of the image and the detected spots. The default is False
-    image_name : str or None.
-        Name for the image with detected spots. The default is None.
-    save_all_images : Bool, optional.
-        If true, it shows a all planes for the plot detection. The default is False.
-    display_spots_on_multiple_z_planes : Bool, optional.
-        If true, it shows a spots on the plane below and above the selected plane. The default is False.
-    use_log_filter_for_spot_detection : bool, optional
-        Uses Big_FISH log_filter. The default is True.
-    threshold_for_spot_detection: scalar or None.
-        Indicates the intensity threshold used for spot detection, the default is None, and indicates that the threshold is calculated automatically.
+    Note:
+        Returns raw coordinates; spot_type column is assigned by SpotDetection.
+    """
     
-    Note
-    ----
-    This class returns raw spot coordinates without a spot_type column. The spot_type 
-    column is assigned by the calling SpotDetection class, which sets it to the actual 
-    imaging channel number (not an index).
-    '''
     def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False):
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
@@ -3383,15 +3434,14 @@ class BigFISH():
         self.decompose_gamma = decompose_gamma  # filtering step to denoise
         
     def detect(self):
-        '''
-        This method is intended to detect RNA spots in the cell and Transcription Sites (Clusters) using `Big-FISH <https://github.com/fish-quant/big-fish>`_ Copyright © 2020, Arthur Imbert.
+        """Run Big-FISH spot detection with optional dense region decomposition.
         
-        Returns
-        
-        clusters_and_spots : np.int64 Array with shape (nb_clusters, 5) or (nb_clusters, 4). 
-            One coordinate per dimension for the centroid of the cluster (zyx or yx coordinates), the number of spots detected in the clusters.
-       
-        '''
+        Returns:
+            tuple: (clusters_and_spots, rna_filtered, threshold)
+                - clusters_and_spots: np.ndarray [N, 4] with columns (z, y, x, cluster_size).
+                - rna_filtered: LoG-filtered image [Z, Y, X].
+                - threshold: Detection threshold used.
+        """
         # Setting the colormap
         mpl.rc('image', cmap='viridis')
         rna=self.image[:,:,:,self.channels_spots] # [Z,Y,X]
@@ -3554,7 +3604,7 @@ class BigFISH():
                         plt.show()
                     else:
                         plt.close()
-            except:
+            except Exception:
                 print('not showing elbow plot')
             
             central_slice = rna.shape[0]//2
@@ -3600,7 +3650,7 @@ class BigFISH():
                                         rescale=True,
                                         show=show_figure_in_cli,
                                         path_output = path_output)
-                    except:
+                    except Exception:
                         pass
                     if self.show_plot ==True:
                         plt.show()
@@ -3612,73 +3662,51 @@ class BigFISH():
 
 
 class SpotDetection():
-    '''
-    This class is intended to detect spots in microscope images using `Big-FISH <https://github.com/fish-quant/big-fish>`_. The format of the image must be  [Z, Y, X, C].
-    This class is intended to extract data from the class SpotDetection and return the data as a dataframe. 
-    This class contains parameter description obtained from `Big-FISH <https://github.com/fish-quant/big-fish>`_ Copyright © 2020, Arthur Imbert.
-    For a complete description of the parameters used check the `Big-FISH documentation <https://big-fish.readthedocs.io/en/stable/>`_ .
+    """Multi-channel spot detection orchestrator using BigFISH or TrackPy.
     
-    Parameters
+    Coordinates spot detection across multiple channels, integrates with
+    cell masks, and produces a DataFrame with spot locations, intensities,
+    and cellular localization.
     
-    image : NumPy array
-        Array of images with dimensions [Z, Y, X, C] .
-    channels_spots : int, or List
-        List of channels with spots that are used for the quantification
-    channels_cytosol : List of int
-        List with integers indicating the index of channels for the cytosol segmentation. 
-    channels_nucleus : list of int
-        List with integers indicating the index of channels for the nucleus segmentation. 
-    cluster_radius_nm : int, optional
-        Maximum distance between two samples for one to be considered as in the neighborhood of the other. Radius expressed in nanometer.
-    minimum_spots_cluster : int, optional
-        Number of spots in a neighborhood for a point to be considered as a core point (from which a cluster is expanded). This includes the point itself.
-    masks_complete_cells : NumPy array
-        Masks for every cell detected in the image are indicated by the array\'s values, where 0 indicates the background in the image, and integer numbers indicate the ith mask in the image. Array with format [Y, X].
-    masks_nuclei: NumPy array
-        Masks for every nucleus detected in the image are indicated by the array\'s values, where 0 indicates the background in the image, and integer numbers indicate the ith mask in the image. Array with format [Y, X].
-    masks_cytosol_no_nuclei :  NumPy array
-        Masks for every cytosol detected in the image are indicated by the array\'s values, where 0 indicates the background in the image, and integer numbers indicate the ith mask in the image. Array with format [Y, X].
-    dataframe : Pandas Dataframe 
-        Pandas dataframe with the following columns. image_id, cell_id, spot_id, nuc_loc_y, 
-        nuc_loc_x, cyto_loc_y, cyto_loc_x, nuc_area_px, cyto_area_px, cell_area_px, z, y, x, 
-        is_nuc, is_cluster, cluster_size, spot_type, is_cell_fragmented. The default is None.
-        
-        Note: The spot_type column contains the actual imaging channel number from which spots 
-        were detected (not an index). For example, if channels_spots=[2,1], spots detected in 
-        channel 2 will have spot_type=2, and spots from channel 1 will have spot_type=1.
-    image_counter : int, optional
-        counter for the number of images in the folder. The default is zero.
-    list_voxels : List of tupples or None
-        list with a tuple with two elements (voxel_size_z,voxel_size_yx ) for each channel.
-        voxel_size_z is the height of a voxel, along the z axis, in nanometers. The default is 300.
-        voxel_size_yx is the size of a voxel on the yx plan in nanometers. The default is 150.
-    show_plot : bool, optional
-        If True, it shows a 2D maximum projection of the image and the detected spots. The default is False.
-    image_name : str or None.
-        Name for the image with detected spots. The default is None.
-    save_all_images : Bool, optional.
-        If true, it shows a all planes for the plot detection. The default is False.
-    display_spots_on_multiple_z_planes : Bool, optional.
-        If true, it shows a spots on the plane below and above the selected plane. The default is False.
-    use_log_filter_for_spot_detection : bool, optional
-        Uses Big_FISH log_filter. The default is True.
-    threshold_for_spot_detection: scalar or None.
-        Indicates the intensity threshold used for spot detection, the default is None, and indicates that the threshold is calculated automatically.
-    use_trackpy : bool, optional
-        If True, it uses trackpy for spot detection. The default is False.
-    calculate_intensity : book, optional.
-        If True, calculate the intensity of the spots.
-    use_fixed_size_for_intensity_calculation : bool, optional
-        If True, it uses a fixed size for the intensity calculation. The default is True.
-    fast_gaussian_fit : bool, optional
-        If True, uses moment-based (fast) PSF estimation. If False, uses full Gaussian fitting (slower but more accurate). The default is True.
-
+    Args:
+        image: Image array [Z, Y, X, C] or [Y, X, C].
+        channels_spots: Channel index or list of indices for spot detection.
+        channels_cytosol: List of channel indices for cytosol visualization.
+        channels_nucleus: List of channel indices for nucleus visualization.
+        cluster_radius_nm: DBSCAN cluster radius in nm. Defaults to 500.
+        masks_complete_cells: Labeled mask [Y, X] where 0=background, N=cell ID.
+        masks_nuclei: Labeled nucleus mask [Y, X].
+        masks_cytosol_no_nuclei: Labeled cytosol mask (excluding nucleus) [Y, X].
+        dataframe: Existing DataFrame to append to. Defaults to None.
+        image_counter: Image counter for multi-image processing. Defaults to 0.
+        list_voxels: [voxel_z_nm, voxel_yx_nm]. Defaults to [500, 160].
+        show_plot: Display detection plots. Defaults to True.
+        image_name: Base name for saving images. Defaults to None.
+        save_all_images: Save plots for all z-slices. Defaults to True.
+        display_spots_on_multiple_z_planes: Show spots on adjacent Z. Defaults to False.
+        use_log_filter_for_spot_detection: Apply LoG filter. Defaults to True.
+        threshold_for_spot_detection: Detection threshold(s). Defaults to None (auto).
+        save_files: Save output files. Defaults to True.
+        yx_spot_size_in_px: Expected XY spot size in pixels.
+        z_spot_size_in_px: Expected Z spot size in pixels.
+        use_trackpy: Use TrackPy instead of BigFISH. Defaults to False.
+        use_maximum_projection: Use 2D max-projection. Defaults to False.
+        calculate_intensity: Calculate spot intensities. Defaults to True.
+        use_fixed_size_for_intensity_calculation: Use fixed spot size. Defaults to True.
+        fast_gaussian_fit: Use moment-based PSF estimation. Defaults to True.
     
-    '''
+    Note:
+        The spot_type column contains the actual imaging channel number
+        (not an index). E.g., if channels_spots=[2,1], spots from channel 2
+        will have spot_type=2.
+    """
+    
     def __init__(self,image,  channels_spots ,channels_cytosol,channels_nucleus, cluster_radius_nm=500,masks_complete_cells = None, masks_nuclei  = None, masks_cytosol_no_nuclei = None,
-                dataframe=None, image_counter=0, list_voxels=[500,160], show_plot=True,image_name=None,save_all_images=True,display_spots_on_multiple_z_planes=False,
+                dataframe=None, image_counter=0, list_voxels=None, show_plot=True,image_name=None,save_all_images=True,display_spots_on_multiple_z_planes=False,
                 use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=True,yx_spot_size_in_px=None, z_spot_size_in_px=None, 
                 use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True):
+        if list_voxels is None:
+            list_voxels = [500, 160]
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
         # calculate the maximum projection of the axis 0 keeping the same dimensions.
@@ -3802,71 +3830,48 @@ class SpotDetection():
 
 
 class ParticleTracking:
-    '''
-    This class detects particles in a 3D time‐lapse image and optionally links them into trajectories.
-    The image must be provided with dimensions [T, Z, Y, X, C].
-
-    Parameters
-    ----------
-    image : ndarray
-        The 5D image array with dimensions [T, Z, Y, X, C].
-    channels_spots : list
-        List of channel indices that contain spot signals.
-    list_voxels : list
-        List of voxel sizes for each dimension [z, y/x].
-    channels_cytosol : list
-        List of channel indices that contain cytosol signals.
-    channels_nucleus : list
-        List of channel indices that contain nucleus signals.
-    remove_clusters : bool, optional
-        Whether to remove clusters. Default is False.
-    maximum_spots_cluster : int, optional
-        Maximum number of spots in a cluster. Default is None.
-    min_length_trajectory : int, optional
-        Minimum trajectory length to be considered valid. Default is 10.
-    threshold_for_spot_detection : int, optional
-        Threshold value for spot detection. Default is 100.
-    masks : ndarray, optional
-        Array of masks indicating regions of interest. Default is None.
-    memory : int, optional
-        Number of frames a particle can disappear and reappear. Default is 0.
-    yx_spot_size_in_px : int, optional
-        Spot size in pixels. Default is 5.
-    z_spot_size_in_px : int, optional
-        Spot size in z. Default is 2.
-    cluster_radius_nm : float or None, optional
-        Cluster radius in nm; if None, defaults to (voxel_yx * 4).
-    link_particles : bool, optional
-        Whether to link particles into trajectories. Default is True.
-    use_trackpy : bool, optional
-        Whether to use trackpy for detection/linking. Default is False.
-    use_maximum_projection : bool, optional
-        Whether to project the image along Z for detection/linking. Default is False.
-    separate_clusters_and_spots : bool, optional
-        Whether to separate clusters and spots for linking. Default is False.
-    maximum_range_search_pixels : int, optional
-        Maximum search range (in pixels) for linking. Default is 10.
-    link_using_3d_coordinates : bool, optional
-        Whether to link particles using 3D coordinates. Default is False.
-    neighbor_strategy : str, optional
-        Strategy for neighbor search. Default is 'KDTree' (other option: 'BTree').
-    generate_random_particles : bool, optional
-        If True, generate random trajectories (i.e. random spot locations that remain constant over time). Default is False.
-    number_of_random_particles_trajectories : int or None, optional
-        Number of random trajectories to generate. Default is None.
-    step_size_in_sec : float, optional
-        Time step size in seconds for random trajectories. Default is 1.0.
+    """Multi-frame spot detection and particle linking for time-lapse imaging.
     
-    Returns
-    -------
-    list_dfs_traj : list of pd.DataFrame
-        List of DataFrames, one per channel in channels_spots, containing tracked particles.
-        Each DataFrame contains the spot_type column with the actual channel number 
-        (not an index). For example, if channels_spots=[2,1], spots from channel 2 will 
-        have spot_type=2, and spots from channel 1 will have spot_type=1.
-    filtered_image_stack : ndarray
-        The filtered image stack used for detection.
-    '''
+    Detects spots in each frame and links them into trajectories using TrackPy
+    or BigFISH. Supports 3D coordinates, cluster separation, and random control.
+    
+    Args:
+        image: 5D image array [T, Z, Y, X, C].
+        channels_spots: Channel index or list of indices for spot detection.
+        list_voxels: [voxel_z_nm, voxel_yx_nm] voxel sizes.
+        channels_cytosol: Channel indices for cytosol visualization.
+        channels_nucleus: Channel indices for nucleus visualization.
+        remove_clusters: Remove spots in clusters. Defaults to False.
+        maximum_spots_cluster: Max spots per cluster to keep. Defaults to None.
+        min_length_trajectory: Minimum trajectory length. Defaults to 10.
+        threshold_for_spot_detection: Detection threshold. Defaults to 100.
+        masks: Cell mask [Y, X] or [T, Y, X]. Defaults to None.
+        masks_nuclei: Nucleus mask [Y, X] or [T, Y, X]. Defaults to None.
+        masks_cytosol_no_nuclei: Cytosol mask [Y, X] or [T, Y, X]. Defaults to None.
+        memory: Frames a particle can disappear. Defaults to 0.
+        yx_spot_size_in_px: XY spot size in pixels. Defaults to 5.
+        z_spot_size_in_px: Z spot size in pixels. Defaults to 2.
+        cluster_radius_nm: Cluster radius in nm. Defaults to voxel_yx * 4.
+        link_particles: Link spots into trajectories. Defaults to True.
+        use_trackpy: Use TrackPy (2D). Defaults to False (uses BigFISH 3D).
+        use_maximum_projection: Use Z max-projection. Defaults to False.
+        separate_clusters_and_spots: Separate cluster/spot tracking. Defaults to False.
+        maximum_range_search_pixels: Linking search range in pixels. Defaults to 10.
+        link_using_3d_coordinates: Use 3D coordinates for linking. Defaults to False.
+        neighbor_strategy: 'KDTree' or 'BTree'. Defaults to 'KDTree'.
+        generate_random_particles: Generate random control spots. Defaults to False.
+        number_of_random_particles_trajectories: Number of random trajectories.
+        step_size_in_sec: Time step for trajectories. Defaults to 1.0.
+        fast_gaussian_fit: Use moment-based PSF estimation. Defaults to True.
+        verbose: Print progress messages. Defaults to False.
+    
+    Attributes:
+        list_dfs_traj: List of DataFrames per channel with trajectory data.
+            DataFrame columns include: frame, particle, x, y, z, spot_type, 
+            intensity, intensity_snr, is_nuc, is_cluster, cluster_size.
+            spot_type contains the actual imaging channel number (not index).
+    """
+    
     def __init__(self, image, channels_spots, list_voxels, channels_cytosol, channels_nucleus,
                  remove_clusters=False, maximum_spots_cluster=None, min_length_trajectory=10,
                  threshold_for_spot_detection=100, masks=None, masks_nuclei=None, masks_cytosol_no_nuclei=None,
@@ -4046,7 +4051,7 @@ class ParticleTracking:
             if self.use_maximum_projection:
                 # For 2D mode, use the 2D mask directly.
                 mask_2d = self.masks if self.masks.ndim == 2 else self.masks[0]
-                indices = np.argwhere(mask_2d)
+                indices = np.argwhere(mask_2d > 0)  # Only non-zero (inside mask)
                 n_rand = self.number_of_random_particles_trajectories
                 if len(indices) == 0:
                     raise ValueError("The mask is empty; cannot generate random locations.")
@@ -4055,10 +4060,13 @@ class ParticleTracking:
                 spot_id = 0
                 for i in range(n_rand):
                     y, x = chosen[i]
+                    # Get cell_id from mask value (mask labels are 1-indexed, cell_id is 0-indexed)
+                    mask_value = mask_2d[y, x]
+                    cell_id = int(mask_value) - 1 if mask_value > 0 else 0
                     for t in range(T):
                         row = {
                             'image_id': 0,
-                            'cell_id': 0,
+                            'cell_id': cell_id,
                             'spot_id': spot_id,
                             'nuc_loc_y': np.nan,
                             'nuc_loc_x': np.nan,
@@ -4086,7 +4094,7 @@ class ParticleTracking:
                     mask_3d = self.masks if self.masks.ndim == 3 else self.masks[0]
                 else:
                     raise ValueError("Invalid mask dimensions.")
-                indices = np.argwhere(mask_3d)
+                indices = np.argwhere(mask_3d > 0)  # Only non-zero (inside mask)
                 n_rand = self.number_of_random_particles_trajectories
                 if len(indices) == 0:
                     raise ValueError("The mask is empty; cannot generate random locations.")
@@ -4096,10 +4104,13 @@ class ParticleTracking:
                 for i in range(n_rand):
                     # Here, we expect each chosen element to have three values: (z, y, x)
                     z, y, x = chosen[i]
+                    # Get cell_id from mask value (mask labels are 1-indexed, cell_id is 0-indexed)
+                    mask_value = mask_3d[z, y, x]
+                    cell_id = int(mask_value) - 1 if mask_value > 0 else 0
                     for t in range(T):
                         row = {
                             'image_id': 0,
-                            'cell_id': 0,
+                            'cell_id': cell_id,
                             'spot_id': spot_id,
                             'nuc_loc_y': np.nan,
                             'nuc_loc_x': np.nan,
@@ -4163,6 +4174,11 @@ class ParticleTracking:
             processed_frames = Parallel(n_jobs=self.NUMBER_OF_CORES)(
                 delayed(process_frame)(t) for t in range(T)
             )
+            # Filter out None results and check for empty list
+            processed_frames = [df for df in processed_frames if df is not None and len(df) > 0]
+            if not processed_frames:
+                print("Warning: No spots detected in any frame")
+                return [pd.DataFrame()], self.image
             df_complete = pd.concat(processed_frames, ignore_index=True)
             if 'spot_id' in df_complete.columns:
                 df_complete['particle'] = pd.factorize(df_complete['spot_id'])[0]            
@@ -4522,46 +4538,42 @@ class Registration:
 
 
 class DataProcessing():
-    '''
-    This class is intended to extract data from the class SpotDetection and return the data as a dataframe. 
-    This class contains parameter descriptions obtained from `Big-FISH <https://github.com/fish-quant/big-fish>`_ Copyright © 2020, Arthur Imbert. For a complete description of the parameters used check the `Big-FISH documentation <https://big-fish.readthedocs.io/en/stable/>`_ .
+    """Convert spot detection results to DataFrame with cell localization.
     
-    Parameters
+    Processes detected spots, assigns them to cells based on masks,
+    calculates intensities, and produces a comprehensive DataFrame.
     
-    clusters_and_spots : np.int64 with shape (nb_spots, 4) or (nb_spots, 3).
-        Coordinates of the detected spots . One coordinate per dimension (zyx or yx coordinates) plus the number of spots detected in the cluster. If no cluster was assigned, the value is -1.
-    image : NumPy array
-        Array of images with dimensions [Z, Y, X, C] .
-    masks_complete_cells : List of NumPy arrays or a single NumPy array
-        Masks for every cell detected in the image. The list contains the mask arrays consisting of one or multiple Numpy arrays with format [Y, X].
-    masks_nuclei: List of NumPy arrays or a single NumPy array
-        Masks for every cell detected in the image. The list contains the mask arrays consisting of one or multiple Numpy arrays with format [Y, X].
-    masks_cytosol_no_nuclei : List of NumPy arrays or a single NumPy array
-        Masks for every cell detected in the image. The list contains the mask arrays consisting of one or multiple Numpy arrays with format [Y, X].
-    channels_cytosol : List of int
-        List with integers indicating the index of channels for the cytosol segmentation. The default is None.
-    channels_nucleus : list of int
-        List with integers indicating the index of channels for the nucleus segmentation. The default is None. 
-    yx_spot_size_in_px : int
-        Size of the spot in pixels.
-    spot_type : int, optional
-        The actual imaging channel number from which spots were detected.
-        For example, if detecting spots in channel 2, spot_type should be 2.
-        The default is 0 (channel 0).
-    dataframe : Pandas dataframe or None.
-        Pandas dataframe with the following columns. image_id, cell_id, spot_id, nuc_loc_y, nuc_loc_x, cyto_loc_y, cyto_loc_x, nuc_area_px, cyto_area_px, cell_area_px, z, y, x, is_nuc, is_cluster, cluster_size, spot_type, is_cell_fragmented. The default is None.
-    reset_cell_counter : bool
-        This number is used to reset the counter of the number of cells. The default is False.
-    image_counter : int, optional
-        counter for the number of images in the folder. The default is zero.
-    use_maximum_projection : bool, optional
-        If True, it uses the maximum projection of the image will be used to calculate the intensity. The default is False.
-    use_fixed_size_for_intensity_calculation : bool, optional
-        If True, it uses the fixed size for the intensity calculation. The default is True and uses the yx_spot_size_in_px. Else it uses the yx_spot_size_in_px times the cluster size.
-    fast_gaussian_fit : bool, optional
-        If True, uses moment-based (fast) PSF estimation. If False, uses full Gaussian fitting (slower but more accurate). The default is True.
-
-    '''
+    Args:
+        clusters_and_spots: Spot coordinates [N, 4] with columns (z, y, x, cluster_size).
+        image: Image array [Z, Y, X, C].
+        masks_complete_cells: List of cell masks [Y, X] or single combined mask.
+        masks_nuclei: List of nucleus masks [Y, X] or single combined mask.
+        masks_cytosol_no_nuclei: List of cytosol masks [Y, X] or single combined mask.
+        channels_cytosol: Channel indices for cytosol. Defaults to None.
+        channels_nucleus: Channel indices for nucleus. Defaults to None.
+        yx_spot_size_in_px: Spot diameter in pixels for intensity measurement.
+        spot_type: Actual imaging channel number (not index). Defaults to 0.
+        dataframe: Existing DataFrame to append to. Defaults to None.
+        reset_cell_counter: Reset cell counter. Defaults to False.
+        image_counter: Image counter for multi-image. Defaults to 0.
+        number_color_channels: Number of channels. Defaults to None.
+        use_maximum_projection: Use Z max-projection for intensity. Defaults to False.
+        use_fixed_size_for_intensity_calculation: Fixed spot size. Defaults to True.
+        fast_gaussian_fit: Use moment-based PSF estimation. Defaults to True.
+    
+    Returns:
+        pd.DataFrame: Columns include:
+            - image_id, cell_id, spot_id: Identifiers
+            - nuc_loc_y, nuc_loc_x: Nucleus centroid
+            - cyto_loc_y, cyto_loc_x: Cytosol centroid
+            - nuc_area_px, cyto_area_px, cell_area_px: Areas
+            - z, y, x: Spot coordinates in pixels
+            - is_nuc: Boolean, spot in nucleus
+            - is_cluster, cluster_size: Cluster info
+            - spot_type: Imaging channel number
+            - intensity, intensity_snr: Spot measurements
+    """
+    
     def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei,  channels_cytosol, channels_nucleus, yx_spot_size_in_px,  spot_type=0, dataframe =None,reset_cell_counter=False,image_counter=0,number_color_channels=None,use_maximum_projection=False,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True):
         self.clusters_and_spots=clusters_and_spots
         self.channels_cytosol=channels_cytosol
@@ -5165,42 +5177,33 @@ class DataProcessing():
 
 
 class ParticleMotion:
-    '''
-    Calculate Mean Squared Displacement (MSD) and diffusion coefficients from particle tracking data.
+    """Calculate Mean Squared Displacement (MSD) and diffusion coefficients.
     
-    This class computes ensemble-averaged MSD curves and fits them to extract diffusion coefficients.
-    It supports both 2D and 3D tracking data.
+    Computes ensemble-averaged MSD curves from particle tracking data and
+    fits to extract diffusion coefficients. Supports 2D and 3D tracking.
     
-    Parameters
-    ----------
-    trackpy_dataframe : pd.DataFrame
-        DataFrame containing particle tracking data with columns: particle, frame, x, y, (z optional).
-        If the DataFrame contains a spot_type column with multiple unique values, the data will be 
-        filtered by the spot_type parameter.
-    microns_per_pixel : float, optional
-        Pixel size in microns for XY dimensions. Default is 1.
-    step_size_in_sec : float, optional
-        Time interval between frames in seconds. Default is 1.
-    max_lagtime : int, optional
-        Maximum lag time for MSD calculation. Default is 100.
-    show_plot : bool, optional
-        Whether to display the MSD plot. Default is True.
-    remove_drift : bool, optional
-        Whether to remove ensemble drift before MSD calculation. Default is False.
-    spot_type : int, optional
-        The actual imaging channel number to filter by. Only used if the DataFrame contains 
-        multiple unique spot_type values. For example, if your data has spots from channels 
-        2 and 1 (spot_type values 2 and 1), pass spot_type=2 to analyze only channel 2 spots.
-        Default is 0.
-    plot_name : str or None, optional
-        Filename for saving the plot. Default is None (no save).
-    max_fit_points : int, optional
-        Maximum number of points to use for linear fit. Default is 20.
-    is_3d : bool, optional
-        If True, use 3D MSD calculation (D = slope/6). If False, use 2D (D = slope/4). Default is False.
-    microns_per_pixel_z : float or None, optional
-        Pixel size in microns for Z dimension. If None, uses microns_per_pixel. Default is None.
-    '''
+    Args:
+        trackpy_dataframe: DataFrame with columns: particle, frame, x, y, (z optional).
+        microns_per_pixel: XY pixel size in microns. Defaults to 1.
+        step_size_in_sec: Time interval between frames in seconds. Defaults to 1.
+        max_lagtime: Maximum lag time for MSD calculation. Defaults to 100.
+        show_plot: Display MSD plot. Defaults to True.
+        remove_drift: Remove ensemble drift before MSD. Defaults to False.
+        spot_type: Channel number to filter by (if DataFrame has multiple). Defaults to 0.
+        plot_name: Filename for saving plot. Defaults to None.
+        max_fit_points: Points to use for linear fit. Defaults to 20.
+        is_3d: Use 3D MSD (D = slope/6) vs 2D (D = slope/4). Defaults to False.
+        microns_per_pixel_z: Z pixel size in microns. Defaults to microns_per_pixel.
+    
+    Returns:
+        tuple: (em_um2, D_um2_s, intercept, r_value, num_particles, num_trajectories)
+            - em_um2: MSD in µm² indexed by lag time in seconds
+            - D_um2_s: Diffusion coefficient in µm²/s
+            - intercept: Y-intercept of linear fit
+            - r_value: R² of linear fit
+            - num_particles: Number of unique particles
+            - num_trajectories: Number of trajectories analyzed
+    """
 
     def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False, microns_per_pixel_z=None):
         # Ensure scalar conversion for all numeric parameters (handles numpy arrays with 1 element)
@@ -5256,6 +5259,11 @@ class ParticleMotion:
             self.max_lagtime = min(max_lagtime, int(self.trackpy_dataframe['frame'].max()))
 
     def calculate_msd(self):
+        """Calculate ensemble MSD and fit for diffusion coefficient.
+        
+        Returns:
+            tuple: (em_um2, D_um2_s, intercept, r_value, num_particles, num_trajectories)
+        """
         # Optional drift removal
         if self.remove_drift:
             temp = self.trackpy_dataframe.copy()
@@ -5405,7 +5413,9 @@ class CropArray():
                         for ch in range(self.number_color_channels):
                             crop = self.image[i, z_value, y_start:y_end, x_start:x_end, ch]
                             if self.normalize_each_particle:
-                                crop = crop / np.nanpercentile(crop,self.max_percentile)  * 255
+                                pct_val = np.nanpercentile(crop, self.max_percentile)
+                                if pct_val > 0:
+                                    crop = crop / pct_val * 255
                             croparray[y_croparray_start:y_croparray_start + self.crop_size, x_croparray_start:x_croparray_start + self.crop_size, ch] = crop
                             list_crops[ch].append(crop)
 
@@ -5921,7 +5931,7 @@ class PointSpreadFunction():
                     sigma_y_vector[i] = fit_result['sigma_y']
                     sigma_z_vector[i] = fit_result['sigma_z']
                     offset_vector[i] = fit_result['offset']
-                except:
+                except Exception:
                     amplitude_vector[i] = np.nan
                     sigma_x_vector[i] = np.nan
                     sigma_y_vector[i] = np.nan
@@ -6531,9 +6541,6 @@ class Correlation:
                 np.abs(traj_means - median_mean) < self.MAD_THRESHOLD_FACTOR * mad
             )
             num_removed = np.sum(~keep_mask)
-            if num_removed > 0:
-                print(f"Warning: Removed {num_removed} outlier trajectories "
-                      f"(threshold {self.MAD_THRESHOLD_FACTOR}×MAD).")
             correlations_array = correlations_array[keep_mask, :]
         # ----- If nothing valid remains -----
         if correlations_array.shape[0] == 0:
@@ -6695,9 +6702,12 @@ class Correlation:
 
 
 class Utilities():
-    '''
-    This class contains miscellaneous methods to perform tasks needed in multiple classes. No parameters are necessary for this class.
-    '''
+    """Collection of utility methods for image processing and data manipulation.
+    
+    Static methods for mask processing, image format conversion, visualization,
+    and data analysis helpers used across multiple MicroLive classes.
+    """
+    
     def __init__(self):
         pass
 
@@ -7506,18 +7516,24 @@ class Utilities():
 
 
     def combine_images_vertically(self,image_paths, save_path, delete_originals=False,show_image=False):
-        images = [Image.open(path) for path in image_paths]
-        max_width = max(img.width for img in images)
-        resized_images = [img.resize((max_width, int(img.height * max_width / img.width)), Image.Resampling.LANCZOS) for img in images]
-        total_height = sum(img.height for img in resized_images)
-        combined_image = Image.new("RGB", (max_width, total_height))
-        y_offset = 0
-        for img in resized_images:
-            combined_image.paste(img, (0, y_offset))
-            y_offset += img.height
-        combined_image.save(save_path)
-        if show_image:
-            combined_image.show()
+        images = []
+        try:
+            images = [Image.open(path) for path in image_paths]
+            max_width = max(img.width for img in images)
+            resized_images = [img.resize((max_width, int(img.height * max_width / img.width)), Image.Resampling.LANCZOS) for img in images]
+            total_height = sum(img.height for img in resized_images)
+            combined_image = Image.new("RGB", (max_width, total_height))
+            y_offset = 0
+            for img in resized_images:
+                combined_image.paste(img, (0, y_offset))
+                y_offset += img.height
+            combined_image.save(save_path)
+            if show_image:
+                combined_image.show()
+        finally:
+            # Ensure all opened images are closed
+            for img in images:
+                img.close()
         if delete_originals:
             for path in image_paths:
                 path_obj = Path(path)
@@ -7587,7 +7603,7 @@ class Utilities():
                 'sigma_y': abs(sigma_y),
                 'offset': offset,
             }, ss_res
-        except:
+        except Exception:
             # Fit failed
             return None, np.inf
 
@@ -7978,7 +7994,7 @@ class Utilities():
                 print('Number of z slices: ', str(number_z_slices), '\n',
                     'Number of color channels: ', str(number_color_channels) , '\n'
                     'Number of FOV: ', str(number_of_fov) , '\n', '\n', '\n')
-            except:
+            except Exception:
                 detected_metadata = False
                 raise ValueError('The metadata file is not found. Please check the path to the metadata file.')
         if is_format_FOV_Z_Y_X_C == True:
@@ -9614,8 +9630,7 @@ class Plots():
                 decorrelation_successful = True
                 #de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit + start_lag]
                 de_correlation_threshold_value = normalized_correlation[start_lag] * de_correlation_threshold
-                print(f"Decorrelation threshold value: {de_correlation_threshold_value}")
-            except:
+            except Exception:
                 print('Could not find the decorrelation point automatically. Please provide the index_max_lag_for_fit')
                 index_max_lag_for_fit = normalized_correlation.shape[0]
                 decorrelation_successful = False
@@ -9642,7 +9657,7 @@ class Plots():
                     text_str = f"Dwell Time: {dwell_time:.1f}"
                     props = dict(boxstyle='round', facecolor='white', alpha=0.9)
                     ax.text(total_lags[-1]/2, max_value, s=text_str, color='black', bbox=props, fontsize=10)
-                except:
+                except Exception:
                     pass
                 ax.axvline(x=start_lag, color='r', linestyle='--', linewidth=1)
                 ax.axhline(y=de_correlation_threshold_value, color='r', linestyle='--', linewidth=1, label='Decor. Threshold')
@@ -11337,7 +11352,7 @@ class Plots():
                         if contour_c.shape[0] > NUM_POINTS_MASK_EDGE_LINE :
                             contour_c = signal.resample(contour_c, num = NUM_POINTS_MASK_EDGE_LINE)
                             axes[2].fill(contour_c[:, 1], contour_c[:, 0], facecolor = 'none', edgecolor = 'red', linewidth=2) # mask cytosol
-                    except:
+                    except Exception:
                         contour_c = 0
                     axes[2].set(title = 'Original + Masks')
                 if not (df_labels is None):
@@ -12445,7 +12460,7 @@ class Plots():
                 image_name = image_name+'.pdf' 
             try:
                 plt.savefig(image_name, transparent=False,dpi=120, bbox_inches = 'tight', format='pdf')
-            except:
+            except Exception:
                 plt.savefig(image_name, transparent=False,dpi=90, bbox_inches = 'tight', format='pdf')
         if show_plot == True:
             plt.show()

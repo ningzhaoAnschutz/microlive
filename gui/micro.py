@@ -336,13 +336,13 @@ class Plots:
             try:
                 decorrelation_successful = True
                 de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit + start_lag]
-                logging.info(f"Decorrelation threshold value: {de_correlation_threshold_value}")
+                logging.debug(f"Decorrelation threshold value: {de_correlation_threshold_value}")
             except Exception as e:
-                logging.warning(f"Could not find the decorrelation point automatically: {e}")
+                logging.debug(f"Could not find the decorrelation point automatically: {e}")
                 # Fall back to the last correlation point
                 index_max_lag_for_fit = normalized_correlation.shape[0]
                 de_correlation_threshold_value = normalized_correlation[index_max_lag_for_fit - 1]
-                logging.info(f"Falling back to last point: {de_correlation_threshold_value}")
+                logging.debug(f"Falling back to last point: {de_correlation_threshold_value}")
                 decorrelation_successful = False
 
             if decorrelation_successful:
@@ -906,7 +906,7 @@ class GUI(QMainWindow):
         self.maximum_spots_cluster = None
         self.separate_clusters_and_spots = False
         self.maximum_range_search_pixels = 7
-        self.memory = 1
+        self.memory = 0
         self.de_correlation_threshold = 0.01
         self.max_spots_for_threshold = 3000
         self.index_max_lag_for_fit = None
@@ -1942,6 +1942,14 @@ class GUI(QMainWindow):
         if hasattr(self, 'max_lag_input'):
             self.max_lag_input.setMaximum(self.max_lag - 1)
             self.max_lag_input.setValue(self.max_lag - 1)
+        
+        # Auto-adjust min_length_trajectory based on movie length
+        optimal_min_traj = self._calculate_optimal_min_trajectory(T)
+        self.min_length_trajectory = optimal_min_traj
+        if hasattr(self, 'min_length_input'):
+            self.min_length_input.blockSignals(True)
+            self.min_length_input.setValue(optimal_min_traj)
+            self.min_length_input.blockSignals(False)
         
         # Set time slider maximums for all tabs
         self.time_slider_display.setMaximum(T - 1)
@@ -3742,7 +3750,7 @@ class GUI(QMainWindow):
                         current = int(parts[0])
                         progress.setValue(current)
                         progress.setLabelText(msg)
-                    except:
+                    except Exception:
                         progress.setLabelText(msg)
                     QApplication.processEvents()
                 
@@ -3860,7 +3868,7 @@ class GUI(QMainWindow):
                         current = int(parts[0])
                         progress.setValue(current)
                         progress.setLabelText(msg)
-                    except:
+                    except Exception:
                         progress.setLabelText(msg)
                     QApplication.processEvents()
                 
@@ -5265,7 +5273,7 @@ class GUI(QMainWindow):
                 try:
                     pct = int(message.split(":")[1].split("%")[0].strip())
                     progress.setValue(pct)
-                except:
+                except Exception:
                     pass
             progress.setLabelText(message)
             QApplication.processEvents()
@@ -5281,6 +5289,47 @@ class GUI(QMainWindow):
             )
             self.registered_image = reg.get_registered_image()
             progress.setValue(100)
+            
+            # Check if existing masks have different dimensions than registered image
+            reg_shape = self.registered_image.shape[2:4]  # [Y, X]
+            masks_invalidated = False
+            mask_names = []
+            
+            if self.cellpose_masks_cyto is not None and self.cellpose_masks_cyto.shape != reg_shape:
+                masks_invalidated = True
+                mask_names.append("Cellpose cytosol")
+            if self.cellpose_masks_nuc is not None and self.cellpose_masks_nuc.shape != reg_shape:
+                masks_invalidated = True
+                mask_names.append("Cellpose nucleus")
+            if self.segmentation_mask is not None and self.segmentation_mask.shape != reg_shape:
+                masks_invalidated = True
+                mask_names.append("Watershed/Manual")
+            
+            if masks_invalidated:
+                # Clear masks that are now invalid
+                self.cellpose_masks_cyto = None
+                self.cellpose_masks_nuc = None
+                self.cellpose_masks_cyto_tyx = None
+                self.cellpose_masks_nuc_tyx = None
+                self.segmentation_mask = None
+                self._active_mask_source = 'none'
+                
+                # Also clear photobleaching and tracking that depended on them
+                self.corrected_image = None
+                self.photobleaching_calculated = False
+                self.df_tracking = pd.DataFrame()
+                self.multi_channel_tracking_data = {}
+                self.tracked_channels = []
+                
+                QMessageBox.warning(
+                    self, 
+                    "Masks Invalidated",
+                    f"Registration changed the image dimensions.\n\n"
+                    f"The following masks have been cleared because they no longer match:\n"
+                    f"• {', '.join(mask_names)}\n\n"
+                    f"Please re-run segmentation on the registered image."
+                )
+            
             self.plot_registration_panels()
             # Update other tabs that use the registered image
             self.plot_segmentation()
@@ -5300,10 +5349,21 @@ class GUI(QMainWindow):
         """Remove registration and reset to original image."""
         self.registered_image = None
         self.registration_roi = None
+        
+        # Clear photobleaching correction that was based on registered image
+        # (corrected_image may have been computed from registered_image)
+        if self.corrected_image is not None:
+            self.corrected_image = None
+            self.photobleaching_calculated = False
+            self.photobleaching_data = None
+            self.statusBar().showMessage("Registration removed. Photobleaching correction also reset.")
+        else:
+            self.statusBar().showMessage("Registration removed.")
+        
         if hasattr(self, 'reg_roi_rect') and self.reg_roi_rect is not None:
             try:
                 self.reg_roi_rect.remove()
-            except:
+            except Exception:
                 pass
             self.reg_roi_rect = None
         # Reset status labels
@@ -5313,7 +5373,6 @@ class GUI(QMainWindow):
         if hasattr(self, 'registration_status_label'):
             self.registration_status_label.setText("")
         self.plot_registration_panels()
-        self.statusBar().showMessage("Registration removed.")
     
     def reset_registration_state(self):
         """Reset all registration state. Called on new image load or close."""
@@ -5322,7 +5381,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'reg_roi_rect') and self.reg_roi_rect is not None:
             try:
                 self.reg_roi_rect.remove()
-            except:
+            except Exception:
                 pass
             self.reg_roi_rect = None
     
@@ -6446,6 +6505,39 @@ class GUI(QMainWindow):
 
     def update_min_length_trajectory(self, value):
         self.min_length_trajectory = value
+    
+    def _calculate_optimal_min_trajectory(self, total_frames):
+        """
+        Calculate optimal min_length_trajectory based on movie length.
+        
+        Scaling:
+        - Short movies (≤20 frames): 5-10
+        - Medium movies (20-80 frames): 10-20
+        - Long movies (80+ frames): 20-50 (capped)
+        
+        Args:
+            total_frames: Number of frames in the movie
+            
+        Returns:
+            int: Optimal min trajectory length
+        """
+        if total_frames <= 10:
+            return 5
+        elif total_frames <= 20:
+            # Scale from 5 to 10 for 10-20 frames
+            return 5 + int((total_frames - 10) * 5 / 10)
+        elif total_frames <= 40:
+            # Scale from 10 to 15 for 20-40 frames
+            return 10 + int((total_frames - 20) * 5 / 20)
+        elif total_frames <= 80:
+            # Scale from 15 to 25 for 40-80 frames
+            return 15 + int((total_frames - 40) * 10 / 40)
+        elif total_frames <= 200:
+            # Scale from 25 to 50 for 80-200 frames
+            return 25 + int((total_frames - 80) * 25 / 120)
+        else:
+            # Cap at 50 for very long movies
+            return 50
 
     def update_yx_spot_size(self, value):
         if value % 2 == 0:
@@ -7186,7 +7278,7 @@ class GUI(QMainWindow):
                     else:
                         label_color = 'white'
                     # Position: bottom-right of spot to avoid overlap with particle ID
-                    self.ax_tracking.text(row['x'] + 10, row['y'] + 10,
+                    self.ax_tracking.text(row['x'] + 4, row['y'] + 4,
                                            f"{int(row['cluster_size'])}",
                                            color=label_color, fontsize=7,
                                            ha='left', va='top')
@@ -7204,7 +7296,7 @@ class GUI(QMainWindow):
                     else:
                         label_color = 'white'
                     # Position: top-left of spot to avoid overlap with cluster size
-                    self.ax_tracking.text(row['x'] - 10, row['y'] - 10,
+                    self.ax_tracking.text(row['x'] - 4, row['y'] - 4,
                                            f"{int(row['particle'])}",
                                            color=label_color, fontsize=6,
                                            ha='right', va='bottom')
@@ -7435,7 +7527,6 @@ class GUI(QMainWindow):
         progress.setWindowTitle("Tracking in Progress")
         progress.setWindowModality(Qt.WindowModal)
         progress.setMinimumDuration(0)
-        screen = QGuiApplication.primaryScreen()
         progress.show()
         QApplication.processEvents()
         self._sync_tracking_channel()
@@ -8781,7 +8872,7 @@ class GUI(QMainWindow):
                 mean_snr = np.nanmean(arr_snr_aligned, axis=1)
                 valid_idx = np.where(mean_snr >= threshold)[0]
                 if valid_idx.size == 0:
-                    print(f"After alignment, no valid indices remain for channel {ch}.")
+                    logging.debug(f"After alignment, no valid indices remain for channel {ch}.")
                     continue
                 new_intensity_arrays[ch] = arr_int_aligned[valid_idx]
             intensity_arrays = new_intensity_arrays
@@ -8849,7 +8940,7 @@ class GUI(QMainWindow):
                         )
                         mean_corr, std_corr, lags, correlations_array, _ = corr.run()
                     except Exception as e:
-                        print(f"Correlation failed for cell {cell_id}, ch {ch}: {e}")
+                        logging.debug(f"Correlation failed for cell {cell_id}, ch {ch}: {e}")
                         continue
                     
                     if index_max >= len(lags):
@@ -9169,9 +9260,36 @@ class GUI(QMainWindow):
                 other_index = 1 if tracking_ch == 0 else 0
                 self.channel_combo_box_2.setCurrentIndex(other_index)
 
+    def _populate_coloc_cell_selector(self):
+        """Populate the cell selector combo box based on tracking data."""
+        if not hasattr(self, 'coloc_cell_combo'):
+            return
         
+        # Remember current selection
+        current_data = self.coloc_cell_combo.currentData()
+        
+        # Clear and repopulate
+        self.coloc_cell_combo.clear()
+        self.coloc_cell_combo.addItem("All Cells (pooled)", -1)
+        self.coloc_cell_combo.addItem("All Cells (per-cell avg)", -2)
+        
+        # Add individual cells if cell_id column exists
+        if (hasattr(self, 'df_tracking') and not self.df_tracking.empty 
+            and 'cell_id' in self.df_tracking.columns):
+            cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+            for cid in cell_ids:
+                n_spots = len(self.df_tracking[self.df_tracking['cell_id'] == cid])
+                self.coloc_cell_combo.addItem(f"Cell {int(cid)} ({n_spots} spots)", int(cid))
+        
+        # Restore selection if possible
+        if current_data is not None:
+            idx = self.coloc_cell_combo.findData(current_data)
+            if idx >= 0:
+                self.coloc_cell_combo.setCurrentIndex(idx)
+        
+
     def compute_colocalization(self):
-        """Perform colocalization analysis and display results."""
+        """Perform colocalization analysis with per-cell support."""
         invoked_by_run = (
             hasattr(self, 'compute_colocalization_button')
             and self.sender() is not None
@@ -9224,40 +9342,103 @@ class GUI(QMainWindow):
         crop_size = int(self.yx_spot_size_in_px) + 5
         if crop_size % 2 == 0:
             crop_size += 1
-        _, mean_crop, _, crop_size = mi.CropArray(
-            image=image,
-            df_crops=df_for_coloc,
-            crop_size=crop_size,
-            remove_outliers=False,
-            max_percentile=99.95,
-            selected_time_point=None,
-            normalize_each_particle=False
-        ).run()
-        if self.method_ml_radio.isChecked():
-            threshold = self.ml_threshold_input.value()
-            method_used = "ML"
-            crops_norm = mi.Utilities().normalize_crop_return_list(
-                array_crops_YXC=mean_crop,
-                crop_size=crop_size,
-                selected_color_channel=ch2,
-                normalize_to_255=True
-            )
-            flag_vector, prediction_values_vector = ML.predict_crops(model_ML, crops_norm, threshold=threshold)
+        
+        # Get analysis parameters
+        threshold = self.ml_threshold_input.value() if self.method_ml_radio.isChecked() else self.snr_threshold_input.value()
+        method_used = "ML" if self.method_ml_radio.isChecked() else "Intensity"
+        
+        # Get cell selection mode
+        selected_cell = self.coloc_cell_combo.currentData() if hasattr(self, 'coloc_cell_combo') else -1
+        
+        # Determine cell IDs to analyze
+        if 'cell_id' in df_for_coloc.columns:
+            all_cell_ids = sorted(df_for_coloc['cell_id'].dropna().unique())
         else:
-            threshold = self.snr_threshold_input.value()
-            method_used = "Intensity"
-            num_crops = mean_crop.shape[0] // crop_size
-            results_snr = [mi.Utilities().is_spot_in_crop(
-                        i, crop_size=crop_size, selected_color_channel=ch2,
-                        array_crops_YXC=mean_crop,
-                        show_plot=False,
-                        snr_threshold=threshold)
-                        for i in range(num_crops)]
-            flag_vector, prediction_values_vector = zip(*results_snr)
-            flag_vector = np.array(flag_vector)
-            prediction_values_vector = np.array(prediction_values_vector)
-        colocal_perc = 0 if len(flag_vector) == 0 else (np.sum(flag_vector) / len(flag_vector)) * 100
-        self.colocalization_percentage_label.setText(f"Colocalization Percentage: {colocal_perc:.2f}%")
+            all_cell_ids = [None]  # No cell info
+        
+        # Store per-cell results
+        per_cell_results = {}
+        
+        # Analyze per cell
+        for cell_id in all_cell_ids:
+            if cell_id is not None:
+                cell_df = df_for_coloc[df_for_coloc['cell_id'] == cell_id]
+            else:
+                cell_df = df_for_coloc
+            
+            if len(cell_df) < 1:
+                continue
+            
+            # Compute crops for this cell
+            try:
+                _, mean_crop_cell, _, _ = mi.CropArray(
+                    image=image,
+                    df_crops=cell_df,
+                    crop_size=crop_size,
+                    remove_outliers=False,
+                    max_percentile=99.95,
+                    selected_time_point=None,
+                    normalize_each_particle=False
+                ).run()
+            except Exception:
+                continue
+            
+            # Compute colocalization
+            flag_vector_cell, pred_values_cell = self._compute_coloc_flags(
+                mean_crop_cell, crop_size, ch2, method_used, threshold
+            )
+            
+            n_spots = len(flag_vector_cell)
+            n_coloc = int(np.sum(flag_vector_cell)) if n_spots > 0 else 0
+            pct = (n_coloc / n_spots * 100) if n_spots > 0 else 0.0
+            
+            per_cell_results[cell_id] = {
+                'n_spots': n_spots,
+                'n_colocalized': n_coloc,
+                'percentage': pct,
+                'mean_crop': mean_crop_cell,
+                'flag_vector': flag_vector_cell,
+                'prediction_values': pred_values_cell
+            }
+        
+        # Compute summary statistics
+        if len(per_cell_results) > 0:
+            percentages = [r['percentage'] for r in per_cell_results.values()]
+            total_spots = sum(r['n_spots'] for r in per_cell_results.values())
+            total_coloc = sum(r['n_colocalized'] for r in per_cell_results.values())
+            
+            mean_pct = np.mean(percentages) if percentages else 0.0
+            std_pct = np.std(percentages) if len(percentages) > 1 else 0.0
+            pooled_pct = (total_coloc / total_spots * 100) if total_spots > 0 else 0.0
+        else:
+            mean_pct = std_pct = pooled_pct = 0.0
+            total_spots = total_coloc = 0
+        
+        # Update per-cell summary table
+        self._update_coloc_percell_table(per_cell_results, mean_pct, std_pct, pooled_pct)
+        
+        # Determine what to display based on selection
+        if selected_cell >= 0 and selected_cell in per_cell_results:
+            # Single cell selected
+            result = per_cell_results[selected_cell]
+            display_crop = result['mean_crop']
+            display_flags = result['flag_vector']
+            display_pct = result['percentage']
+            display_pred = result['prediction_values']
+            label_text = f"Cell {selected_cell} Colocalization: {display_pct:.2f}% ({result['n_colocalized']}/{result['n_spots']} spots)"
+        elif selected_cell == -2:
+            # Per-cell average mode
+            display_pct = mean_pct
+            label_text = f"Per-Cell Average: {mean_pct:.2f}% ± {std_pct:.2f}% (n={len(per_cell_results)} cells)"
+            # Combine all crops for display
+            display_crop, display_flags, display_pred = self._combine_percell_crops(per_cell_results, crop_size)
+        else:
+            # Pooled mode (default)
+            display_pct = pooled_pct
+            label_text = f"Pooled Colocalization: {pooled_pct:.2f}% ({total_coloc}/{total_spots} spots)"
+            display_crop, display_flags, display_pred = self._combine_percell_crops(per_cell_results, crop_size)
+        
+        self.colocalization_percentage_label.setText(label_text)
         
         # Clear manual colocalization UI so new results can load
         self.manual_scroll_area.setWidget(QWidget())
@@ -9267,25 +9448,124 @@ class GUI(QMainWindow):
         self.manual_current_image_name = None
 
         self.colocalization_results = {
-            'mean_crop_filtered': mean_crop,
+            'mean_crop_filtered': display_crop,
             'crop_size': crop_size,
-            'flag_vector': flag_vector,
-            'prediction_values_vector': prediction_values_vector,
+            'flag_vector': display_flags,
+            'prediction_values_vector': display_pred,
             'ch1_index': ch1,
             'ch2_index': ch2,
-            'num_spots_reference': len(flag_vector),
-            'num_spots_colocalize': np.sum(flag_vector),
-            'colocalization_percentage': colocal_perc,
+            'num_spots_reference': len(display_flags) if display_flags is not None else 0,
+            'num_spots_colocalize': int(np.sum(display_flags)) if display_flags is not None else 0,
+            'colocalization_percentage': display_pct,
             'threshold_value': threshold,
-            'method': method_used
+            'method': method_used,
+            'per_cell_results': per_cell_results,
+            'pooled_percentage': pooled_pct,
+            'mean_percentage': mean_pct,
+            'std_percentage': std_pct
         }
-        self.display_colocalization_results(mean_crop, crop_size, flag_vector, ch1, ch2)
+        
+        if display_crop is not None and display_flags is not None:
+            self.display_colocalization_results(display_crop, crop_size, display_flags, ch1, ch2)
         self.extract_colocalization_data(save_df=False)
+    
+    def _compute_coloc_flags(self, mean_crop, crop_size, ch2, method, threshold):
+        """Compute colocalization flags for a set of crops."""
+        if mean_crop is None or mean_crop.shape[0] < crop_size:
+            return np.array([]), np.array([])
+        
+        if method == "ML":
+            crops_norm = mi.Utilities().normalize_crop_return_list(
+                array_crops_YXC=mean_crop,
+                crop_size=crop_size,
+                selected_color_channel=ch2,
+                normalize_to_255=True
+            )
+            flag_vector, pred_values = ML.predict_crops(model_ML, crops_norm, threshold=threshold)
+        else:
+            num_crops = mean_crop.shape[0] // crop_size
+            if num_crops == 0:
+                return np.array([]), np.array([])
+            results_snr = [mi.Utilities().is_spot_in_crop(
+                        i, crop_size=crop_size, selected_color_channel=ch2,
+                        array_crops_YXC=mean_crop,
+                        show_plot=False,
+                        snr_threshold=threshold)
+                        for i in range(num_crops)]
+            flag_vector, pred_values = zip(*results_snr)
+            flag_vector = np.array(flag_vector)
+            pred_values = np.array(pred_values)
+        
+        return flag_vector, pred_values
+    
+    def _combine_percell_crops(self, per_cell_results, crop_size):
+        """Combine crops from all cells for display."""
+        all_crops = []
+        all_flags = []
+        all_preds = []
+        
+        for result in per_cell_results.values():
+            if result['mean_crop'] is not None and len(result['flag_vector']) > 0:
+                all_crops.append(result['mean_crop'])
+                all_flags.append(result['flag_vector'])
+                all_preds.append(result['prediction_values'])
+        
+        if not all_crops:
+            return None, np.array([]), np.array([])
+        
+        combined_crop = np.concatenate(all_crops, axis=0)
+        combined_flags = np.concatenate(all_flags)
+        combined_preds = np.concatenate(all_preds)
+        
+        return combined_crop, combined_flags, combined_preds
+    
+    def _update_coloc_percell_table(self, per_cell_results, mean_pct, std_pct, pooled_pct):
+        """Update the per-cell summary table display."""
+        if not hasattr(self, 'coloc_percell_table'):
+            return
+        
+        if not per_cell_results:
+            self.coloc_percell_table.setText("No cells analyzed.")
+            return
+        
+        # Build table text
+        lines = ["Cell ID  │ N Spots │ Colocal │  Pct  │ Status"]
+        lines.append("─" * 50)
+        
+        for cell_id, result in sorted(per_cell_results.items()):
+            n_spots = result['n_spots']
+            n_coloc = result['n_colocalized']
+            pct = result['percentage']
+            status = "" if n_spots >= 5 else "⚠️ Low N"
+            cell_str = str(int(cell_id)) if cell_id is not None else "All"
+            lines.append(f"  {cell_str:5}  │  {n_spots:5}  │   {n_coloc:4}  │ {pct:5.1f}% │ {status}")
+        
+        lines.append("─" * 50)
+        total_spots = sum(r['n_spots'] for r in per_cell_results.values())
+        total_coloc = sum(r['n_colocalized'] for r in per_cell_results.values())
+        lines.append(f" POOLED  │  {total_spots:5}  │   {total_coloc:4}  │ {pooled_pct:5.1f}% │")
+        if len(per_cell_results) > 1:
+            lines.append(f"   MEAN  │    -    │    -   │ {mean_pct:5.1f}% │ ±{std_pct:.1f}%")
+        
+        self.coloc_percell_table.setText("\n".join(lines))
+
+
 
     def display_colocalization_results(self, mean_crop, crop_size, flag_vector, ch1, ch2):
         """Display the colocalization result using provided crop data."""
         self.figure_colocalization.clear()
         title = f"Colocalization: {self.colocalization_results['colocalization_percentage']:.2f}%"
+        
+        # Auto-calculate optimal number of columns based on spot count
+        n_spots = len(flag_vector) if flag_vector is not None else 0
+        optimal_cols = self._calculate_optimal_coloc_columns(n_spots)
+        
+        # Update the spinbox to reflect the auto-calculated value
+        if hasattr(self, 'columns_spinbox'):
+            self.columns_spinbox.blockSignals(True)
+            self.columns_spinbox.setValue(optimal_cols)
+            self.columns_spinbox.blockSignals(False)
+        
         self.plots.plot_matrix_pair_crops(
             mean_crop=mean_crop,
             crop_size=crop_size,
@@ -9293,7 +9573,7 @@ class GUI(QMainWindow):
             selected_channels=(ch1, ch2),
             figure=self.figure_colocalization,
             crop_spacing=5,
-            number_columns=self.columns_spinbox.value(),
+            number_columns=optimal_cols,
             plot_title=title
         )
         try:
@@ -9302,6 +9582,43 @@ class GUI(QMainWindow):
         except Exception:
             pass
         self.canvas_colocalization.draw()
+    
+    def _calculate_optimal_coloc_columns(self, n_spots):
+        """
+        Calculate optimal number of columns for colocalization crop display.
+        
+        Uses adaptive scaling to create a balanced grid:
+        - Small counts (≤100): 4-10 columns (larger crops)
+        - Medium counts (100-500): 10-20 columns
+        - Large counts (500-2000): 20-35 columns
+        - Very large counts (2000+): 35-50 columns
+        
+        Args:
+            n_spots: Number of spots to display
+            
+        Returns:
+            int: Optimal number of columns
+        """
+        if n_spots <= 0:
+            return 10  # Default
+        
+        if n_spots <= 100:
+            # Small: sqrt, bounded 4-10
+            optimal = max(4, min(10, int(np.sqrt(n_spots))))
+        elif n_spots <= 500:
+            # Medium: sqrt, bounded 10-20
+            optimal = max(10, min(20, int(np.sqrt(n_spots))))
+        elif n_spots <= 2000:
+            # Large: scale from 20 to 35 between 500-2000 spots
+            # Linear interpolation: 20 + (n-500) * 15 / 1500
+            optimal = 20 + int((n_spots - 500) * 15 / 1500)
+        else:
+            # Very large: scale from 35 to 50 for 2000+
+            # Cap at 50 columns
+            optimal = min(50, 35 + int((n_spots - 2000) * 15 / 3000))
+        
+        return optimal
+
 
     def display_colocalization_manual(self):
         """Populate the Manual Colocalization tab with spot crops + checkboxes + separators."""
@@ -9384,7 +9701,7 @@ class GUI(QMainWindow):
 
     def extract_colocalization_data(self, save_df=True):
         if not self.colocalization_results:
-            print("No colocalization results!")
+            logging.warning("No colocalization results!")
             QMessageBox.warning(self, "No Data", "No colocalization data available.")
             return
         ch1 = self.colocalization_results.get('ch1_index', 0)
@@ -9395,17 +9712,78 @@ class GUI(QMainWindow):
         default_filename = self.get_default_export_filename(prefix="colocalization", extension="csv")
         base_name = (self.file_label.text() if hasattr(self, 'file_label') else 'tracking_data').split('.')[0]
         image_name = self.selected_image_name if hasattr(self, 'selected_image_name') else ''
-        df = pd.DataFrame({
-            "file name": [base_name],
-            "image name": [image_name],
-            "reference channel": [ch1],
-            "colocalize channel": [ch2],
-            "number of spots reference": [ref_spots],
-            "number of spots colocalize": [col_spots],
-            "colocalization percentage": [perc],
-            "threshold value": [self.colocalization_results.get("threshold_value")],
-            "method": [self.colocalization_results.get("method")]
-        })
+        
+        # Check if we have per-cell results
+        per_cell_results = self.colocalization_results.get('per_cell_results', {})
+        
+        if per_cell_results and len(per_cell_results) > 0:
+            # Create rows for each cell plus summary rows
+            rows = []
+            for cell_id, result in sorted(per_cell_results.items()):
+                cell_str = str(int(cell_id)) if cell_id is not None else "All"
+                rows.append({
+                    "file name": base_name,
+                    "image name": image_name,
+                    "cell_id": cell_str,
+                    "reference channel": ch1,
+                    "colocalize channel": ch2,
+                    "number of spots reference": result['n_spots'],
+                    "number of spots colocalize": result['n_colocalized'],
+                    "colocalization percentage": result['percentage'],
+                    "threshold value": self.colocalization_results.get("threshold_value"),
+                    "method": self.colocalization_results.get("method")
+                })
+            
+            # Add summary rows
+            pooled_pct = self.colocalization_results.get('pooled_percentage', perc)
+            mean_pct = self.colocalization_results.get('mean_percentage', perc)
+            std_pct = self.colocalization_results.get('std_percentage', 0.0)
+            total_spots = sum(r['n_spots'] for r in per_cell_results.values())
+            total_coloc = sum(r['n_colocalized'] for r in per_cell_results.values())
+            
+            rows.append({
+                "file name": base_name,
+                "image name": image_name,
+                "cell_id": "POOLED",
+                "reference channel": ch1,
+                "colocalize channel": ch2,
+                "number of spots reference": total_spots,
+                "number of spots colocalize": total_coloc,
+                "colocalization percentage": pooled_pct,
+                "threshold value": self.colocalization_results.get("threshold_value"),
+                "method": self.colocalization_results.get("method")
+            })
+            
+            if len(per_cell_results) > 1:
+                rows.append({
+                    "file name": base_name,
+                    "image name": image_name,
+                    "cell_id": "MEAN",
+                    "reference channel": ch1,
+                    "colocalize channel": ch2,
+                    "number of spots reference": "-",
+                    "number of spots colocalize": "-",
+                    "colocalization percentage": f"{mean_pct:.2f} ± {std_pct:.2f}",
+                    "threshold value": self.colocalization_results.get("threshold_value"),
+                    "method": self.colocalization_results.get("method")
+                })
+            
+            df = pd.DataFrame(rows)
+        else:
+            # Original single-row format
+            df = pd.DataFrame({
+                "file name": [base_name],
+                "image name": [image_name],
+                "cell_id": ["All"],
+                "reference channel": [ch1],
+                "colocalize channel": [ch2],
+                "number of spots reference": [ref_spots],
+                "number of spots colocalize": [col_spots],
+                "colocalization percentage": [perc],
+                "threshold value": [self.colocalization_results.get("threshold_value")],
+                "method": [self.colocalization_results.get("method")]
+            })
+        
         self.df_colocalization = df
         if save_df:
             options = QFileDialog.Options()
@@ -9447,6 +9825,20 @@ class GUI(QMainWindow):
         self.canvas_colocalization.draw()
         self.colocalization_results = None
         self.colocalization_percentage_label.setText("")
+        
+        # Reset columns spinbox to default
+        if hasattr(self, 'columns_spinbox'):
+            self.columns_spinbox.setValue(12)
+        
+        # Reset per-cell table
+        if hasattr(self, 'coloc_percell_table'):
+            self.coloc_percell_table.setText("")
+        
+        # Reset cell selector to default
+        if hasattr(self, 'coloc_cell_combo'):
+            self.coloc_cell_combo.clear()
+            self.coloc_cell_combo.addItem("All Cells (pooled)", -1)
+            self.coloc_cell_combo.addItem("All Cells (per-cell avg)", -2)
     
     def extract_manual_colocalization_data(self, save_df=True):
         if not hasattr(self, 'manual_checkboxes') or len(self.manual_checkboxes) == 0:
@@ -9611,6 +10003,15 @@ class GUI(QMainWindow):
         trackingChLayout.addWidget(self.colocalization_tracking_channel_combo)
         top_layout.addWidget(trackingChannelGroup)
         
+        # Cell selector for multi-cell analysis
+        cellGroup = QGroupBox("Cell Selection")
+        cellLayout = QHBoxLayout(cellGroup)
+        self.coloc_cell_combo = QComboBox()
+        self.coloc_cell_combo.addItem("All Cells (pooled)", -1)
+        self.coloc_cell_combo.addItem("All Cells (per-cell avg)", -2)
+        cellLayout.addWidget(self.coloc_cell_combo)
+        top_layout.addWidget(cellGroup)
+        
         channelGroup = QGroupBox("Select Channels")
         chLayout = QHBoxLayout(channelGroup)
         self.channel_combo_box_1 = QComboBox()
@@ -9659,8 +10060,9 @@ class GUI(QMainWindow):
         columnsLayout = QHBoxLayout(columnsGroup)
         columnsLayout.addWidget(QLabel("Columns:"))
         self.columns_spinbox = QSpinBox()
-        self.columns_spinbox.setRange(1, 100)
-        self.columns_spinbox.setValue(50)
+        self.columns_spinbox.setRange(4, 50)
+        self.columns_spinbox.setValue(12)  # Auto-adjusted when running
+        self.columns_spinbox.setToolTip("Auto-adjusted based on spot count (4-20 recommended)")
         columnsLayout.addWidget(self.columns_spinbox)
         top_layout.addWidget(columnsGroup)
         actionsGroup = QGroupBox("Actions")
@@ -9676,7 +10078,20 @@ class GUI(QMainWindow):
         layout.addLayout(top_layout, 1)
         self.colocalization_percentage_label = QLabel("")
         self.colocalization_percentage_label.setAlignment(Qt.AlignCenter)
+        self.colocalization_percentage_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #00cc66;")
         layout.addWidget(self.colocalization_percentage_label)
+        
+        # Per-cell summary table (collapsible)
+        self.coloc_percell_group = QGroupBox("Per-Cell Results")
+        self.coloc_percell_group.setCheckable(True)
+        self.coloc_percell_group.setChecked(False)  # Collapsed by default
+        percell_layout = QVBoxLayout(self.coloc_percell_group)
+        self.coloc_percell_table = QLabel("")
+        self.coloc_percell_table.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.coloc_percell_table.setWordWrap(True)
+        percell_layout.addWidget(self.coloc_percell_table)
+        layout.addWidget(self.coloc_percell_group)
+        
         self.figure_colocalization = Figure()
         self.canvas_colocalization = FigureCanvas(self.figure_colocalization)
         layout.addWidget(self.canvas_colocalization, 8)
@@ -11423,7 +11838,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'reg_roi_rect') and self.reg_roi_rect is not None:
             try:
                 self.reg_roi_rect.remove()
-            except:
+            except Exception:
                 pass
             self.reg_roi_rect = None
         self.reg_roi_start = None
@@ -11698,7 +12113,7 @@ class GUI(QMainWindow):
                 microns_per_pixel = float(voxel_val) / 1000.0  # nm to µm
             else:
                 microns_per_pixel = 1.0  # Fallback
-                print("Warning: voxel_yx_nm not set, using 1.0 µm/px")
+                logging.warning("voxel_yx_nm not set, using 1.0 µm/px for MSD")
             
             # Get time interval from metadata
             if hasattr(self, 'time_interval_value') and self.time_interval_value is not None:
@@ -11708,7 +12123,7 @@ class GUI(QMainWindow):
                 step_size_in_sec = float(time_val)
             else:
                 step_size_in_sec = 1.0  # Fallback
-                print("Warning: time_interval_value not set, using 1.0 s")
+                logging.warning("time_interval_value not set, using 1.0 s for MSD")
             # Get Z voxel size for 3D MSD - convert from nm to microns
             if is_3d and hasattr(self, 'voxel_z_nm') and self.voxel_z_nm is not None:
                 z_val = self.voxel_z_nm
@@ -11855,7 +12270,7 @@ class GUI(QMainWindow):
                         D = slope / divisor if slope > 0 else 0.0
                         cell_D_values.append(D)
                 except Exception as e:
-                    print(f"MSD: Failed for Cell {cell_id}, particle {particle_id}: {e}")
+                    logging.debug(f"MSD: Failed for Cell {cell_id}, particle {particle_id}: {e}")
                     continue
             
             # Store per-cell summary
@@ -11928,7 +12343,7 @@ class GUI(QMainWindow):
                 
                 # Skip cells with too few particles
                 if cell_data['n_particles'] < MIN_PARTICLES_PER_CELL:
-                    print(f"MSD: Skipping Cell {cell_id} (only {cell_data['n_particles']} particles, need {MIN_PARTICLES_PER_CELL})")
+                    logging.debug(f"MSD: Skipping Cell {cell_id} (only {cell_data['n_particles']} particles, need {MIN_PARTICLES_PER_CELL})")
                     continue
                 
                 # Compute mean MSD across all trajectories for this cell
@@ -12836,6 +13251,10 @@ class GUI(QMainWindow):
                 
                 # Auto-sync Reference channel to match tracking channel
                 self.on_colocalization_tracking_channel_changed(0)
+            
+            # Populate cell selector with available cells
+            self._populate_coloc_cell_selector()
+            
             self.display_colocalization_plot()
             if hasattr(self, 'canvas_colocalization'):
                 if hasattr(self, 'cid_zoom_coloc'):
