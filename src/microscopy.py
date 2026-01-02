@@ -152,17 +152,6 @@ import warnings
 from PyQt5.QtWidgets import QMessageBox
 
 
-# import multiprocessing.resource_tracker
-# def fix_multiprocessing_cleanup():
-#     original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
-#     def new_stop(self, use_blocking_lock=False):
-#         try:
-#             original_stop(self, use_blocking_lock=use_blocking_lock)
-#         except (ChildProcessError, OSError):
-#             pass
-#     multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
-# if 'multiprocessing' in sys.modules:
-#     fix_multiprocessing_cleanup()
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
@@ -3308,7 +3297,13 @@ class TrackPyDetection:
                 reference_mass = np.median(masses)  # Fallback to standard median
             
             if reference_mass > 0:
-                calculated_size = np.round(masses / reference_mass)
+                # Use a stricter threshold for cluster size estimation
+                # A spot must be at least 1.75x the reference mass to be considered size 2
+                # This prevents false positives for single spots with slightly varying intensity
+                mass_ratio = masses / reference_mass
+                # Use floor-based calculation with offset to require significant excess mass
+                # size = 1 for ratio < 1.75, size = 2 for ratio [1.75, 2.5), etc.
+                calculated_size = np.floor(mass_ratio + 0.25)  # Shift threshold from 0.5 to 0.75
                 size = np.maximum(1, calculated_size).astype(int)
             else:
                 size = np.ones_like(x, dtype=int)
@@ -3533,7 +3528,9 @@ class BigFISH():
                     # Estimate cluster_size for spots with high intensity
                     for i, intensity in enumerate(spot_intensities):
                         current_size = clusters_and_spots[i, 3]
-                        estimated_size = max(1, int(np.round(intensity / reference_intensity)))
+                        # Use stricter threshold: require at least 1.75x reference to declare size 2
+                        intensity_ratio = intensity / reference_intensity
+                        estimated_size = max(1, int(np.floor(intensity_ratio + 0.25)))
                         
                         # --- MODIFICATION START ---
                         # Only update isolated spots (cluster_size=1) that appear to be clusters.
@@ -5499,127 +5496,189 @@ class ColocalizationDistance():
                 total = num_type_0_only + num_type_1_only + num_type_0_1
                 
         '''
+        # cdist is imported at module level (from scipy.spatial.distance import cdist)
+        
         number_cells = self.df['cell_id'].nunique()
-        array_spot_type_per_cell = np.zeros((number_cells, 14)).astype(int) # this array will store the spots separated  as types: spot_0_only, spot_1_only, or spot_0_1
-        list_coordinates_colocalized_spots=[]
+        array_spot_type_per_cell = np.zeros((number_cells, 14)).astype(int)
+        list_coordinates_colocalized_spots = []
         list_coordinates_spots_0_only = []
         list_coordinates_spots_1_only = []
         list_coordinates_spots_0_all = []
         list_coordinates_spots_1_all = []
 
         for cell_id in range(number_cells):
-            image_id = self.df[self.df["cell_id"] == cell_id]['image_id'].values[0]
-            # retrieving the coordinates for spots type 0 and 1 for each cell 
-            spot_type_0 = self.list_spot_type_to_compare[0] 
-            spot_type_1 = self.list_spot_type_to_compare[1]
-            array_spots_0 = np.asarray( self.df[['z','y','x']][(self.df["cell_id"] == cell_id) & (self.df["spot_type"] == spot_type_0)] ) # coordinates for spot_type_0 with shape [num_spots_type_0, 3]
-            array_spots_1 = np.asarray( self.df[['z','y','x']][(self.df["cell_id"] == cell_id) & (self.df["spot_type"] == spot_type_1)] ) # coordinates for spot_type_1 with shape [num_spots_type_1, 3]
-            total_spots0 = array_spots_0.shape[0]
-            total_spots1 = array_spots_1.shape[0]            
-            # Concatenating arrays from spots 0 and 1
-            array_all_spots = np.concatenate((array_spots_0,array_spots_1), axis=0) 
-            # Calculating a distance matrix. 
-            distance_matrix = np.zeros( (array_all_spots.shape[0], array_all_spots.shape[0])) #  the distance matrix is an square matrix resulting from the concatenation of both spot  types.
-            for i in range(len(array_all_spots)):
-                for j in range(len(array_all_spots)):
-                    if j<i:
-                        distance_matrix[i,j] = np.linalg.norm( ( array_all_spots[i,:]-array_all_spots[j,:] ) * self.scale )
-            # masking the distance matrix. Ones indicate the distance is less or equal than threshold_distance
-            mask_distance_matrix = (distance_matrix <= self.threshold_distance) 
-            # Selecting the right-lower quadrant as a subsection of the distance matrix that compares one spot type versus the other. 
-            subsection_mask_distance_matrix = mask_distance_matrix[total_spots0:, 0:total_spots0].copy()
-            index_true_distance_matrix = np.transpose((subsection_mask_distance_matrix==1).nonzero())
-            # To calulate 0 and 1 spots only the negation (NOT) of the subsection_mask_distance_matrix is used.
-            negation_subsection_mask_distance_matrix = ~subsection_mask_distance_matrix
-            # creating a subdataframe containing the coordinates of colocalized spots
-            colocalized_spots_in_spots0 = index_true_distance_matrix[:,1] # selecting the x-axis in [Y,X] matrix
-            coordinates_colocalized_spots = array_spots_0[ colocalized_spots_in_spots0]
-            #coordinates_colocalized_spots = array_spots_0[ index_true_distance_matrix[:,1]]
-            column_cell_id = np.zeros((coordinates_colocalized_spots.shape[0], 1))+ cell_id # zeros column as 2D array
-            coordinates_colocalized_spots = np.hstack((coordinates_colocalized_spots, column_cell_id))   # append column
-            list_coordinates_colocalized_spots.append(coordinates_colocalized_spots)
-            # creating a subdataframe containing the coordinates of 0_only spots
-            is_spot_only_type_0 = np.all(negation_subsection_mask_distance_matrix, axis =0 ) # Testing if all the columns are ones of inv(subsection_mask_distance_matrix). Representing spot type 0. Notice that np.all(arr, axis=0) does the calculation along the columns.
-            localized_spots_in_spots_0_only = (is_spot_only_type_0 > 0).nonzero() #index_false_distance_matrix[:,1] # selecting the x-axis in [Y,X] matrix for 0_only spots
-            coordinates_spots_0_only = array_spots_0[ localized_spots_in_spots_0_only]
-            column_cell_id_0_only = np.zeros((coordinates_spots_0_only.shape[0], 1))+ cell_id # zeros column as 2D array
-            coordinates_spots_0_only = np.hstack((coordinates_spots_0_only, column_cell_id_0_only))   # append column
-            list_coordinates_spots_0_only.append(coordinates_spots_0_only)
-            # creating a subdataframe containing the coordinates of 1_only spots
-            is_spot_only_type_1 = np.all(negation_subsection_mask_distance_matrix, axis =1 ) #  Testing if all the rows are ones of inv(subsection_mask_distance_matrix). Representing spot type 1. Notice that np.all(arr, axis=1) does the calculation along the rows.    
-            localized_spots_in_spots_1_only = (is_spot_only_type_1 > 0).nonzero() # index_false_distance_matrix[:,0] # selecting the y-axis in [Y,X] matrix for 1_only spots
-            coordinates_spots_1_only = array_spots_1[ localized_spots_in_spots_1_only]
-            column_cell_id_1_only = np.zeros((coordinates_spots_1_only.shape[0], 1))+ cell_id # zeros column as 2D array
-            coordinates_spots_1_only = np.hstack((coordinates_spots_1_only, column_cell_id_1_only))   # append column
-            list_coordinates_spots_1_only.append(coordinates_spots_1_only)
+            cell_data = self.df[self.df["cell_id"] == cell_id]
+            if cell_data.empty:
+                # No data for this cell - fill with zeros
+                array_spot_type_per_cell[cell_id, :] = np.array([
+                    self.time_point, self.threshold_intensity_0, self.threshold_intensity_1,
+                    self.threshold_distance, 0, cell_id, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                continue
+                
+            image_id = cell_data['image_id'].values[0]
             
-            # creating a subdataframe containing the coordinates of all spots in channel 0
-            column_cell_id_0_all = np.zeros((array_spots_0.shape[0], 1))+ cell_id # zeros column as 2D array
-            coordinates_spots_0_all = np.hstack((array_spots_0, column_cell_id_0_all))   # append column
-            list_coordinates_spots_0_all.append(coordinates_spots_0_all)
-            # creating a subdataframe containing the coordinates of all spots in channel 1
-            column_cell_id_1_all = np.zeros((array_spots_1.shape[0], 1))+ cell_id # zeros column as 2D array
-            coordinates_spots_1_all = np.hstack((array_spots_1, column_cell_id_1_all))   # append column
-            list_coordinates_spots_1_all.append(coordinates_spots_1_all)
-            # plotting the distance matrix. True values indicate that the combination of spots are inside the minimal selected radius.
-            if self.show_plot == True:
-                print('Cell_Id: ', str(cell_id))
-                plt.imshow(subsection_mask_distance_matrix, cmap='Greys_r')
-                plt.title('Subsection bool mask distance matrix') 
-                plt.xlabel('Spots 0')
-                plt.ylabel('Spots 1')   
-                plt.show()        
-            # Calculating each type of spots in cell
-            num_type_0_only = coordinates_spots_0_only.shape[0]#np.sum(is_spot_only_type_0) 
-            num_type_1_only = coordinates_spots_1_only.shape[0]#np.sum(is_spot_only_type_1) 
-            if self.report_codetected_spots_in_both_channels == True:
-                num_type_0_1 =  (total_spots0 - num_type_0_only) + (total_spots1 - num_type_1_only) # Number of spots in both channels
-                total_spots = num_type_0_only+num_type_1_only+num_type_0_1
+            # Retrieving the coordinates for spots type 0 and 1 for each cell 
+            spot_type_0 = self.list_spot_type_to_compare[0]
+            spot_type_1 = self.list_spot_type_to_compare[1]
+            
+            array_spots_0 = np.asarray(self.df[['z', 'y', 'x']][
+                (self.df["cell_id"] == cell_id) & (self.df["spot_type"] == spot_type_0)
+            ])
+            array_spots_1 = np.asarray(self.df[['z', 'y', 'x']][
+                (self.df["cell_id"] == cell_id) & (self.df["spot_type"] == spot_type_1)
+            ])
+            
+            total_spots0 = array_spots_0.shape[0]
+            total_spots1 = array_spots_1.shape[0]
+            
+            # Handle empty arrays
+            if total_spots0 == 0 and total_spots1 == 0:
+                # No spots in either channel
+                array_spot_type_per_cell[cell_id, :] = np.array([
+                    self.time_point, self.threshold_intensity_0, self.threshold_intensity_1,
+                    self.threshold_distance, image_id, cell_id, 0, 0, 0, 0, 0, 0, 0, 0
+                ])
+                continue
+            elif total_spots0 == 0:
+                # All spots are in channel 1 only
+                num_type_0_only = 0
+                num_type_1_only = total_spots1
+                num_type_0_1 = 0
+                total_spots = num_type_1_only
+                
+                # Store coords
+                column_cell_id = np.full((total_spots1, 1), cell_id)
+                list_coordinates_spots_1_only.append(np.hstack((array_spots_1, column_cell_id)))
+                list_coordinates_spots_1_all.append(np.hstack((array_spots_1, column_cell_id)))
+                
+                array_spot_type_per_cell[cell_id, :] = np.array([
+                    self.time_point, self.threshold_intensity_0, self.threshold_intensity_1,
+                    self.threshold_distance, image_id, cell_id,
+                    num_type_0_only, num_type_1_only, num_type_0_1,
+                    num_type_0_only + num_type_0_1, num_type_1_only + num_type_0_1,
+                    total_spots0, total_spots1, total_spots
+                ])
+                continue
+            elif total_spots1 == 0:
+                # All spots are in channel 0 only
+                num_type_0_only = total_spots0
+                num_type_1_only = 0
+                num_type_0_1 = 0
+                total_spots = num_type_0_only
+                
+                # Store coords
+                column_cell_id = np.full((total_spots0, 1), cell_id)
+                list_coordinates_spots_0_only.append(np.hstack((array_spots_0, column_cell_id)))
+                list_coordinates_spots_0_all.append(np.hstack((array_spots_0, column_cell_id)))
+                
+                array_spot_type_per_cell[cell_id, :] = np.array([
+                    self.time_point, self.threshold_intensity_0, self.threshold_intensity_1,
+                    self.threshold_distance, image_id, cell_id,
+                    num_type_0_only, num_type_1_only, num_type_0_1,
+                    num_type_0_only + num_type_0_1, num_type_1_only + num_type_0_1,
+                    total_spots0, total_spots1, total_spots
+                ])
+                continue
+            
+            # Both channels have spots - calculate pairwise distances efficiently
+            # Scale coordinates if needed
+            if isinstance(self.scale, np.ndarray):
+                scaled_spots_0 = array_spots_0 * self.scale
+                scaled_spots_1 = array_spots_1 * self.scale
             else:
-                num_type_0_1 =  coordinates_colocalized_spots.shape[0] # This will display the number of colocalized spots only in channel 0
-                total_spots = num_type_0_only+num_type_1_only+num_type_0_1
-            array_spot_type_per_cell[cell_id,:] = np.array([self.time_point, 
-                                                            self.threshold_intensity_0, 
-                                                            self.threshold_intensity_1, 
-                                                            self.threshold_distance, 
-                                                            image_id, 
-                                                            cell_id, 
-                                                            num_type_0_only, 
-                                                            num_type_1_only, 
-                                                            num_type_0_1, 
-                                                            num_type_0_only+num_type_0_1, 
-                                                            num_type_1_only+num_type_0_1, 
-                                                            total_spots0,
-                                                            total_spots1,
-                                                            total_spots]).astype(int)
-            list_labels = ['time','ts_intensity_0','ts_intensity_1','ts_distance','image_id','cell_id','num_0_only','num_1_only','num_0_1','num_0', 'num_1','num_0_total','num_1_total','total']
-            # creating a dataframe
-            df_spots_classification = pd.DataFrame(data=array_spot_type_per_cell, columns=list_labels)
-            del coordinates_colocalized_spots,is_spot_only_type_0,is_spot_only_type_1,coordinates_spots_0_only,coordinates_spots_1_only
-        # Creating dataframes for coordinates
-        list_labels_coordinates = ['z','y','x','cell_id']
-        new_dtypes = { 'cell_id':int, 'z':int,'y':int,'x':int}
-        # Colocalized spots
-        coordinates_colocalized_spots_all_cells = np.concatenate(list_coordinates_colocalized_spots)
-        df_coordinates_colocalized_spots = pd.DataFrame(data=coordinates_colocalized_spots_all_cells, columns=list_labels_coordinates)
-        df_coordinates_colocalized_spots = df_coordinates_colocalized_spots.astype(new_dtypes)
-        # 0-only spots
-        coordinates_0_only_spots_all_cells = np.concatenate(list_coordinates_spots_0_only)
-        df_coordinates_0_only_spots = pd.DataFrame(data=coordinates_0_only_spots_all_cells, columns=list_labels_coordinates)
-        df_coordinates_0_only_spots = df_coordinates_0_only_spots.astype(new_dtypes)
-        # 1-only spots
-        coordinates_1_only_spots_all_cells = np.concatenate(list_coordinates_spots_1_only)
-        df_coordinates_1_only_spots = pd.DataFrame(data=coordinates_1_only_spots_all_cells, columns=list_labels_coordinates)
-        df_coordinates_1_only_spots = df_coordinates_1_only_spots.astype(new_dtypes)
+                scaled_spots_0 = array_spots_0
+                scaled_spots_1 = array_spots_1
+            
+            # Calculate pairwise distance matrix: shape (total_spots1, total_spots0)
+            distance_matrix = cdist(scaled_spots_1, scaled_spots_0, metric='euclidean')
+            
+            # Mask: True where distance <= threshold
+            within_threshold = distance_matrix <= self.threshold_distance
+            
+            # A spot in channel 0 is colocalized if ANY spot in channel 1 is within threshold
+            is_colocalized_ch0 = np.any(within_threshold, axis=0)  # shape: (total_spots0,)
+            # A spot in channel 1 is colocalized if ANY spot in channel 0 is within threshold
+            is_colocalized_ch1 = np.any(within_threshold, axis=1)  # shape: (total_spots1,)
+            
+            # Spots that are NOT colocalized
+            is_0_only = ~is_colocalized_ch0
+            is_1_only = ~is_colocalized_ch1
+            
+            # Get coordinates
+            coordinates_colocalized_ch0 = array_spots_0[is_colocalized_ch0]
+            coordinates_0_only = array_spots_0[is_0_only]
+            coordinates_1_only = array_spots_1[is_1_only]
+            
+            # Add cell_id column
+            column_cell_id_coloc = np.full((coordinates_colocalized_ch0.shape[0], 1), cell_id)
+            column_cell_id_0_only = np.full((coordinates_0_only.shape[0], 1), cell_id)
+            column_cell_id_1_only = np.full((coordinates_1_only.shape[0], 1), cell_id)
+            column_cell_id_0_all = np.full((array_spots_0.shape[0], 1), cell_id)
+            column_cell_id_1_all = np.full((array_spots_1.shape[0], 1), cell_id)
+            
+            if coordinates_colocalized_ch0.shape[0] > 0:
+                list_coordinates_colocalized_spots.append(np.hstack((coordinates_colocalized_ch0, column_cell_id_coloc)))
+            if coordinates_0_only.shape[0] > 0:
+                list_coordinates_spots_0_only.append(np.hstack((coordinates_0_only, column_cell_id_0_only)))
+            if coordinates_1_only.shape[0] > 0:
+                list_coordinates_spots_1_only.append(np.hstack((coordinates_1_only, column_cell_id_1_only)))
+            list_coordinates_spots_0_all.append(np.hstack((array_spots_0, column_cell_id_0_all)))
+            list_coordinates_spots_1_all.append(np.hstack((array_spots_1, column_cell_id_1_all)))
+            
+            # Plotting
+            if self.show_plot:
+                print('Cell_Id: ', str(cell_id))
+                plt.imshow(within_threshold, cmap='Greys_r')
+                plt.title('Distance threshold mask')
+                plt.xlabel('Spots Ch 0')
+                plt.ylabel('Spots Ch 1')
+                plt.show()
+            
+            # Calculate counts
+            num_type_0_only = int(np.sum(is_0_only))
+            num_type_1_only = int(np.sum(is_1_only))
+            
+            if self.report_codetected_spots_in_both_channels:
+                # Count colocalized spots from both channels
+                num_type_0_1 = int(np.sum(is_colocalized_ch0)) + int(np.sum(is_colocalized_ch1))
+            else:
+                # Count colocalized spots from channel 0 only
+                num_type_0_1 = int(np.sum(is_colocalized_ch0))
+            
+            total_spots = num_type_0_only + num_type_1_only + num_type_0_1
+            
+            array_spot_type_per_cell[cell_id, :] = np.array([
+                self.time_point, self.threshold_intensity_0, self.threshold_intensity_1,
+                self.threshold_distance, image_id, cell_id,
+                num_type_0_only, num_type_1_only, num_type_0_1,
+                num_type_0_only + num_type_0_1, num_type_1_only + num_type_0_1,
+                total_spots0, total_spots1, total_spots
+            ])
         
-        # 0 all spots
-        coordinates_0_all_spots_all_cells = np.concatenate(list_coordinates_spots_0_all)
-        df_coordinates_0_all_spots = pd.DataFrame(data=coordinates_0_all_spots_all_cells, columns=list_labels_coordinates)
-        df_coordinates_0_all_spots = df_coordinates_0_all_spots.astype(new_dtypes)
-        # 1 all spots
-        coordinates_1_all_spots_all_cells = np.concatenate(list_coordinates_spots_1_all)
-        df_coordinates_1_all_spots = pd.DataFrame(data=coordinates_1_all_spots_all_cells, columns=list_labels_coordinates)
-        df_coordinates_1_all_spots = df_coordinates_1_all_spots.astype(new_dtypes)
+        # Create summary dataframe
+        list_labels = ['time', 'ts_intensity_0', 'ts_intensity_1', 'ts_distance', 'image_id', 'cell_id',
+                       'num_0_only', 'num_1_only', 'num_0_1', 'num_0', 'num_1', 'num_0_total', 'num_1_total', 'total']
+        df_spots_classification = pd.DataFrame(data=array_spot_type_per_cell, columns=list_labels)
+        
+        # Creating dataframes for coordinates
+        list_labels_coordinates = ['z', 'y', 'x', 'cell_id']
+        new_dtypes = {'cell_id': int, 'z': int, 'y': int, 'x': int}
+        
+        # Helper to safely concatenate coordinate lists
+        def safe_concat(coord_list, labels, dtypes):
+            if len(coord_list) > 0:
+                all_coords = np.concatenate(coord_list)
+                df = pd.DataFrame(data=all_coords, columns=labels)
+                return df.astype(dtypes)
+            else:
+                return pd.DataFrame(columns=labels).astype(dtypes)
+        
+        df_coordinates_colocalized_spots = safe_concat(list_coordinates_colocalized_spots, list_labels_coordinates, new_dtypes)
+        df_coordinates_0_only_spots = safe_concat(list_coordinates_spots_0_only, list_labels_coordinates, new_dtypes)
+        df_coordinates_1_only_spots = safe_concat(list_coordinates_spots_1_only, list_labels_coordinates, new_dtypes)
+        df_coordinates_0_all_spots = safe_concat(list_coordinates_spots_0_all, list_labels_coordinates, new_dtypes)
+        df_coordinates_1_all_spots = safe_concat(list_coordinates_spots_1_all, list_labels_coordinates, new_dtypes)
 
         return df_spots_classification, df_coordinates_colocalized_spots, df_coordinates_0_only_spots, df_coordinates_1_only_spots, df_coordinates_0_all_spots, df_coordinates_1_all_spots
 
@@ -8458,33 +8517,6 @@ class Utilities():
         # Save to csv
         df_for_model.to_csv(pathlib.Path().absolute().joinpath(destination_folder,plot_title_suffix+'.csv'))
         return df_for_model
-    # def extract_images_masks_dataframe( self,data_folder_path, mandatory_substring, path_to_config_file,connect_to_NAS,path_to_masks_dir=None, rescale=False,max_percentile=99.5):
-    #     local_folder_path = pathlib.Path().absolute().joinpath('temp_local__'+data_folder_path.name)
-    #     # This section downloads results including the dataframe
-    #     if connect_to_NAS == True:
-    #         list_local_files = Utilities().read_zipfiles_from_NAS(list_dirs=data_folder_path,path_to_config_file=path_to_config_file,share_name='share', mandatory_substring=mandatory_substring, local_folder_path=local_folder_path)
-    #         list_local_folders = Utilities().unzip_local_folders(list_local_files,local_folder_path)
-    #     else: 
-    #         list_local_folders = data_folder_path # Use this line to process files from a local repository
-    #     # Extracting the dataframe
-    #     df_file_path = glob.glob( str(list_local_folders[0].joinpath('df_*')) )[0]
-    #     dataframe = pd.read_csv(df_file_path)
-    #     # Extracting the dataframe with cell ids
-    #     try:
-    #         df_file_path_metadata = glob.glob( str(list_local_folders[0].joinpath('images_report_*')) )[0]     
-    #         images_metadata = pd.read_csv(df_file_path_metadata)
-    #     except:
-    #         images_metadata = None
-    #     # Extracting Original images
-    #     local_data_dir, masks_dir, number_images, number_color_channels, list_files_names,_ = Utilities().read_images_from_folder( path_to_config_file, data_folder_path = data_folder_path, path_to_masks_dir = path_to_masks_dir,  download_data_from_NAS = connect_to_NAS, substring_to_detect_in_file_name = '.*_C0.tif')        
-    #     # Reading images from folders
-    #     list_images, path_files, list_files_names, _ = ReadImages(directory= local_data_dir).read()
-    #     if not (path_to_masks_dir is None):
-    #         list_masks, path_files_masks, list_files_names_masks, _ = ReadImages(directory= masks_dir).read()
-    #     else:
-    #         list_masks = None
-    #     # Converting the images to int8
-    #     return list_images, list_masks, dataframe, number_images, number_color_channels,list_local_folders,local_data_dir, images_metadata
     
     
     def image_cell_selection(self,cell_id, list_images, dataframe, mask_cell=None, mask_nuc=None, scaling_value_radius_cell=1.1):
@@ -10658,7 +10690,6 @@ class Plots():
         Returns:
             None
         """
-    #def plot_3d_video_detected_spots(self,original_image, filtered_image, spots=None,df_spots=None,colocalized_spots=None,df_colocalized_spots=None,  clusters=None,masks=None, cmap='binary_r',threshold_for_spot_detection=None,voxel_xy_um=None, show_intensity_distribution=False, remove_outliers= True, maximum_percentile=99.7,bins=40,color='orangered',save_plots=False,show_plot=True, image_name='temp.pdf'):
         plt.rcdefaults()
         if (spots is None or len(spots) == 0) and (df_spots is None or df_spots.empty) and (clusters is None or len(clusters) == 0):
             error_message = "Warning: 'spots', 'df_spots', and 'clusters'  all be None or empty."

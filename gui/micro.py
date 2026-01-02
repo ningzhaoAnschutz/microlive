@@ -119,18 +119,6 @@ except ImportError:
     pass
 
 
-# import multiprocessing.resource_tracker
-# def fix_multiprocessing_cleanup():
-#     original_stop = multiprocessing.resource_tracker.ResourceTracker._stop
-#     def new_stop(self, use_blocking_lock=False):
-#         try:
-#             original_stop(self, use_blocking_lock=use_blocking_lock)
-#         except (ChildProcessError, OSError):
-#             pass
-#     multiprocessing.resource_tracker.ResourceTracker._stop = new_stop
-# if 'multiprocessing' in sys.modules:
-#     fix_multiprocessing_cleanup()
-
 # =============================================================================
 # UI DIALOGS, WIDGET, PLOTTING CLASSES
 # =============================================================================
@@ -732,26 +720,54 @@ class Metadata:
                 # Tracking Parameters
                 write_section('Tracking Parameters')
                 
-                write_subsection('Spot Detection')
+                # Report tracked channels summary
+                tracked_channels = getattr(self, 'tracked_channels', [])
+                if tracked_channels:
+                    write_value('Tracked Channels', ', '.join([str(ch) for ch in sorted(tracked_channels)]))
                 
-                # Report the final threshold used for tracking
-                final_threshold = getattr(self, 'user_selected_threshold', None)
-                if final_threshold is not None and final_threshold > 0:
-                    write_value('Final Threshold for Tracking', f'{int(final_threshold)}')
+                # Per-channel tracking parameters
+                params_per_channel = getattr(self, 'tracking_parameters_per_channel', {})
+                if params_per_channel:
+                    write_subsection('Per-Channel Parameters')
+                    for ch in sorted(params_per_channel.keys()):
+                        params = params_per_channel[ch]
+                        # Show if this was detection-only or full tracking
+                        is_detection_only = params.get('detection_only', False)
+                        analysis_type = 'Detection Only (no linking)' if is_detection_only else 'Full Tracking (with linking)'
+                        write_value(f'Channel {ch} Analysis Type', analysis_type)
+                        write_value(f'Channel {ch} Threshold', f"{params.get('threshold', 'N/A')}")
+                        write_value(f'Channel {ch} YX Spot Size (px)', f"{params.get('yx_spot_size_in_px', 'N/A')}")
+                        write_value(f'Channel {ch} Z Spot Size (px)', f"{params.get('z_spot_size_in_px', 'N/A')}")
+                        write_value(f'Channel {ch} Cluster Radius (nm)', f"{params.get('cluster_radius_nm', 'N/A')}")
+                        write_value(f'Channel {ch} Max Cluster Size', f"{params.get('maximum_spots_cluster', 'N/A')}")
+                        write_value(f'Channel {ch} Max Range Search (px)', f"{params.get('maximum_range_search_pixels', 'N/A')}")
+                        write_value(f'Channel {ch} Memory', f"{params.get('memory', 'N/A')}")
+                        write_value(f'Channel {ch} Min Trajectory Length', f"{params.get('min_length_trajectory', 'N/A')}")
+                        mode = '2D Projection' if params.get('use_maximum_projection', False) else '3D Volume'
+                        write_value(f'Channel {ch} Tracking Mode', mode)
+                        fd.write('\n')  # Blank line between channels
                 else:
-                    write_value('Final Threshold for Tracking', 'Not set (use Auto)')
-                
-                write_attr('YX Spot Size (px)', 'yx_spot_size_in_px')
-                write_attr('Z Spot Size (px)', 'z_spot_size_in_px')
-                write_attr('Cluster Radius (nm)', 'cluster_radius_nm')
-                write_attr('Max Spots per Cluster', 'maximum_spots_cluster')
-                write_attr('Separate Clusters and Spots', 'separate_clusters_and_spots')
-                
-                write_subsection('Trajectory Linking')
-                write_attr('Min Trajectory Length', 'min_length_trajectory')
-                write_attr('Max Search Range (px)', 'maximum_range_search_pixels')
-                write_attr('Memory (frames)', 'memory')
-                write_attr('Link Using 3D Coordinates', 'link_using_3d_coordinates')
+                    # Fallback to current parameters if no per-channel data
+                    write_subsection('Spot Detection')
+                    
+                    # Report the final threshold used for tracking
+                    final_threshold = getattr(self, 'user_selected_threshold', None)
+                    if final_threshold is not None and final_threshold > 0:
+                        write_value('Final Threshold for Tracking', f'{int(final_threshold)}')
+                    else:
+                        write_value('Final Threshold for Tracking', 'Not set (use Auto)')
+                    
+                    write_attr('YX Spot Size (px)', 'yx_spot_size_in_px')
+                    write_attr('Z Spot Size (px)', 'z_spot_size_in_px')
+                    write_attr('Cluster Radius (nm)', 'cluster_radius_nm')
+                    write_attr('Max Spots per Cluster', 'maximum_spots_cluster')
+                    write_attr('Separate Clusters and Spots', 'separate_clusters_and_spots')
+                    
+                    write_subsection('Trajectory Linking')
+                    write_attr('Min Trajectory Length', 'min_length_trajectory')
+                    write_attr('Max Search Range (px)', 'maximum_range_search_pixels')
+                    write_attr('Memory (frames)', 'memory')
+                    write_attr('Link Using 3D Coordinates', 'link_using_3d_coordinates')
                 
                 write_subsection('Channels')
                 write_attr('Spot Detection Channel', 'channels_spots')
@@ -769,17 +785,22 @@ class Metadata:
                 using_corrected = 'Yes' if 'Corrected' in str(combo_val) else 'No'
                 write_value('Using Photobleaching Corrected Image', using_corrected)
                 
-                # MSD Results (from Tracking tab)
+                # MSD Results (from dedicated MSD tab)
                 write_subsection('MSD Results')
-                D_um2 = getattr(self, 'tracking_D_um2_s', None)
-                D_px2 = getattr(self, 'tracking_D_px2_s', None)
+                msd_ch = getattr(self, 'tracking_msd_channel', None)
                 msd_mode = getattr(self, 'tracking_msd_mode', None)
-                if D_um2 is not None:
-                    write_value('Diffusion Coefficient (µm²/s)', f'{D_um2:.6e}')
-                    write_value('Diffusion Coefficient (px²/s)', f'{D_px2:.6e}')
+                msd_D = getattr(self, 'tracking_D_um2_s', None)
+                msd_D_px = getattr(self, 'tracking_D_px2_s', None)
+                if msd_ch is not None:
+                    write_value('MSD Calculated for Channel', msd_ch)
+                if msd_mode is not None:
                     write_value('MSD Mode', msd_mode)
-                else:
-                    write_value('Diffusion Coefficient', 'Not calculated')
+                if msd_D is not None:
+                    write_value('Diffusion Coefficient (µm²/s)', f'{msd_D:.4e}')
+                if msd_D_px is not None:
+                    write_value('Diffusion Coefficient (px²/s)', f'{msd_D_px:.4e}')
+                if msd_ch is None and msd_D is None:
+                    write_value('Note', 'MSD not yet calculated in MSD tab')
                 
                 # Correlation Parameters
                 write_section('Correlation Parameters')
@@ -930,6 +951,14 @@ class GUI(QMainWindow):
         self.photobleaching_calculated = False
         self.df_tracking = pd.DataFrame()
         self.has_tracked = False
+        
+        # Multi-channel tracking storage
+        self.multi_channel_tracking_data = {}  # Dict: {channel_index: DataFrame}
+        self.tracked_channels = []  # List of channel indices that have been tracked
+        self.tracking_thresholds = {}  # Dict: {channel_index: threshold_value}
+        self.tracking_parameters_per_channel = {}  # Dict: {channel_index: parameters_dict}
+        self.primary_tracking_channel = None  # First channel tracked (for default selection)
+        
         self.df_random_spots = pd.DataFrame()
         self.min_percentage_data_in_trajectory = 0.3
         self.use_maximum_projection = True
@@ -1968,16 +1997,7 @@ class GUI(QMainWindow):
         self.create_correlation_channel_checkboxes()
         self.populate_colocalization_channels()
         
-        # Update Cellpose channel spinbox ranges based on actual channels
-        max_ch = max(0, C - 1)
-        if hasattr(self, 'cellpose_cyto_channel_input'):
-            self.cellpose_cyto_channel_input.setMaximum(max_ch)
-            # Set to channel 1 if available, otherwise channel 0
-            self.cellpose_cyto_channel_input.setValue(min(1, max_ch))
-        if hasattr(self, 'cellpose_nuc_channel_input'):
-            self.cellpose_nuc_channel_input.setMaximum(max_ch)
-            self.cellpose_nuc_channel_input.setValue(0)
-        
+        # Note: Cellpose channel spinboxes removed - channel is now determined by left panel selection
         # Note: Crops channel buttons removed - Crops tab has been deprecated
         
         # Setup channel visualization control tabs
@@ -2372,6 +2392,20 @@ class GUI(QMainWindow):
         self.update_threshold_histogram()
         self.detected_spots_frame = None
         self.populate_colocalization_channels()
+        
+        # Reset or restore threshold for the new channel
+        if hasattr(self, 'tracking_thresholds') and channel in self.tracking_thresholds:
+            # Restore previously-used threshold for this channel
+            self.user_selected_threshold = self.tracking_thresholds[channel]
+            if hasattr(self, 'threshold_slider'):
+                self.threshold_slider.blockSignals(True)
+                self.threshold_slider.setValue(int(self.user_selected_threshold))
+                self.threshold_slider.blockSignals(False)
+            if hasattr(self, 'threshold_value_label'):
+                self.threshold_value_label.setText(f"Value: {int(self.user_selected_threshold)}")
+        else:
+            # Reset threshold for new channel (auto-detect based on histogram)
+            self._reset_threshold_for_new_channel()
 
     # Note: update_channel_crops removed - Crops tab has been deprecated
 
@@ -3676,8 +3710,8 @@ class GUI(QMainWindow):
             return
         
         try:
-            # Get parameters
-            channel = self.cellpose_cyto_channel_input.value()
+            # Get parameters - channel is determined by left panel selection
+            channel = self.current_channel
             diameter = int(self.cellpose_cyto_diameter_input.value())
             model_name = self.cellpose_cyto_model_input.currentText()
             
@@ -3795,8 +3829,8 @@ class GUI(QMainWindow):
             return
             
         try:
-            # Get parameters
-            channel = self.cellpose_nuc_channel_input.value()
+            # Get parameters - channel is determined by left panel selection
+            channel = self.current_channel
             diameter = int(self.cellpose_nuc_diameter_input.value())
             model_name = self.cellpose_nuc_model_input.currentText()
             
@@ -5587,11 +5621,6 @@ class GUI(QMainWindow):
         self.cellpose_cyto_model_input.setCurrentText('cyto3')
         cyto_layout.addRow("Model:", self.cellpose_cyto_model_input)
         
-        self.cellpose_cyto_channel_input = QSpinBox()
-        self.cellpose_cyto_channel_input.setRange(0, 10)
-        self.cellpose_cyto_channel_input.setValue(0)
-        cyto_layout.addRow("Channel:", self.cellpose_cyto_channel_input)
-        
         self.cellpose_cyto_diameter_input = QDoubleSpinBox()
         self.cellpose_cyto_diameter_input.setRange(0, 1000)
         self.cellpose_cyto_diameter_input.setValue(150)
@@ -5616,11 +5645,6 @@ class GUI(QMainWindow):
         self.cellpose_nuc_model_input.addItems(['nuclei', 'cyto3', 'cyto2', 'cyto'])
         self.cellpose_nuc_model_input.setCurrentText('nuclei')
         nuc_layout.addRow("Model:", self.cellpose_nuc_model_input)
-        
-        self.cellpose_nuc_channel_input = QSpinBox()
-        self.cellpose_nuc_channel_input.setRange(0, 10)
-        self.cellpose_nuc_channel_input.setValue(0)
-        nuc_layout.addRow("Channel:", self.cellpose_nuc_channel_input)
         
         self.cellpose_nuc_diameter_input = QDoubleSpinBox()
         self.cellpose_nuc_diameter_input.setRange(0, 1000)
@@ -5987,6 +6011,11 @@ class GUI(QMainWindow):
         self.photobleaching_data['err_intensities_corrected'] = raw_err_corrected
         
         self.photobleaching_calculated = True
+        
+        # Auto-select "Photobleaching Corrected" in tracking tab image source
+        if hasattr(self, 'image_source_combo'):
+            self.image_source_combo.setCurrentIndex(1)  # "Photobleaching Corrected"
+        
         self.plot_photobleaching()
 
     def plot_photobleaching(self):
@@ -6316,6 +6345,30 @@ class GUI(QMainWindow):
             self.ax_threshold_hist.axis('off')
             self.canvas_threshold_hist.draw_idle()
             return
+        
+        # Clear current channel's data when threshold changes
+        # This discards previous tracking/detection for fresh analysis
+        current_ch = self.current_channel
+        if current_ch in self.multi_channel_tracking_data:
+            del self.multi_channel_tracking_data[current_ch]
+        if current_ch in self.tracked_channels:
+            self.tracked_channels.remove(current_ch)
+        if current_ch in self.tracking_thresholds:
+            del self.tracking_thresholds[current_ch]
+        if current_ch in self.tracking_parameters_per_channel:
+            del self.tracking_parameters_per_channel[current_ch]
+        
+        # Update primary channel if needed
+        if self.primary_tracking_channel == current_ch:
+            self.primary_tracking_channel = self.tracked_channels[0] if self.tracked_channels else None
+        
+        # Rebuild combined dataframe
+        self._rebuild_combined_tracking_dataframe()
+        self._update_tracked_channels_list()
+        
+        # Clear detection preview
+        self.detected_spots_frame = None
+        
         self.user_selected_threshold = value
         self.threshold_spot_detection = float(value)
         self.ax_threshold_hist.clear()
@@ -6360,7 +6413,29 @@ class GUI(QMainWindow):
         # Tight layout to ensure ticks are visible
         self.figure_threshold_hist.tight_layout(pad=0.3)
         self.canvas_threshold_hist.draw_idle()
+        self.plot_tracking()  # Update display to clear old spots
         self.detect_spots_in_current_frame()
+
+    def _reset_threshold_for_new_channel(self):
+        """Reset threshold slider to minimum when switching to a new (untracked) channel."""
+        if not hasattr(self, 'threshold_slider'):
+            return
+            
+        # Reset user threshold to None to trigger auto-mode
+        self.user_selected_threshold = None
+        
+        # Set slider to minimum value
+        slider_min = self.threshold_slider.minimum()
+        self.threshold_slider.blockSignals(True)
+        self.threshold_slider.setValue(slider_min)
+        self.threshold_slider.blockSignals(False)
+        
+        # Update label to indicate auto/unset
+        if hasattr(self, 'threshold_value_label'):
+            self.threshold_value_label.setText("Value: Auto")
+        
+        # Redraw histogram without threshold line
+        self.update_threshold_histogram()
 
     def on_image_source_changed(self):
         self.image_source_combo_value = self.image_source_combo.currentText()
@@ -6621,11 +6696,67 @@ class GUI(QMainWindow):
             fast_gaussian_fit=self.fast_gaussian_fit,
         ).run()
         progress.close()
-        # Store tracking results
+        # Store detection results - detection now properly stores data for export
         if list_dataframes_trajectories:
-            self.df_tracking = pd.concat(list_dataframes_trajectories, ignore_index=True)
+            df_detected = pd.concat(list_dataframes_trajectories, ignore_index=True)
+            df_detected['spot_type'] = self.current_channel  # Set spot_type to actual channel number
+            
+            # Check if there's existing tracking data with linking (not detection-only)
+            # If so, warn user that detection will clear tracking data
+            has_tracking_data = False
+            for ch, params in self.tracking_parameters_per_channel.items():
+                if ch != self.current_channel and not params.get('detection_only', False):
+                    has_tracking_data = True
+                    break
+            
+            if has_tracking_data:
+                reply = QMessageBox.question(
+                    self, "Mode Mismatch",
+                    "You have tracking data (with linking) for other channels.\n\n"
+                    "Detection (without linking) cannot be mixed with tracking data.\n\n"
+                    "Clear all channel data and start fresh with detection-only?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    return
+                # Clear all existing data
+                self._clear_all_tracking_data()
+            
+            # Store in multi-channel tracking data (replaces any previous for this channel)
+            self.multi_channel_tracking_data[self.current_channel] = df_detected.copy()
+            
+            # Add to tracked channels if not already present
+            if self.current_channel not in self.tracked_channels:
+                self.tracked_channels.append(self.current_channel)
+            
+            # Set primary channel if first detection/tracking
+            if self.primary_tracking_channel is None:
+                self.primary_tracking_channel = self.current_channel
+            
+            # Store threshold and parameters used for this channel
+            self.tracking_thresholds[self.current_channel] = self.user_selected_threshold
+            self.tracking_parameters_per_channel[self.current_channel] = {
+                'threshold': self.user_selected_threshold,
+                'min_length_trajectory': self.min_length_trajectory,
+                'yx_spot_size_in_px': self.yx_spot_size_in_px,
+                'z_spot_size_in_px': self.z_spot_size_in_px,
+                'memory': self.memory,
+                'maximum_range_search_pixels': self.maximum_range_search_pixels,
+                'use_maximum_projection': self.use_maximum_projection,
+                'cluster_radius_nm': self.cluster_radius_nm,
+                'maximum_spots_cluster': self.maximum_spots_cluster,
+                'detection_only': True,  # Flag to indicate detection without linking
+            }
+            
+            # Rebuild combined df_tracking from all channels
+            self._rebuild_combined_tracking_dataframe()
+            
+            # Update tracked channels list widget
+            self._update_tracked_channels_list()
+            
+            # Also set as preview for visualization
+            self.detected_spots_frame = df_detected
         else:
-            self.df_tracking = pd.DataFrame()
             QMessageBox.information(self, "No Spots Detected", "No spots were detected in any frame.")
         # Optional random-mode run
         if getattr(self, 'random_mode_enabled', True):
@@ -6883,7 +7014,53 @@ class GUI(QMainWindow):
         marker_scale = dpi / 100.0
         
         # Get tracking data for current frame
-        df_frame = self.df_tracking[self.df_tracking['frame'] == self.current_frame] if len(self.df_tracking) > 0 else (self.detected_spots_frame if hasattr(self, 'detected_spots_frame') and self.detected_spots_frame is not None and len(self.detected_spots_frame) > 0 and self.detected_spots_frame['frame'].iloc[0] == self.current_frame else pd.DataFrame())
+        # Priority: 1) Multi-channel tracking data for this frame (filtered by channel if needed)
+        #           2) Detection preview (detected_spots_frame) for current frame
+        df_frame = pd.DataFrame()
+        
+        # Check if we should show all channels or just current channel
+        show_all_channels = (hasattr(self, 'tracking_show_all_channels_checkbox') and 
+                            self.tracking_show_all_channels_checkbox.isChecked())
+        
+        # First, get tracked data for current frame
+        if len(self.df_tracking) > 0:
+            df_frame = self.df_tracking[self.df_tracking['frame'] == self.current_frame].copy()
+            
+            # Filter by current channel if "All Ch" is not checked
+            if not show_all_channels and 'spot_type' in df_frame.columns and len(df_frame) > 0:
+                # Only show spots for the currently selected channel
+                df_frame = df_frame[df_frame['spot_type'] == self.current_channel]
+        
+        # If we have a detection preview (detected_spots_frame), include it
+        # This allows showing detection results while preserving multi-channel tracking
+        if (hasattr(self, 'detected_spots_frame') and 
+            self.detected_spots_frame is not None and 
+            len(self.detected_spots_frame) > 0):
+            # Handle both single frame and multi-frame detection preview
+            if 'frame' in self.detected_spots_frame.columns:
+                preview_frame = self.detected_spots_frame[
+                    self.detected_spots_frame['frame'] == self.current_frame
+                ]
+            else:
+                # Single frame detection without frame column
+                preview_frame = self.detected_spots_frame
+            
+            # Only include preview if it's for the current channel
+            if 'spot_type' in preview_frame.columns and len(preview_frame) > 0:
+                preview_frame = preview_frame[preview_frame['spot_type'] == self.current_channel]
+            
+            if len(preview_frame) > 0:
+                # If df_frame is empty, use preview directly
+                if df_frame.empty:
+                    df_frame = preview_frame.copy()
+                else:
+                    # Preview takes precedence for its channel (replaces tracked data for that channel)
+                    preview_spot_type = preview_frame['spot_type'].iloc[0] if 'spot_type' in preview_frame.columns else None
+                    if preview_spot_type is not None:
+                        # Remove existing spots for the preview channel from df_frame
+                        df_frame = df_frame[df_frame['spot_type'] != preview_spot_type]
+                        # Add the preview spots
+                        df_frame = pd.concat([df_frame, preview_frame], ignore_index=True)
         
         # Filter spots by Z-plane if viewing a specific Z-slice (for 3D tracking)
         if z_val < Z and 'z' in df_frame.columns and len(df_frame) > 0:
@@ -6892,52 +7069,110 @@ class GUI(QMainWindow):
             df_frame = df_frame[(df_frame['z'] >= z_val - z_tolerance) & 
                                (df_frame['z'] <= z_val + z_tolerance)]
         if not df_frame.empty:
-            edge_color = "w"
-            single_spots = df_frame[df_frame['cluster_size'] <= 1]
-            cluster_spots = df_frame[df_frame['cluster_size'] > 1]
+            # Define channel colors for multi-channel display
+            # ImageJ-style colors: green, magenta, yellow, red, cyan
+            channel_colors = ['#00ff00', '#ff00ff', '#ffff00', '#ff0000', '#00ffff', '#ff8800', '#8800ff']
+            
+            # Check if we have multi-channel tracking data
+            has_multi_channel = (
+                'spot_type' in df_frame.columns and 
+                len(self.tracked_channels) > 1
+            )
+            
             legend_handles = []
             legend_labels = []
-            if not single_spots.empty:
-                self.ax_tracking.scatter(
-                    single_spots['x'], single_spots['y'],
-                    s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                    marker='o', linewidth=1,
-                    edgecolors=edge_color, facecolors='none'
-                )
-                count_spots = single_spots.shape[0]
-                spot_legend = self.ax_tracking.scatter([], [],
-                                                       s=self.yx_spot_size_in_px * 5 * marker_scale,
-                                                       marker='o', linewidth=1,
-                                                       edgecolors=edge_color, facecolors='none')
-                legend_handles.append(spot_legend)
-                legend_labels.append(f"Spots: {count_spots}")
+            
+            if has_multi_channel:
+                # Plot per-channel with different colors
+                for spot_type in sorted(df_frame['spot_type'].unique()):
+                    df_ch = df_frame[df_frame['spot_type'] == spot_type]
+                    edge_color = channel_colors[int(spot_type) % len(channel_colors)]
+                    
+                    # Handle missing cluster_size column (treat all as single spots)
+                    if 'cluster_size' in df_ch.columns:
+                        single_spots = df_ch[df_ch['cluster_size'] <= 1]
+                        cluster_spots = df_ch[df_ch['cluster_size'] > 1]
+                    else:
+                        single_spots = df_ch
+                        cluster_spots = pd.DataFrame()
+                    
+                    if not single_spots.empty:
+                        self.ax_tracking.scatter(
+                            single_spots['x'], single_spots['y'],
+                            s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
+                            marker='o', linewidth=1,
+                            edgecolors=edge_color, facecolors='none'
+                        )
+                    
+                    if not cluster_spots.empty:
+                        self.ax_tracking.scatter(
+                            cluster_spots['x'], cluster_spots['y'],
+                            s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
+                            marker='s', linewidth=1,
+                            edgecolors=edge_color, facecolors='none'
+                        )
+                    
+                    # Add legend entry for this channel
+                    total_count = len(df_ch)
+                    ch_legend = self.ax_tracking.scatter([], [],
+                                                         s=self.yx_spot_size_in_px * 5 * marker_scale,
+                                                         marker='o', linewidth=1,
+                                                         edgecolors=edge_color, facecolors='none')
+                    legend_handles.append(ch_legend)
+                    legend_labels.append(f"Ch {int(spot_type)}: {total_count}")
             else:
-                self.ax_tracking.scatter(
-                    [], [],
-                    s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                    marker='o', linewidth=1,
-                    edgecolors=edge_color, facecolors='none'
-                )
-                legend_labels.append(f"Spots: 0")
-                legend_handles.append(self.ax_tracking.scatter([], [],
-                                                               s=self.yx_spot_size_in_px * 5 * marker_scale,
-                                                               marker='o', linewidth=1,
-                                                               edgecolors=edge_color, facecolors='none'))
-            if not cluster_spots.empty:
-                self.ax_tracking.scatter(
-                    cluster_spots['x'], cluster_spots['y'],
-                    s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                    marker='s', linewidth=1,
-                    edgecolors=edge_color, facecolors='none'
-                )
-                count_clusters = cluster_spots.shape[0]
-                cluster_legend = self.ax_tracking.scatter([], [],
-                                                          s=self.yx_spot_size_in_px * 5 * marker_scale * SCALE_SPOTS,
-                                                          marker='s', linewidth=1,
-                                                          edgecolors=edge_color, facecolors='none')
-                legend_handles.append(cluster_legend)
-                legend_labels.append(f"Clusters: {count_clusters}")
-            if self.show_cluster_size_checkbox.isChecked():
+                # Single channel: use white edge color (original behavior)
+                edge_color = "w"
+                
+                # Handle missing cluster_size column (treat all as single spots)
+                if 'cluster_size' in df_frame.columns:
+                    single_spots = df_frame[df_frame['cluster_size'] <= 1]
+                    cluster_spots = df_frame[df_frame['cluster_size'] > 1]
+                else:
+                    single_spots = df_frame
+                    cluster_spots = pd.DataFrame()
+                
+                if not single_spots.empty:
+                    self.ax_tracking.scatter(
+                        single_spots['x'], single_spots['y'],
+                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
+                        marker='o', linewidth=1,
+                        edgecolors=edge_color, facecolors='none'
+                    )
+                    count_spots = single_spots.shape[0]
+                    spot_legend = self.ax_tracking.scatter([], [],
+                                                           s=self.yx_spot_size_in_px * 5 * marker_scale,
+                                                           marker='o', linewidth=1,
+                                                           edgecolors=edge_color, facecolors='none')
+                    legend_handles.append(spot_legend)
+                    legend_labels.append(f"Spots: {count_spots}")
+                else:
+                    self.ax_tracking.scatter(
+                        [], [],
+                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
+                        marker='o', linewidth=1,
+                        edgecolors=edge_color, facecolors='none'
+                    )
+                    legend_labels.append(f"Spots: 0")
+                    legend_handles.append(self.ax_tracking.scatter([], [],
+                                                                   s=self.yx_spot_size_in_px * 5 * marker_scale,
+                                                                   marker='o', linewidth=1,
+                                                                   edgecolors=edge_color, facecolors='none'))
+                if not cluster_spots.empty:
+                    self.ax_tracking.scatter(
+                        cluster_spots['x'], cluster_spots['y'],
+                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
+                        marker='s', linewidth=1,
+                        edgecolors=edge_color, facecolors='none'
+                    )
+                    count_clusters = cluster_spots.shape[0]
+                    cluster_legend = self.ax_tracking.scatter([], [],
+                                                              s=self.yx_spot_size_in_px * 5 * marker_scale * SCALE_SPOTS,
+                                                              marker='s', linewidth=1,
+                                                              edgecolors=edge_color, facecolors='none')
+                    legend_handles.append(cluster_legend)
+                    legend_labels.append(f"Clusters: {count_clusters}")
+            if self.show_cluster_size_checkbox.isChecked() and 'cluster_size' in df_frame.columns:
                 # Filter to ROI if zoomed
                 df_to_label = df_frame
                 if self.tracking_zoom_roi is not None:
@@ -6945,10 +7180,16 @@ class GUI(QMainWindow):
                     df_to_label = df_frame[(df_frame['x'] >= x_min) & (df_frame['x'] <= x_max) &
                                           (df_frame['y'] >= y_min) & (df_frame['y'] <= y_max)]
                 for _, row in df_to_label.iterrows():
-                    self.ax_tracking.text(row['x']+8, row['y'],
+                    # Use channel-specific color when showing all channels
+                    if show_all_channels and 'spot_type' in row.index:
+                        label_color = channel_colors[int(row['spot_type']) % len(channel_colors)]
+                    else:
+                        label_color = 'white'
+                    # Position: bottom-right of spot to avoid overlap with particle ID
+                    self.ax_tracking.text(row['x'] + 10, row['y'] + 10,
                                            f"{int(row['cluster_size'])}",
-                                           color='white', fontsize=8,
-                                           ha='center', va='center')
+                                           color=label_color, fontsize=7,
+                                           ha='left', va='top')
             if self.show_particle_id_checkbox.isChecked() and 'particle' in df_frame.columns:
                 # Filter to ROI if zoomed
                 df_to_label = df_frame
@@ -6957,15 +7198,26 @@ class GUI(QMainWindow):
                     df_to_label = df_frame[(df_frame['x'] >= x_min) & (df_frame['x'] <= x_max) &
                                           (df_frame['y'] >= y_min) & (df_frame['y'] <= y_max)]
                 for _, row in df_to_label.iterrows():
-                    self.ax_tracking.text(row['x'], row['y'] - 8,
+                    # Use channel-specific color when showing all channels
+                    if show_all_channels and 'spot_type' in row.index:
+                        label_color = channel_colors[int(row['spot_type']) % len(channel_colors)]
+                    else:
+                        label_color = 'white'
+                    # Position: top-left of spot to avoid overlap with cluster size
+                    self.ax_tracking.text(row['x'] - 10, row['y'] - 10,
                                            f"{int(row['particle'])}",
-                                           color='white', fontsize=6,
-                                           ha='center', va='center')
+                                           color=label_color, fontsize=6,
+                                           ha='right', va='bottom')
             if self.show_trajectories_checkbox.isChecked() and not self.df_tracking.empty:
                 # Use unique_particle to avoid cross-cell trajectory connections
                 particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
                 if particle_col in self.df_tracking.columns:
                     df_up_to_current = self.df_tracking[self.df_tracking['frame'] <= self.current_frame]
+                    
+                    # Filter by channel if not showing all channels
+                    if not show_all_channels and 'spot_type' in df_up_to_current.columns:
+                        df_up_to_current = df_up_to_current[df_up_to_current['spot_type'] == self.current_channel]
+                    
                     # Filter trajectories to those with at least one point in ROI if zoomed
                     if self.tracking_zoom_roi is not None:
                         x_min, x_max, y_min, y_max = self.tracking_zoom_roi
@@ -6974,10 +7226,16 @@ class GUI(QMainWindow):
                             (df_up_to_current['y'] >= y_min) & (df_up_to_current['y'] <= y_max)
                         ][particle_col].unique()
                         df_up_to_current = df_up_to_current[df_up_to_current[particle_col].isin(particles_in_roi)]
+                    
                     for particle_id, grp in df_up_to_current.groupby(particle_col):
                         if grp.shape[0] > 1:
                             grp = grp.sort_values('frame')
-                            self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=1, color='white', alpha=0.5)
+                            # Use channel-specific color when showing all channels
+                            if show_all_channels and 'spot_type' in grp.columns:
+                                traj_color = channel_colors[int(grp['spot_type'].iloc[0]) % len(channel_colors)]
+                            else:
+                                traj_color = 'white'
+                            self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=1, color=traj_color, alpha=0.7)
             # Only show legend when viewing full image (not zoomed)
             # because counts are for entire image, not just the zoomed region
             if legend_handles and self.tracking_zoom_roi is None:
@@ -7127,11 +7385,18 @@ class GUI(QMainWindow):
         spots = self.detect_spots(image_channel, threshold, list_voxels, masks_complete, masks_nuc, masks_cyto_no_nuc)
         if spots is not None and not spots.empty:
             spots['frame'] = self.current_frame
+            spots['spot_type'] = self.current_channel  # Set spot_type to actual channel number
             self.detected_spots_frame = spots
-            self.df_tracking = spots.copy()
+            
+            # For single frame detection, show as preview without replacing multi-channel tracked data
+            # Only replace df_tracking if we don't have any multi-channel tracking data
+            if not self.multi_channel_tracking_data:
+                self.df_tracking = spots.copy()
+            # else: Keep the existing multi-channel tracking data, detection is just a preview
         else:
             self.detected_spots_frame = None
-            self.df_tracking = pd.DataFrame()
+            if not self.multi_channel_tracking_data:
+                self.df_tracking = pd.DataFrame()
         self.plot_tracking()
 
 
@@ -7142,7 +7407,8 @@ class GUI(QMainWindow):
         if not hasattr(self, 'user_selected_threshold') or self.user_selected_threshold <= 0:
             QMessageBox.warning(self, "Tracking Aborted", "Threshold is zero; please adjust the threshold slider before running tracking.")
             return
-        self.df_tracking = pd.DataFrame()
+        
+        # Clear detection preview (not the multi-channel tracking data)
         self.detected_spots_frame = None
         self.reset_msd_tab()
         self.plot_tracking()
@@ -7237,29 +7503,57 @@ class GUI(QMainWindow):
 
     def on_tracking_finished(self, list_dataframes_trajectories):
         try:
+            tracking_channel = self.current_channel  # Channel that was tracked
+            
             if list_dataframes_trajectories and any(not df.empty for df in list_dataframes_trajectories):
                 df_tracking = pd.concat(list_dataframes_trajectories, ignore_index=True)
                 if 'particle' not in df_tracking.columns or df_tracking['particle'].nunique() == 0:
                     raise ValueError("No particles detected or 'particle' column missing.")
                 
-                # Create unique_particle column to avoid duplicate particle IDs across cells/channels
-                if 'cell_id' in df_tracking.columns:
-                    # Include spot_type if available for multi-channel support
-                    if 'spot_type' in df_tracking.columns:
-                        df_tracking['unique_particle'] = (
-                            df_tracking['cell_id'].astype(str) + '_' + 
-                            df_tracking['spot_type'].astype(str) + '_' +
-                            df_tracking['particle'].astype(str)
-                        )
-                    else:
-                        df_tracking['unique_particle'] = (
-                            df_tracking['cell_id'].astype(str) + '_' + df_tracking['particle'].astype(str)
-                        )
-                else:
-                    df_tracking['unique_particle'] = df_tracking['particle'].astype(str)
+                # Ensure spot_type is set to actual channel number
+                df_tracking['spot_type'] = tracking_channel
                 
-                self.df_tracking = df_tracking.reset_index(drop=True)
-                self.has_tracked = True
+                # Check if there's existing detection-only data for other channels
+                # If so, clear it since we can't mix tracking with detection-only
+                has_detection_only = False
+                for ch, params in self.tracking_parameters_per_channel.items():
+                    if ch != tracking_channel and params.get('detection_only', False):
+                        has_detection_only = True
+                        break
+                
+                if has_detection_only:
+                    # Silently clear detection-only data when doing full tracking
+                    # (Tracking takes precedence over detection)
+                    self._clear_all_tracking_data()
+                
+                # Store per-channel tracking data
+                self.multi_channel_tracking_data[tracking_channel] = df_tracking.copy()
+                if tracking_channel not in self.tracked_channels:
+                    self.tracked_channels.append(tracking_channel)
+                
+                # Set primary channel if first tracking
+                if self.primary_tracking_channel is None:
+                    self.primary_tracking_channel = tracking_channel
+                
+                # Store threshold and parameters used for this channel
+                self.tracking_thresholds[tracking_channel] = self.user_selected_threshold
+                self.tracking_parameters_per_channel[tracking_channel] = {
+                    'threshold': self.user_selected_threshold,
+                    'min_length_trajectory': self.min_length_trajectory,
+                    'yx_spot_size_in_px': self.yx_spot_size_in_px,
+                    'z_spot_size_in_px': self.z_spot_size_in_px,
+                    'memory': self.memory,
+                    'maximum_range_search_pixels': self.maximum_range_search_pixels,
+                    'use_maximum_projection': self.use_maximum_projection,
+                    'cluster_radius_nm': self.cluster_radius_nm,
+                    'maximum_spots_cluster': self.maximum_spots_cluster,
+                }
+                
+                # Rebuild combined df_tracking from all channels
+                self._rebuild_combined_tracking_dataframe()
+                
+                # Update tracked channels list widget if available
+                self._update_tracked_channels_list()
             else:
                 raise ValueError("No particles detected.")
             self.correlation_results = []
@@ -7281,59 +7575,12 @@ class GUI(QMainWindow):
             if hasattr(self, 'channel_checkboxes') and self.channel_checkboxes:
                 for idx, cb in enumerate(self.channel_checkboxes):
                     cb.setChecked(idx == 0)
-            if (not self.df_tracking.empty) and self.has_tracked: 
-                # Use unique_particle for accurate trajectory counting across cells
-                particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
-                traj_counts = self.df_tracking.groupby(particle_col)['frame'].nunique()
-                if (particle_col in self.df_tracking.columns
-                    and traj_counts.min() >= self.MIN_FRAMES_MSD
-                    and traj_counts.size >= self.MIN_PARTICLES_MSD):
-                    try:
-                        # Detect 3D mode (same logic as MSD tab)
-                        is_2d_projection = getattr(self, 'use_maximum_projection', False)
-                        if 'z' in self.df_tracking.columns:
-                            z_values = self.df_tracking['z'].dropna()
-                            z_is_constant = z_values.nunique() <= 1 if len(z_values) > 0 else True
-                        else:
-                            z_is_constant = True
-                        is_3d = not is_2d_projection and not z_is_constant
-                        
-                        # Get Z voxel size for 3D MSD
-                        if is_3d and hasattr(self, 'voxel_z_nm') and self.voxel_z_nm is not None:
-                            microns_per_pixel_z = self.voxel_z_nm / 1000.0
-                        else:
-                            microns_per_pixel_z = None
-                        
-                        pm = mi.ParticleMotion(
-                            self.df_tracking,
-                            microns_per_pixel=self.voxel_yx_nm / 1000.0,
-                            step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
-                            show_plot=False, 
-                            remove_drift=False,
-                            is_3d=is_3d,
-                            microns_per_pixel_z=microns_per_pixel_z
-                        )
-                        D_um2_s, D_px2_s, _, _, _, _ ,_= pm.calculate_msd()
-                        mode_str = "3D" if is_3d else "2D"
-                        self.msd_label.setText(f"D = {D_um2_s:.2e} μm²/s | {D_px2_s:.2e} px²/s ({mode_str})")
-                        # Store for metadata export
-                        self.tracking_D_um2_s = D_um2_s
-                        self.tracking_D_px2_s = D_px2_s
-                        self.tracking_msd_mode = mode_str
-                    except Exception as msd_err:
-                        print(f"MSD calculation skipped: {msd_err}")
-                        self.msd_label.setText("MSD: See MSD tab for per-cell calculation")
-                        self.tracking_D_um2_s = None
-                        self.tracking_D_px2_s = None
-                        self.tracking_msd_mode = None
-
-                else:
-                    self.msd_label.setText("Mean Square Displacement: Not enough data")
-                    print("Not enough data for MSD calculation: "
-                          f"min frames {self.MIN_FRAMES_MSD}, min particles {self.MIN_PARTICLES_MSD}")
-            else:
-                self.msd_label.setText("Mean Square Displacement: Not enough data")
-                print("No tracking data available for MSD calculation.")
+            
+            # MSD calculation is now performed only in the dedicated MSD tab
+            # Clear any previously stored MSD values from tracking
+            self.tracking_D_um2_s = None
+            self.tracking_D_px2_s = None
+            self.tracking_msd_mode = None
 
         except Exception as e:
             QMessageBox.critical(
@@ -7348,6 +7595,135 @@ class GUI(QMainWindow):
             self.tracking_button.setText(" Tracking")
             self.tracking_button.setEnabled(True)
 
+    def _rebuild_combined_tracking_dataframe(self):
+        """Rebuild df_tracking from all per-channel tracking data.
+        
+        This method combines tracking data from all tracked channels into a single
+        DataFrame, ensuring unique_particle IDs are unique across cells and channels.
+        """
+        if not self.multi_channel_tracking_data:
+            self.df_tracking = pd.DataFrame()
+            self.has_tracked = False
+            return
+        
+        all_dfs = []
+        for channel, df in self.multi_channel_tracking_data.items():
+            if not df.empty:
+                # Ensure spot_type is set correctly
+                df_copy = df.copy()
+                df_copy['spot_type'] = channel
+                all_dfs.append(df_copy)
+        
+        if all_dfs:
+            self.df_tracking = pd.concat(all_dfs, ignore_index=True)
+            
+            # Rebuild unique_particle to include spot_type for disambiguation
+            if 'particle' in self.df_tracking.columns:
+                if 'cell_id' in self.df_tracking.columns:
+                    self.df_tracking['unique_particle'] = (
+                        self.df_tracking['cell_id'].astype(str) + '_' + 
+                        self.df_tracking['spot_type'].astype(str) + '_' +
+                        self.df_tracking['particle'].astype(str)
+                    )
+                else:
+                    self.df_tracking['unique_particle'] = (
+                        self.df_tracking['spot_type'].astype(str) + '_' +
+                        self.df_tracking['particle'].astype(str)
+                    )
+            
+            self.df_tracking = self.df_tracking.reset_index(drop=True)
+            self.has_tracked = True
+        else:
+            self.df_tracking = pd.DataFrame()
+            self.has_tracked = False
+
+    def _update_tracked_channels_list(self):
+        """Update the tracked channels list widget in the UI.
+        
+        This method updates the list widget showing which channels have been tracked,
+        along with their threshold and spot count information.
+        """
+        if not hasattr(self, 'tracked_channels_list'):
+            return
+        
+        self.tracked_channels_list.clear()
+        for ch in sorted(self.tracked_channels):
+            if ch in self.multi_channel_tracking_data:
+                df_ch = self.multi_channel_tracking_data[ch]
+                spot_count = len(df_ch)
+                threshold = self.tracking_thresholds.get(ch, 'N/A')
+                
+                # Check if this is detection-only or full tracking
+                params = self.tracking_parameters_per_channel.get(ch, {})
+                is_detection_only = params.get('detection_only', False)
+                
+                if is_detection_only:
+                    # Detection-only: show spots only (no trajectories)
+                    item_text = f"Ch {ch}: thr={threshold}, {spot_count} spots (detect)"
+                else:
+                    # Full tracking: show spots and trajectory count
+                    traj_count = df_ch['particle'].nunique() if 'particle' in df_ch.columns else 0
+                    item_text = f"Ch {ch}: thr={threshold}, {spot_count} spots, {traj_count} traj"
+                
+                self.tracked_channels_list.addItem(item_text)
+
+    def clear_channel_tracking(self, channel=None):
+        """Clear tracking data for a specific channel or the currently selected channel.
+        
+        Parameters
+        ----------
+        channel : int, optional
+            The channel index to clear. If None, clears the currently selected
+            channel from the tracked_channels_list widget.
+        """
+        if channel is None:
+            if hasattr(self, 'tracked_channels_list'):
+                current_item = self.tracked_channels_list.currentRow()
+                if current_item >= 0 and current_item < len(self.tracked_channels):
+                    channel = sorted(self.tracked_channels)[current_item]
+        
+        if channel is not None and channel in self.tracked_channels:
+            # Remove from all data structures
+            self.tracked_channels.remove(channel)
+            if channel in self.multi_channel_tracking_data:
+                del self.multi_channel_tracking_data[channel]
+            if channel in self.tracking_thresholds:
+                del self.tracking_thresholds[channel]
+            if channel in self.tracking_parameters_per_channel:
+                del self.tracking_parameters_per_channel[channel]
+            
+            # Update primary channel if needed
+            if self.primary_tracking_channel == channel:
+                self.primary_tracking_channel = self.tracked_channels[0] if self.tracked_channels else None
+            
+            # Rebuild combined dataframe
+            self._rebuild_combined_tracking_dataframe()
+            self._update_tracked_channels_list()
+            self.plot_tracking()
+
+    def clear_all_tracking(self):
+        """Clear all tracking data for all channels."""
+        self.multi_channel_tracking_data = {}
+        self.tracked_channels = []
+        self.tracking_thresholds = {}
+        self.tracking_parameters_per_channel = {}
+        self.primary_tracking_channel = None
+        self.df_tracking = pd.DataFrame()
+        self.has_tracked = False
+        
+        self._update_tracked_channels_list()
+        self.plot_tracking()
+
+    def _clear_all_tracking_data(self):
+        """Internal method to clear all tracking data (alias for clear_all_tracking)."""
+        self.multi_channel_tracking_data = {}
+        self.tracked_channels = []
+        self.tracking_thresholds = {}
+        self.tracking_parameters_per_channel = {}
+        self.primary_tracking_channel = None
+        self.df_tracking = pd.DataFrame()
+        self.has_tracked = False
+        self._update_tracked_channels_list()
 
     def setup_tracking_tab(self):
         """
@@ -7552,6 +7928,12 @@ class GUI(QMainWindow):
         self.tracking_show_masks_checkbox.setChecked(True)  # Default to showing masks
         self.tracking_show_masks_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.tracking_show_masks_checkbox)
+        # Add "All Channels" checkbox to show spots from all tracked channels (vs. current only)
+        self.tracking_show_all_channels_checkbox = QCheckBox("All Channels")
+        self.tracking_show_all_channels_checkbox.setChecked(False)  # Default: show only current channel spots
+        self.tracking_show_all_channels_checkbox.setToolTip("Show spots from all tracked channels (uncheck to see only current channel)")
+        self.tracking_show_all_channels_checkbox.stateChanged.connect(self.plot_tracking)
+        checkbox_layout.addWidget(self.tracking_show_all_channels_checkbox)
         tracking_left_layout.addLayout(checkbox_layout)
         # RIGHT PANEL: Scroll Area for Parameters
         scroll = QScrollArea()
@@ -7599,13 +7981,6 @@ class GUI(QMainWindow):
         
         mode_main_layout.addWidget(toggle_container)
         
-        # Status indicator with detailed description
-        self.tracking_mode_status = QLabel()
-        self.tracking_mode_status.setAlignment(Qt.AlignCenter)
-        self.tracking_mode_status.setMinimumHeight(40)
-        self._update_tracking_mode_status()
-        mode_main_layout.addWidget(self.tracking_mode_status)
-        
         # Keep legacy checkbox hidden but functional for compatibility
         self.use_2d_projection_checkbox = QCheckBox("Use 2D Projection for Tracking")
         self.use_2d_projection_checkbox.setChecked(self.use_maximum_projection)
@@ -7617,6 +7992,10 @@ class GUI(QMainWindow):
         self.tracking_max_proj_status_label = QLabel()
         self.tracking_max_proj_status_label.setVisible(False)
         mode_main_layout.addWidget(self.tracking_max_proj_status_label)
+        
+        # Create hidden status label for compatibility (not displayed)
+        self.tracking_mode_status = QLabel()
+        self.tracking_mode_status.setVisible(False)
         
         tracking_right_main_layout.addWidget(mode_group)
         # Group 1: Source & Threshold
@@ -7719,62 +8098,115 @@ class GUI(QMainWindow):
         self.tracking_button.clicked.connect(self.perform_particle_tracking)
         spot_det_track_layout.addWidget(self.tracking_button)
         source_threshold_layout.addWidget(spot_det_track_group)
-        # Group 2: Spot Detection Parameters
-        spot_detection_group = QGroupBox("Spot Detection Parameters")
-        spot_layout = QFormLayout(spot_detection_group)
-        tracking_right_main_layout.addWidget(spot_detection_group)
+        
+        # Group 2: Detection & Linking Parameters (combined)
+        params_group = QGroupBox("Detection & Linking Parameters")
+        params_layout = QFormLayout(params_group)
+        tracking_right_main_layout.addWidget(params_group)
+        
         # Min length
         self.min_length_input = QSpinBox()
         self.min_length_input.setMinimum(1)
         self.min_length_input.setMaximum(1000)
         self.min_length_input.setValue(self.min_length_trajectory)
         self.min_length_input.valueChanged.connect(self.update_min_length_trajectory)
-        spot_layout.addRow("Min Length Trajectory:", self.min_length_input)
+        params_layout.addRow("Min Length Trajectory:", self.min_length_input)
+        
         # YX Spot Size
         self.spot_size_input = QSpinBox()
         self.spot_size_input.setMinimum(3)
         self.spot_size_input.setValue(self.yx_spot_size_in_px)
         self.spot_size_input.valueChanged.connect(self.update_yx_spot_size)
-        spot_layout.addRow("YX Spot Size (px):", self.spot_size_input)
+        params_layout.addRow("YX Spot Size (px):", self.spot_size_input)
+        
         # Z Spot Size
         self.spot_size_z_input = QSpinBox()
         self.spot_size_z_input.setMinimum(1)
         self.spot_size_z_input.setValue(self.z_spot_size_in_px)
         self.spot_size_z_input.valueChanged.connect(self.update_z_spot_size)
-        spot_layout.addRow("Z Spot Size:", self.spot_size_z_input)
+        params_layout.addRow("Z Spot Size:", self.spot_size_z_input)
+        
         # Cluster radius
         self.cluster_radius_input = QSpinBox()
         self.cluster_radius_input.setMinimum(100)
         self.cluster_radius_input.setMaximum(2000)
         self.cluster_radius_input.setValue(self.cluster_radius_nm)
         self.cluster_radius_input.valueChanged.connect(self.update_cluster_radius)
-        spot_layout.addRow("Cluster radius (nm):", self.cluster_radius_input)
+        params_layout.addRow("Cluster radius (nm):", self.cluster_radius_input)
+        
         # Max cluster size
         self.max_spots_cluster_input = QSpinBox()
         self.max_spots_cluster_input.setMinimum(0)
         self.max_spots_cluster_input.setMaximum(1000)
         self.max_spots_cluster_input.setValue(self.maximum_spots_cluster if self.maximum_spots_cluster is not None else 0)
         self.max_spots_cluster_input.valueChanged.connect(self.update_max_spots_cluster)
-        spot_layout.addRow("Max Cluster Size (0 for None):", self.max_spots_cluster_input)
-        # Group 3: Linking Parameters
-        linking_group = QGroupBox("Linking Parameters")
-        linking_layout = QFormLayout(linking_group)
-        tracking_right_main_layout.addWidget(linking_group)
-        # Max range
+        params_layout.addRow("Max Cluster Size (0=None):", self.max_spots_cluster_input)
+        
+        # Max range search
         self.max_range_search_input = QSpinBox()
         self.max_range_search_input.setMinimum(1)
         self.max_range_search_input.setValue(self.maximum_range_search_pixels)
         self.max_range_search_input.valueChanged.connect(self.update_max_range_search_pixels)
-        linking_layout.addRow("Max Range Search (px):", self.max_range_search_input)
+        params_layout.addRow("Max Range Search (px):", self.max_range_search_input)
+        
         # Memory
         self.memory_input = QSpinBox()
         self.memory_input.setMinimum(0)
         self.memory_input.setMaximum(5)
         self.memory_input.setValue(self.memory)
         self.memory_input.valueChanged.connect(self.update_memory)
-        linking_layout.addRow("Memory:", self.memory_input)
+        params_layout.addRow("Memory:", self.memory_input)
         
-        # Group 4: Intensity Calculation
+        # Group 3: Multi-Channel Tracking Results (moved up for better workflow)
+        multi_channel_group = QGroupBox("Tracked Channels")
+        multi_channel_layout = QVBoxLayout(multi_channel_group)
+        multi_channel_layout.setSpacing(4)
+        multi_channel_layout.setContentsMargins(6, 6, 6, 6)
+        tracking_right_main_layout.addWidget(multi_channel_group)
+        
+        # Info label
+        tracked_info_label = QLabel("Run tracking in each channel to add:")
+        tracked_info_label.setStyleSheet("color: #888888; font-size: 10px;")
+        multi_channel_layout.addWidget(tracked_info_label)
+        
+        # List widget to show tracked channels
+        self.tracked_channels_list = QListWidget()
+        self.tracked_channels_list.setMaximumHeight(100)
+        self.tracked_channels_list.setStyleSheet("""
+            QListWidget {
+                background-color: #1a1a1a;
+                color: #00d4aa;
+                border: 1px solid #444;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QListWidget::item {
+                padding: 2px 4px;
+            }
+            QListWidget::item:selected {
+                background-color: #333;
+            }
+        """)
+        multi_channel_layout.addWidget(self.tracked_channels_list)
+        
+        # Buttons for clearing tracking data
+        clear_buttons_layout = QHBoxLayout()
+        
+        self.clear_channel_button = QPushButton("Clear Channel")
+        self.clear_channel_button.setStyleSheet("font-size: 10px;")
+        self.clear_channel_button.setToolTip("Remove tracking data for the selected channel")
+        self.clear_channel_button.clicked.connect(self.clear_channel_tracking)
+        clear_buttons_layout.addWidget(self.clear_channel_button)
+        
+        self.clear_all_tracking_button = QPushButton("Clear All")
+        self.clear_all_tracking_button.setStyleSheet("font-size: 10px; color: #ff6b6b;")
+        self.clear_all_tracking_button.setToolTip("Remove all tracking data from all channels")
+        self.clear_all_tracking_button.clicked.connect(self.clear_all_tracking)
+        clear_buttons_layout.addWidget(self.clear_all_tracking_button)
+        
+        multi_channel_layout.addLayout(clear_buttons_layout)
+        
+        # Group 5: Intensity Calculation
         intensity_calc_group = QGroupBox("Intensity Calculation")
         intensity_calc_layout = QHBoxLayout(intensity_calc_group)
         tracking_right_main_layout.addWidget(intensity_calc_group)
@@ -7789,7 +8221,8 @@ class GUI(QMainWindow):
         self.fast_gaussian_fit_checkbox.setToolTip("Use moment-based PSF estimation (faster but less accurate)")
         self.fast_gaussian_fit_checkbox.stateChanged.connect(self.update_fast_gaussian_fit)
         intensity_calc_layout.addWidget(self.fast_gaussian_fit_checkbox)
-        # Control: Random Point Generation
+        
+        # Group 6: Control - Random Point Generation
         random_points_group = QGroupBox("Control Spots: Random Locations")
         random_points_layout = QFormLayout(random_points_group)
         tracking_right_main_layout.addWidget(random_points_group)
@@ -7808,14 +8241,8 @@ class GUI(QMainWindow):
         hbox.addWidget(self.random_points_input)        
         # Add horizontal layout as a row in form layout (label empty since group title is descriptive)
         random_points_layout.addRow("", hbox)
+        
         tracking_right_main_layout.addStretch()
-        # Create a horizontal layout for the MSD display at the bottom of the right panel.
-        self.msd_layout = QHBoxLayout()
-        self.msd_label = QLabel("Mean Square Displacement: Not Calculated")
-        self.msd_label.setStyleSheet("color: white; font-weight: bold;")
-        self.msd_layout.addWidget(self.msd_label)
-        # Add this MSD layout to the right panel layout
-        tracking_right_main_layout.addLayout(self.msd_layout)
 
 
 # =============================================================================
@@ -7836,13 +8263,47 @@ class GUI(QMainWindow):
                     fontsize=12, color='white', transform=ax.transAxes)
             self.canvas_distribution.draw()
             return
+        
+        # Filter by tracking channel (spot_type) - single channel required
+        df_to_plot = self.df_tracking.copy()
+        tracking_ch = None
+        if hasattr(self, 'distribution_tracking_channel_combo'):
+            tracking_ch = self.distribution_tracking_channel_combo.currentData()
+            # Check if placeholder "No tracked channels" is selected
+            if tracking_ch == -1:
+                self.figure_distribution.clear()
+                ax = self.figure_distribution.add_subplot(111)
+                ax.set_facecolor('black')
+                self.figure_distribution.patch.set_facecolor('black')
+                ax.axis('off')
+                ax.text(0.5, 0.5, 'No tracked channels available.\nPlease run tracking first.',
+                        horizontalalignment='center', verticalalignment='center',
+                        fontsize=12, color='white', transform=ax.transAxes)
+                self.canvas_distribution.draw()
+                return
+            # Filter by spot_type
+            if 'spot_type' in df_to_plot.columns:
+                df_to_plot = df_to_plot[df_to_plot['spot_type'] == tracking_ch]
+        
+        if df_to_plot.empty:
+            self.figure_distribution.clear()
+            ax = self.figure_distribution.add_subplot(111)
+            ax.set_facecolor('black')
+            self.figure_distribution.patch.set_facecolor('black')
+            ax.axis('off')
+            ax.text(0.5, 0.5, f'No data for selected tracking channel.',
+                    horizontalalignment='center', verticalalignment='center',
+                    fontsize=12, color='white', transform=ax.transAxes)
+            self.canvas_distribution.draw()
+            return
+        
         selected_field = self.intensity_field_combo.currentText()
         selected_channel = self.intensity_channel_combo.currentData()  # channel index
         min_percentile = self.intensity_min_percentile_spin.value()
         max_percentile = self.intensity_max_percentile_spin.value()
         # Determine field name
         field_name = "cluster_size" if selected_field == "cluster_size" else f'{selected_field}_ch_{selected_channel}'
-        if field_name not in self.df_tracking.columns:
+        if field_name not in df_to_plot.columns:
             ax = self.figure_distribution.add_subplot(111)
             ax.set_facecolor('black')
             ax.axis('off')
@@ -7851,8 +8312,8 @@ class GUI(QMainWindow):
             return
         
         # Get unique cell IDs
-        if 'cell_id' in self.df_tracking.columns:
-            cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+        if 'cell_id' in df_to_plot.columns:
+            cell_ids = sorted(df_to_plot['cell_id'].dropna().unique())
         else:
             cell_ids = [0]  # Fallback if no cell_id column
         
@@ -7867,7 +8328,7 @@ class GUI(QMainWindow):
         self.figure_distribution.patch.set_facecolor('black')
         
         # Calculate global percentile limits for consistent binning
-        all_data = self.df_tracking[field_name].dropna().values
+        all_data = df_to_plot[field_name].dropna().values
         if len(all_data) == 0:
             ax.axis('off')
             ax.text(0.5, 0.5, f"No data points found for {field_name}.", 
@@ -7886,7 +8347,7 @@ class GUI(QMainWindow):
         # Plot histogram for each cell
         stats_text = ""
         for idx, cell_id in enumerate(cell_ids):
-            cell_data = self.df_tracking[self.df_tracking['cell_id'] == cell_id][field_name].dropna().values
+            cell_data = df_to_plot[df_to_plot['cell_id'] == cell_id][field_name].dropna().values
             if len(cell_data) == 0:
                 continue
             
@@ -7981,13 +8442,24 @@ class GUI(QMainWindow):
         intensity_layout.addLayout(left_layout, 3)
         # Right side: Controls
         right_layout = QVBoxLayout()
+        
+        # Tracking Channel group (first/prominent)
+        tracking_group = QGroupBox("Tracking Channel")
+        tracking_layout = QHBoxLayout()
+        self.distribution_tracking_channel_combo = QComboBox()
+        # Will be populated on tab switch with tracked channels (no "All" option for multi-cell)
+        tracking_layout.addWidget(self.distribution_tracking_channel_combo)
+        tracking_group.setLayout(tracking_layout)
+        right_layout.addWidget(tracking_group)
+        
         field_channel_group = QGroupBox("Selection")
         field_channel_layout = QFormLayout(field_channel_group)
         self.intensity_field_combo = QComboBox()
         self.intensity_field_combo.addItems(["spot_int", "spot_size", "psf_amplitude", "psf_sigma", "total_spot_int", "cluster_size", "snr"])
         field_channel_layout.addRow(QLabel("Field:"), self.intensity_field_combo)
         self.intensity_channel_combo = QComboBox()
-        field_channel_layout.addRow(QLabel("Channel:"), self.intensity_channel_combo)
+        field_channel_layout.addRow(QLabel("Data Channel:"), self.intensity_channel_combo)
+        
         right_layout.addWidget(field_channel_group)
         # Percentile controls
         percentile_group = QGroupBox("Histogram Percentiles")
@@ -8041,8 +8513,15 @@ class GUI(QMainWindow):
         controls_layout = QHBoxLayout()
         time_course_layout.addLayout(controls_layout)
 
-        # Channel selection
-        channel_label = QLabel("Select Channel:")
+        # Tracking channel filter (first/prominent - single channel only)
+        tracking_ch_label = QLabel("Tracking Ch:")
+        self.time_course_tracking_channel_combo = QComboBox()
+        # Will be populated on tab switch with tracked channels (no "All" option for multi-cell)
+        controls_layout.addWidget(tracking_ch_label)
+        controls_layout.addWidget(self.time_course_tracking_channel_combo)
+
+        # Channel selection (data channel)
+        channel_label = QLabel("Data Channel:")
         self.time_course_channel_combo = QComboBox()
         controls_layout.addWidget(channel_label)
         controls_layout.addWidget(self.time_course_channel_combo)
@@ -8221,6 +8700,24 @@ class GUI(QMainWindow):
             return
         if self.df_tracking.empty:
             return
+        
+        # Filter by tracking channel (spot_type) - single channel required
+        df_for_correlation = self.df_tracking.copy()
+        tracking_ch = None
+        if hasattr(self, 'correlation_tracking_channel_combo'):
+            tracking_ch = self.correlation_tracking_channel_combo.currentData()
+            # Check if placeholder "No tracked channels" is selected
+            if tracking_ch == -1:
+                QMessageBox.warning(self, "No Data", "No tracked channels available. Please run tracking first.")
+                return
+            # Filter by spot_type
+            if 'spot_type' in df_for_correlation.columns:
+                df_for_correlation = df_for_correlation[df_for_correlation['spot_type'] == tracking_ch]
+        
+        if df_for_correlation.empty:
+            QMessageBox.warning(self, "No Data", "No tracking data for selected channel.")
+            return
+        
         correlation_type = ('autocorrelation'
                             if self.auto_corr_radio.isChecked()
                             else 'crosscorrelation')
@@ -8240,10 +8737,10 @@ class GUI(QMainWindow):
         intensity_arrays = {}
         for ch in selected_channels:
             col = f"{field_base}_ch_{ch}"
-            if col not in self.df_tracking.columns:
+            if col not in df_for_correlation.columns:
                 continue
             arr = mi.Utilities().df_trajectories_to_array(
-                dataframe=self.df_tracking,
+                dataframe=df_for_correlation,
                 selected_field=col,
                 fill_value=np.nan,
                 total_frames=self.total_frames
@@ -8262,13 +8759,13 @@ class GUI(QMainWindow):
             new_intensity_arrays = {}
             for ch, arr_int in list(intensity_arrays.items()):
                 col = f'snr_ch_{ch}'
-                if col not in self.df_tracking.columns:
+                if col not in df_for_correlation.columns:
                     # No SNR column for this channel—keep as-is
                     new_intensity_arrays[ch] = arr_int
                     continue
                 # Build intensity & SNR using the SAME particle intersection & order
                 arr_int_raw, arr_snr_raw, _ = mi.Utilities().df_fields_to_arrays_aligned(
-                    dataframe=self.df_tracking,
+                    dataframe=df_for_correlation,
                     selected_field_a=f'{field_base}_ch_{ch}',
                     selected_field_b=f'snr_ch_{ch}',
                     total_frames=self.total_frames,
@@ -8302,8 +8799,8 @@ class GUI(QMainWindow):
         self.correlation_results = []
         
         # Get unique cell IDs for per-cell correlation
-        if 'cell_id' in self.df_tracking.columns:
-            cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+        if 'cell_id' in df_for_correlation.columns:
+            cell_ids = sorted(df_for_correlation['cell_id'].dropna().unique())
         else:
             cell_ids = [None]  # No cell separation
         
@@ -8313,7 +8810,7 @@ class GUI(QMainWindow):
                 for cell_id in cell_ids:
                     # Filter data for this cell
                     if cell_id is not None:
-                        cell_df = self.df_tracking[self.df_tracking['cell_id'] == cell_id]
+                        cell_df = df_for_correlation[df_for_correlation['cell_id'] == cell_id]
                         col = f"{field_base}_ch_{ch}"
                         if col not in cell_df.columns or cell_df.empty:
                             continue
@@ -8474,6 +8971,16 @@ class GUI(QMainWindow):
         export_correlation_image_button.clicked.connect(self.export_correlation_image)
         correlation_toolbar_layout.addWidget(export_correlation_image_button)
         left_layout.addLayout(correlation_toolbar_layout)
+        
+        # Tracking Channel group (first/prominent)
+        tracking_group = QGroupBox("Tracking Channel")
+        tracking_layout = QHBoxLayout()
+        self.correlation_tracking_channel_combo = QComboBox()
+        # Will be populated on tab switch with tracked channels
+        tracking_layout.addWidget(self.correlation_tracking_channel_combo)
+        tracking_group.setLayout(tracking_layout)
+        right_layout.addWidget(tracking_group)
+        
         # Right panel group for correlation settings
         right_panel_group = QGroupBox("Correlation Settings")
         right_panel_layout = QFormLayout()
@@ -8647,6 +9154,21 @@ class GUI(QMainWindow):
             self.channel_combo_box_2.setCurrentIndex(0)
         self.compute_colocalization_button.setEnabled(len(self.channel_names) >= 2)
 
+    def on_colocalization_tracking_channel_changed(self, index):
+        """When tracking channel changes, auto-set Reference channel to match."""
+        if not hasattr(self, 'colocalization_tracking_channel_combo'):
+            return
+        tracking_ch = self.colocalization_tracking_channel_combo.currentData()
+        if tracking_ch is None or tracking_ch == -1:
+            return
+        # Set Reference channel (channel_combo_box_1) to the tracking channel
+        if hasattr(self, 'channel_combo_box_1') and self.channel_combo_box_1.count() > tracking_ch:
+            self.channel_combo_box_1.setCurrentIndex(tracking_ch)
+            # Auto-set Colocalize channel to a different channel if possible
+            if hasattr(self, 'channel_combo_box_2') and self.channel_combo_box_2.count() > 1:
+                other_index = 1 if tracking_ch == 0 else 0
+                self.channel_combo_box_2.setCurrentIndex(other_index)
+
         
     def compute_colocalization(self):
         """Perform colocalization analysis and display results."""
@@ -8661,6 +9183,26 @@ class GUI(QMainWindow):
                 QMessageBox.warning(self, "Colocalization Error",
                                     "Please complete all frames' detection and complete tracking before colocalization.")
             return
+        
+        # Filter by tracking channel (spot_type) - single channel required
+        df_for_coloc = self.df_tracking.copy()
+        tracking_ch = None
+        if hasattr(self, 'colocalization_tracking_channel_combo'):
+            tracking_ch = self.colocalization_tracking_channel_combo.currentData()
+            # Check if placeholder "No tracked channels" is selected
+            if tracking_ch == -1:
+                if invoked_by_run:
+                    QMessageBox.warning(self, "No Data", "No tracked channels available. Please run tracking first.")
+                return
+            # Filter by spot_type
+            if 'spot_type' in df_for_coloc.columns:
+                df_for_coloc = df_for_coloc[df_for_coloc['spot_type'] == tracking_ch]
+        
+        if df_for_coloc.empty:
+            if invoked_by_run:
+                QMessageBox.warning(self, "No Data", "No tracking data for selected channel.")
+            return
+        
         # Require two distinct channels for colocalization
         ch1 = self.channel_combo_box_1.currentIndex()
         ch2 = self.channel_combo_box_2.currentIndex()
@@ -8684,7 +9226,7 @@ class GUI(QMainWindow):
             crop_size += 1
         _, mean_crop, _, crop_size = mi.CropArray(
             image=image,
-            df_crops=self.df_tracking,
+            df_crops=df_for_coloc,
             crop_size=crop_size,
             remove_outliers=False,
             max_percentile=99.95,
@@ -9060,6 +9602,15 @@ class GUI(QMainWindow):
     def setup_colocalization_tab(self):
         layout = QVBoxLayout(self.colocalization_tab)
         top_layout = QHBoxLayout()
+        
+        # Tracking channel selector (single channel only)
+        trackingChannelGroup = QGroupBox("Tracking Channel")
+        trackingChLayout = QHBoxLayout(trackingChannelGroup)
+        self.colocalization_tracking_channel_combo = QComboBox()
+        # Will be populated on tab switch with tracked channels
+        trackingChLayout.addWidget(self.colocalization_tracking_channel_combo)
+        top_layout.addWidget(trackingChannelGroup)
+        
         channelGroup = QGroupBox("Select Channels")
         chLayout = QHBoxLayout(channelGroup)
         self.channel_combo_box_1 = QComboBox()
@@ -9069,6 +9620,11 @@ class GUI(QMainWindow):
         chLayout.addWidget(QLabel("Colocalize:"))
         chLayout.addWidget(self.channel_combo_box_2)
         top_layout.addWidget(channelGroup)
+        
+        # Connect tracking channel change to auto-set Reference channel
+        self.colocalization_tracking_channel_combo.currentIndexChanged.connect(
+            self.on_colocalization_tracking_channel_changed
+        )
         methodGroup = QGroupBox("Colocalization Method")
         methodLayout = QHBoxLayout(methodGroup)
         self.method_ml_radio = QRadioButton("ML")
@@ -9482,6 +10038,15 @@ class GUI(QMainWindow):
         # Right panel: Parameters and results
         msd_right_layout = QVBoxLayout()
         msd_main_layout.addLayout(msd_right_layout)
+        
+        # Tracking Channel group (first/prominent)
+        tracking_group = QGroupBox("Tracking Channel")
+        tracking_layout = QHBoxLayout()
+        self.msd_tracking_channel_combo = QComboBox()
+        # Will be populated on tab switch with tracked channels (no "All" option)
+        tracking_layout.addWidget(self.msd_tracking_channel_combo)
+        tracking_group.setLayout(tracking_layout)
+        msd_right_layout.addWidget(tracking_group)
         
         # Parameters group
         params_group = QGroupBox("MSD Parameters")
@@ -10143,6 +10708,7 @@ class GUI(QMainWindow):
             tracking_D_um2_s=getattr(self, 'tracking_D_um2_s', None),
             tracking_D_px2_s=getattr(self, 'tracking_D_px2_s', None),
             tracking_msd_mode=getattr(self, 'tracking_msd_mode', None),
+            tracking_msd_channel=getattr(self, 'tracking_msd_channel', None),
             
             file_path=file_path,
             
@@ -10153,7 +10719,13 @@ class GUI(QMainWindow):
             link_using_3d_coordinates=self.link_using_3d_coordinates,
             colocalization_method=coloc_method,
             colocalization_threshold_value=coloc_thresh,
-            multi_tau=self.use_multi
+            multi_tau=self.use_multi,
+            
+            # Multi-Channel Tracking Data
+            tracked_channels=getattr(self, 'tracked_channels', []),
+            tracking_thresholds=getattr(self, 'tracking_thresholds', {}),
+            tracking_parameters_per_channel=getattr(self, 'tracking_parameters_per_channel', {}),
+            primary_tracking_channel=getattr(self, 'primary_tracking_channel', None)
         )
         try:
             meta.write_metadata()
@@ -10947,10 +11519,27 @@ class GUI(QMainWindow):
         self.canvas_photobleaching.draw()
         self.photobleaching_calculated = False
         self.corrected_image = None
+        
+        # Reset image source combo to "Original Image" in tracking tab
+        if hasattr(self, 'image_source_combo'):
+            self.image_source_combo.setCurrentIndex(0)  # "Original Image"
 
     def reset_tracking_tab(self):
         self.df_tracking = pd.DataFrame()
         self.detected_spots_frame = None
+        
+        # Clear multi-channel tracking data
+        self.multi_channel_tracking_data = {}
+        self.tracked_channels = []
+        self.tracking_thresholds = {}
+        self.tracking_parameters_per_channel = {}
+        self.primary_tracking_channel = None
+        self.has_tracked = False
+        
+        # Update tracked channels list widget if available
+        if hasattr(self, 'tracked_channels_list'):
+            self.tracked_channels_list.clear()
+        
         self.figure_tracking.clear()
         self.ax_tracking = self.figure_tracking.add_subplot(111)
         self.ax_tracking.patch.set_facecolor('black')
@@ -11049,6 +11638,7 @@ class GUI(QMainWindow):
         self.tracking_D_um2_s = None
         self.tracking_D_px2_s = None
         self.tracking_msd_mode = None
+        self.tracking_msd_channel = None
 
 
     def calculate_msd_from_gui(self):
@@ -11059,6 +11649,23 @@ class GUI(QMainWindow):
             QMessageBox.warning(self, "No Data", "No tracking data available. Please run tracking first.")
             return
         
+        # Filter by tracking channel (spot_type) - single channel required
+        df_to_analyze = self.df_tracking.copy()
+        tracking_ch = None
+        if hasattr(self, 'msd_tracking_channel_combo'):
+            tracking_ch = self.msd_tracking_channel_combo.currentData()
+            # Check if placeholder "No tracked channels" is selected
+            if tracking_ch == -1:
+                QMessageBox.warning(self, "No Data", "No tracked channels available. Please run tracking first.")
+                return
+            # Filter by spot_type
+            if 'spot_type' in df_to_analyze.columns:
+                df_to_analyze = df_to_analyze[df_to_analyze['spot_type'] == tracking_ch]
+        
+        if df_to_analyze.empty:
+            QMessageBox.warning(self, "No Data", "No tracking data for selected channel.")
+            return
+        
         try:
             # Auto-detect 2D vs 3D based on tracking mode
             # 2D if: (1) use_maximum_projection is True, OR (2) all Z values are constant
@@ -11066,8 +11673,8 @@ class GUI(QMainWindow):
             
             # Check if Z values are constant (all same value = 2D tracking)
             z_is_constant = False
-            if 'z' in self.df_tracking.columns:
-                z_unique = self.df_tracking['z'].nunique()
+            if 'z' in df_to_analyze.columns:
+                z_unique = df_to_analyze['z'].nunique()
                 z_is_constant = (z_unique <= 1)
             else:
                 z_is_constant = True  # No Z column means 2D
@@ -11113,7 +11720,7 @@ class GUI(QMainWindow):
             
             # Create ParticleMotion instance
             motion = mi.ParticleMotion(
-                trackpy_dataframe=self.df_tracking.copy(),
+                trackpy_dataframe=df_to_analyze,
                 microns_per_pixel=microns_per_pixel,
                 step_size_in_sec=step_size_in_sec,
                 max_lagtime=None,
@@ -11127,7 +11734,12 @@ class GUI(QMainWindow):
             # Calculate MSD
             D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df = motion.calculate_msd()
             
-            # Store results
+            # Get the selected tracking channel
+            selected_tracking_ch = None
+            if hasattr(self, 'msd_tracking_channel_combo'):
+                selected_tracking_ch = self.msd_tracking_channel_combo.currentData()
+            
+            # Store results with channel info
             self.msd_data = {
                 'D_um2_s': D_um2_s,
                 'D_px2_s': D_px2_s,
@@ -11136,7 +11748,8 @@ class GUI(QMainWindow):
                 'fit_times': fit_times,
                 'fit_line_msd': fit_line_msd,
                 'trackpy_df': trackpy_df,
-                'is_3d': is_3d
+                'is_3d': is_3d,
+                'tracking_channel': selected_tracking_ch
             }
             
             # Also update tracking values for metadata export
@@ -11144,9 +11757,10 @@ class GUI(QMainWindow):
             self.tracking_D_um2_s = D_um2_s
             self.tracking_D_px2_s = D_px2_s
             self.tracking_msd_mode = "3D" if is_3d else "2D"
+            self.tracking_msd_channel = selected_tracking_ch  # Store which channel MSD was calculated for
             
-            # Calculate per-trajectory MSD for export (use self.df_tracking to preserve cell_id)
-            self._calculate_per_trajectory_msd(self.df_tracking, microns_per_pixel, step_size_in_sec)
+            # Calculate per-trajectory MSD for export (use filtered df_to_analyze to preserve cell_id)
+            self._calculate_per_trajectory_msd(df_to_analyze, microns_per_pixel, step_size_in_sec)
             
             # Calculate R² value
 
@@ -11552,12 +12166,7 @@ class GUI(QMainWindow):
         # Reset Cytosol parameters to defaults
         if hasattr(self, 'cellpose_cyto_model_input'):
             self.cellpose_cyto_model_input.setCurrentText('cyto3')
-        if hasattr(self, 'cellpose_cyto_channel_input'):
-            # Set to channel 1 if available, otherwise channel 0
-            max_ch = max(0, (self.number_color_channels or 1) - 1)
-            self.cellpose_cyto_channel_input.setMaximum(max_ch)
-            default_cyto_ch = min(1, max_ch)
-            self.cellpose_cyto_channel_input.setValue(default_cyto_ch)
+        # Note: Cellpose channel spinboxes removed - channel is determined by left panel selection
         if hasattr(self, 'cellpose_cyto_diameter_input'):
             self.cellpose_cyto_diameter_input.setValue(120)
         if hasattr(self, 'chk_optimize_cyto'):
@@ -11566,11 +12175,7 @@ class GUI(QMainWindow):
         # Reset Nucleus parameters to defaults
         if hasattr(self, 'cellpose_nuc_model_input'):
             self.cellpose_nuc_model_input.setCurrentText('nuclei')
-        if hasattr(self, 'cellpose_nuc_channel_input'):
-            # Set maximum based on available channels
-            max_ch = max(0, (self.number_color_channels or 1) - 1)
-            self.cellpose_nuc_channel_input.setMaximum(max_ch)
-            self.cellpose_nuc_channel_input.setValue(0)
+        # Note: Cellpose channel spinbox removed - channel is determined by left panel selection
         if hasattr(self, 'cellpose_nuc_diameter_input'):
             self.cellpose_nuc_diameter_input.setValue(60)
         if hasattr(self, 'chk_optimize_nuc'):
@@ -11617,6 +12222,13 @@ class GUI(QMainWindow):
         self.df_tracking = pd.DataFrame()
         self._active_mask_source = 'segmentation'
         
+        # Reset multi-channel tracking data
+        self.multi_channel_tracking_data = {}
+        self.tracked_channels = []
+        self.tracking_thresholds = {}
+        self.tracking_parameters_per_channel = {}
+        self.primary_tracking_channel = None
+        
         # Reset display parameters
         self.display_min_percentile = 1.0
         self.display_max_percentile = 99.95
@@ -11639,6 +12251,23 @@ class GUI(QMainWindow):
 
     def plot_distribution(self):
         """Delegate to plot_intensity_histogram for per-cell overlay histograms."""
+        # Update tracking channel combo with tracked channels (single channel only)
+        if hasattr(self, 'distribution_tracking_channel_combo'):
+            self.distribution_tracking_channel_combo.clear()
+            
+            if self.tracked_channels:
+                # Multi-channel tracking: show each tracked channel
+                for ch in sorted(self.tracked_channels):
+                    self.distribution_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+            elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+                # Get unique spot_type values from data
+                unique_channels = sorted(self.df_tracking['spot_type'].unique())
+                for ch in unique_channels:
+                    self.distribution_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+            else:
+                # No tracking data at all
+                self.distribution_tracking_channel_combo.addItem("No tracked channels", -1)
+        
         self.plot_intensity_histogram()
 
     # Note: display_crops_plot removed - Crops tab has been deprecated
@@ -11963,9 +12592,32 @@ class GUI(QMainWindow):
                 '#6C5CE7', '#00CEC9', '#FD79A8', '#FFEAA7', '#74B9FF'
             ]
             
+            # Filter by tracking channel (spot_type) - single channel required
+            df_to_plot = self.df_tracking.copy()
+            tracking_ch = None
+            if hasattr(self, 'time_course_tracking_channel_combo'):
+                tracking_ch = self.time_course_tracking_channel_combo.currentData()
+                # Check if placeholder "No tracked channels" is selected
+                if tracking_ch == -1:
+                    self.ax_time_course.text(0.5, 0.5, 'No tracked channels available.\nPlease run tracking first.',
+                                             transform=self.ax_time_course.transAxes,
+                                             ha='center', va='center', color='white', fontsize=12)
+                    self.canvas_time_course.draw_idle()
+                    return
+                # Filter by spot_type
+                if 'spot_type' in df_to_plot.columns:
+                    df_to_plot = df_to_plot[df_to_plot['spot_type'] == tracking_ch]
+            
+            if df_to_plot.empty:
+                self.ax_time_course.text(0.5, 0.5, 'No data for selected tracking channel.',
+                                         transform=self.ax_time_course.transAxes,
+                                         ha='center', va='center', color='white', fontsize=12)
+                self.canvas_time_course.draw_idle()
+                return
+            
             # Get unique cell IDs
-            if 'cell_id' in self.df_tracking.columns:
-                cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+            if 'cell_id' in df_to_plot.columns:
+                cell_ids = sorted(df_to_plot['cell_id'].dropna().unique())
             else:
                 cell_ids = [0]  # Default to single "cell" if no cell_id column
             
@@ -11973,10 +12625,10 @@ class GUI(QMainWindow):
             all_y_data = []  # For mean calculation
             
             for i, cell_id in enumerate(cell_ids):
-                if 'cell_id' in self.df_tracking.columns:
-                    cell_df = self.df_tracking[self.df_tracking['cell_id'] == cell_id]
+                if 'cell_id' in df_to_plot.columns:
+                    cell_df = df_to_plot[df_to_plot['cell_id'] == cell_id]
                 else:
-                    cell_df = self.df_tracking
+                    cell_df = df_to_plot
                 
                 particles_per_frame = cell_df.groupby('frame')['particle'].nunique()
                 particles_per_frame = particles_per_frame.reindex(all_frames, fill_value=0)
@@ -12106,17 +12758,84 @@ class GUI(QMainWindow):
         elif index == 3:  # Photobleaching (was 4)
             self.plot_photobleaching()
         elif index == 4:  # Tracking (was 5)
+            # Reset MSD results when returning to tracking tab (user may add new channels)
+            self.reset_msd_tab()
             self.plot_tracking()
             self.update_threshold_histogram()
         elif index == 5:  # MSD (was 6)
-            pass  # MSD tab handles its own plotting
+            # Update tracking channel combo with tracked channels (single channel only)
+            if hasattr(self, 'msd_tracking_channel_combo'):
+                self.msd_tracking_channel_combo.clear()
+                
+                if self.tracked_channels:
+                    # Multi-channel tracking: show each tracked channel
+                    for ch in sorted(self.tracked_channels):
+                        self.msd_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+                    # Get unique spot_type values from data
+                    unique_channels = sorted(self.df_tracking['spot_type'].unique())
+                    for ch in unique_channels:
+                        self.msd_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                else:
+                    # No tracking data at all
+                    self.msd_tracking_channel_combo.addItem("No tracked channels", -1)
         elif index == 6:  # Distribution (was 7)
             self.plot_distribution()
         elif index == 7:  # Time Course (was 8)
-            pass  # Time Course tab handles its own plotting
+            # Update tracking channel combo with tracked channels (single channel only)
+            if hasattr(self, 'time_course_tracking_channel_combo'):
+                self.time_course_tracking_channel_combo.clear()
+                
+                if self.tracked_channels:
+                    # Multi-channel tracking: show each tracked channel
+                    for ch in sorted(self.tracked_channels):
+                        self.time_course_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+                    # Get unique spot_type values from data
+                    unique_channels = sorted(self.df_tracking['spot_type'].unique())
+                    for ch in unique_channels:
+                        self.time_course_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                else:
+                    # No tracking data at all
+                    self.time_course_tracking_channel_combo.addItem("No tracked channels", -1)
         elif index == 8:  # Correlation (was 9)
+            # Update tracking channel combo with tracked channels (single channel only)
+            if hasattr(self, 'correlation_tracking_channel_combo'):
+                self.correlation_tracking_channel_combo.clear()
+                
+                if self.tracked_channels:
+                    # Multi-channel tracking: show each tracked channel
+                    for ch in sorted(self.tracked_channels):
+                        self.correlation_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+                    # Get unique spot_type values from data
+                    unique_channels = sorted(self.df_tracking['spot_type'].unique())
+                    for ch in unique_channels:
+                        self.correlation_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                else:
+                    # No tracking data at all
+                    self.correlation_tracking_channel_combo.addItem("No tracked channels", -1)
             self.display_correlation_plot()
         elif index == 9:  # Colocalization (was 10)
+            # Update tracking channel combo with tracked channels (single channel only)
+            if hasattr(self, 'colocalization_tracking_channel_combo'):
+                self.colocalization_tracking_channel_combo.clear()
+                
+                if self.tracked_channels:
+                    # Multi-channel tracking: show each tracked channel
+                    for ch in sorted(self.tracked_channels):
+                        self.colocalization_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+                    # Get unique spot_type values from data
+                    unique_channels = sorted(self.df_tracking['spot_type'].unique())
+                    for ch in unique_channels:
+                        self.colocalization_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                else:
+                    # No tracking data at all
+                    self.colocalization_tracking_channel_combo.addItem("No tracked channels", -1)
+                
+                # Auto-sync Reference channel to match tracking channel
+                self.on_colocalization_tracking_channel_changed(0)
             self.display_colocalization_plot()
             if hasattr(self, 'canvas_colocalization'):
                 if hasattr(self, 'cid_zoom_coloc'):

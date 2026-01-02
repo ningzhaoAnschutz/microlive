@@ -57,6 +57,12 @@ THRESHOLD_SPOT_COUNT = 0.40     # Spot count error must be <= 40%
 THRESHOLD_DIFFUSION = 0.25      # Diffusion coefficient error must be <= 25%
 THRESHOLD_INTENSITY = 0.20      # PSF amplitude error must be <= 20%
 
+# Spot Type Configuration
+# Note: spot_type in MicroLive is the ACTUAL imaging channel number (e.g., 0, 1, 2, 3),
+# NOT an index into a list. For the VirtualCell simulation:
+#   Channel 1 = Mature RNA (the channel used for tracking)
+MATURE_RNA_CHANNEL = 1
+
 
 
 # =============================================================================
@@ -300,12 +306,12 @@ def test_spot_count() -> dict:
     df = pd.read_csv(GUI_TRACKING)
     
     # Only filter by spot_type if multiple types exist
-    # Otherwise, assume all spots are from the tracked channel
+    # Note: spot_type is the actual imaging channel number, not an index
     if 'spot_type' in df.columns:
         unique_types = df['spot_type'].unique()
         if len(unique_types) > 1:
-            # Multiple channels - filter to Channel 1 (Mature RNA)
-            df = df[df['spot_type'] == 1]
+            # Multiple channels - filter to the Mature RNA channel
+            df = df[df['spot_type'] == MATURE_RNA_CHANNEL]
         # If only one type, use all spots
     
     # Count spots per frame
@@ -358,10 +364,12 @@ def test_spot_intensity() -> dict:
     gui_df = pd.read_csv(GUI_TRACKING)
     
     # Only filter by spot_type if multiple types exist
+    # Note: spot_type is the actual imaging channel number, not an index
     if 'spot_type' in gui_df.columns:
         unique_types = gui_df['spot_type'].unique()
         if len(unique_types) > 1:
-            gui_df = gui_df[gui_df['spot_type'] == 1]
+            # Multiple channels - filter to the Mature RNA channel
+            gui_df = gui_df[gui_df['spot_type'] == MATURE_RNA_CHANNEL]
     
     # Use psf_amplitude_ch_1 for comparison
     gt_col = 'psf_amplitude_ch_1'
