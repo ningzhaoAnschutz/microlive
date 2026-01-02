@@ -6921,6 +6921,69 @@ class GUI(QMainWindow):
                 self.update_frame(first_frame)
                 return
         self.display_tracking_visualization()
+    
+    def _select_all_particles(self):
+        """Select all particles in the list."""
+        if hasattr(self, 'tracked_particles_list'):
+            self.tracked_particles_list.selectAll()
+    
+    def _clear_particle_selection(self):
+        """Clear particle selection."""
+        if hasattr(self, 'tracked_particles_list'):
+            self.tracked_particles_list.clearSelection()
+    
+    def _update_particle_list_filtered(self):
+        """Update particle list based on cell filter."""
+        if self.df_tracking.empty:
+            return
+        
+        selected_cell = self.vis_cell_filter_combo.currentData()
+        particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+        
+        # Filter by cell_id if specified
+        if selected_cell >= 0 and 'cell_id' in self.df_tracking.columns:
+            df_filtered = self.df_tracking[self.df_tracking['cell_id'] == selected_cell]
+        else:
+            df_filtered = self.df_tracking
+        
+        # Get unique particles
+        particles = df_filtered[particle_col].unique()
+        
+        # Update list
+        self.tracked_particles_list.blockSignals(True)
+        self.tracked_particles_list.clear()
+        for pid in sorted(particles):
+            item = QListWidgetItem(str(pid))
+            item.setData(Qt.UserRole, pid)
+            self.tracked_particles_list.addItem(item)
+        self.tracked_particles_list.blockSignals(False)
+        
+        self.display_tracking_visualization()
+    
+    def _update_playback_speed(self):
+        """Update playback timer interval based on speed selection."""
+        if hasattr(self, 'timer_tracking_vis'):
+            speed = self.playback_speed_combo.currentData()
+            base_interval = 100  # Base interval in ms (10 fps)
+            new_interval = max(25, int(base_interval / speed))
+            self.timer_tracking_vis.setInterval(new_interval)
+    
+    def _populate_vis_cell_filter(self):
+        """Populate the cell filter dropdown for visualization tab."""
+        if not hasattr(self, 'vis_cell_filter_combo'):
+            return
+        
+        self.vis_cell_filter_combo.blockSignals(True)
+        self.vis_cell_filter_combo.clear()
+        self.vis_cell_filter_combo.addItem("All Cells", -1)
+        
+        if not self.df_tracking.empty and 'cell_id' in self.df_tracking.columns:
+            cell_ids = sorted(self.df_tracking['cell_id'].dropna().unique())
+            for cid in cell_ids:
+                n_particles = self.df_tracking[self.df_tracking['cell_id'] == cid]['particle'].nunique()
+                self.vis_cell_filter_combo.addItem(f"Cell {int(cid)} ({n_particles})", int(cid))
+        
+        self.vis_cell_filter_combo.blockSignals(False)
 
     def on_tracking_merge_toggled(self, checked):
         self.tracking_vis_merged = checked
@@ -6932,6 +6995,241 @@ class GUI(QMainWindow):
         self.tracking_vis_merged = False
         self.current_channel = channel_index
         self.display_tracking_visualization()
+    
+    def _draw_trajectories_on_axes(self, ax, current_frame):
+        """Draw trajectory paths on the visualization axes.
+        
+        Args:
+            ax: Matplotlib axes to draw on
+            current_frame: Current frame index
+        """
+        if self.df_tracking.empty:
+            return
+        
+        # Get selected particles from the list
+        selected_items = self.tracked_particles_list.selectedItems()
+        if not selected_items:
+            # If no selection, draw all particles
+            particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+            selected_pids = self.df_tracking[particle_col].unique()
+        else:
+            selected_pids = [item.data(Qt.UserRole) for item in selected_items]
+        
+        # Get tail length setting
+        tail_length = self.trajectory_tail_spinbox.value() if hasattr(self, 'trajectory_tail_spinbox') else 10
+        
+        # Get color-by setting
+        color_by = self.trajectory_color_combo.currentData() if hasattr(self, 'trajectory_color_combo') else 'particle'
+        
+        # Prepare color mapping
+        particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+        
+        if color_by == 'cell_id' and 'cell_id' in self.df_tracking.columns:
+            unique_vals = sorted(self.df_tracking['cell_id'].dropna().unique())
+            color_key = 'cell_id'
+        elif color_by == 'spot_type' and 'spot_type' in self.df_tracking.columns:
+            unique_vals = sorted(self.df_tracking['spot_type'].dropna().unique())
+            color_key = 'spot_type'
+        else:
+            unique_vals = sorted(self.df_tracking[particle_col].unique())
+            color_key = particle_col
+        
+        # Color palette - bright colors for dark background
+        color_palette = [
+            '#00FFFF',  # Cyan
+            '#FF00FF',  # Magenta
+            '#00FF00',  # Lime
+            '#FF8000',  # Orange
+            '#FFFF00',  # Yellow
+            '#FF0000',  # Red
+            '#00BFFF',  # DeepSkyBlue
+            '#FF69B4',  # HotPink
+            '#7FFF00',  # Chartreuse
+            '#FF6347',  # Tomato
+            '#FFD700',  # Gold
+            '#00FA9A',  # MediumSpringGreen
+            '#9400D3',  # DarkViolet
+            '#00CED1',  # DarkTurquoise
+            '#FF1493',  # DeepPink
+        ]
+        
+        # Create color map
+        val_to_color = {}
+        for i, val in enumerate(unique_vals):
+            val_to_color[val] = color_palette[i % len(color_palette)]
+        
+        # Draw trajectories
+        for pid in selected_pids:
+            traj = self.df_tracking[self.df_tracking[particle_col] == pid].sort_values('frame')
+            
+            if traj.empty:
+                continue
+            
+            # Filter to tail (frames up to current_frame)
+            traj_visible = traj[traj['frame'] <= current_frame]
+            if tail_length > 0:
+                traj_visible = traj_visible.tail(tail_length)
+            
+            if len(traj_visible) < 2:
+                continue
+            
+            # Get color based on color_by setting
+            if color_key in traj_visible.columns:
+                color_val = traj_visible.iloc[0][color_key]
+            else:
+                color_val = pid
+            color = val_to_color.get(color_val, '#FFFFFF')
+            
+            # Draw trajectory line only (no marker at current position - the white crop square is sufficient)
+            x_coords = traj_visible['x'].values
+            y_coords = traj_visible['y'].values
+            ax.plot(x_coords, y_coords, color=color, linewidth=1.5, alpha=0.8)
+    
+    def _update_trajectory_stats(self):
+        """Update the trajectory statistics label with info about selected particle(s)."""
+        if not hasattr(self, 'trajectory_stats_label'):
+            return
+        
+        selected_items = self.tracked_particles_list.selectedItems()
+        if not selected_items or self.df_tracking.empty:
+            self.trajectory_stats_label.setText("Select a trajectory")
+            return
+        
+        particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+        
+        # If single selection, show detailed stats
+        if len(selected_items) == 1:
+            pid = selected_items[0].data(Qt.UserRole)
+            traj = self.df_tracking[self.df_tracking[particle_col] == pid].sort_values('frame')
+            
+            if traj.empty:
+                self.trajectory_stats_label.setText("No data for trajectory")
+                return
+            
+            # Basic stats
+            n_frames = len(traj)
+            first_frame = int(traj['frame'].min())
+            last_frame = int(traj['frame'].max())
+            
+            # Displacement (start to end)
+            x_start, y_start = traj.iloc[0]['x'], traj.iloc[0]['y']
+            x_end, y_end = traj.iloc[-1]['x'], traj.iloc[-1]['y']
+            displacement_px = np.sqrt((x_end - x_start)**2 + (y_end - y_start)**2)
+            
+            # Convert to µm if voxel size known
+            if getattr(self, 'voxel_yx_nm', None):
+                displacement_um = displacement_px * self.voxel_yx_nm / 1000
+                disp_str = f"{displacement_um:.2f} µm"
+            else:
+                disp_str = f"{displacement_px:.1f} px"
+            
+            # Total path length
+            dx = np.diff(traj['x'].values)
+            dy = np.diff(traj['y'].values)
+            path_length_px = np.sum(np.sqrt(dx**2 + dy**2))
+            
+            if getattr(self, 'voxel_yx_nm', None):
+                path_um = path_length_px * self.voxel_yx_nm / 1000
+                path_str = f"{path_um:.2f} µm"
+            else:
+                path_str = f"{path_length_px:.1f} px"
+            
+            # Mean speed
+            time_interval = getattr(self, 'time_interval_value', None)
+            if time_interval and n_frames > 1:
+                total_time = (n_frames - 1) * time_interval
+                if getattr(self, 'voxel_yx_nm', None):
+                    speed = (path_length_px * self.voxel_yx_nm / 1000) / total_time
+                    speed_str = f"{speed:.3f} µm/s"
+                else:
+                    speed = path_length_px / total_time
+                    speed_str = f"{speed:.2f} px/s"
+            else:
+                speed_str = "N/A"
+            
+            # Cell ID if available
+            cell_str = ""
+            if 'cell_id' in traj.columns:
+                cell_id = traj.iloc[0]['cell_id']
+                cell_str = f"\nCell ID: {int(cell_id)}"
+            
+            stats_text = (
+                f"Particle: {pid}\n"
+                f"Frames: {n_frames} ({first_frame}-{last_frame})\n"
+                f"Displacement: {disp_str}\n"
+                f"Path Length: {path_str}\n"
+                f"Mean Speed: {speed_str}"
+                f"{cell_str}"
+            )
+        else:
+            # Multiple selection - show summary
+            n_selected = len(selected_items)
+            total_frames = 0
+            for item in selected_items:
+                pid = item.data(Qt.UserRole)
+                traj = self.df_tracking[self.df_tracking[particle_col] == pid]
+                total_frames += len(traj)
+            
+            avg_frames = total_frames / n_selected if n_selected > 0 else 0
+            stats_text = (
+                f"Selected: {n_selected} trajectories\n"
+                f"Total points: {total_frames}\n"
+                f"Avg length: {avg_frames:.1f} frames"
+            )
+        
+        self.trajectory_stats_label.setText(stats_text)
+    
+    def _add_trajectory_legend(self, ax):
+        """Add a compact color legend for trajectory colors in the upper-left corner."""
+        if self.df_tracking.empty:
+            return
+        
+        # Get the color-by setting
+        color_by = self.trajectory_color_combo.currentData() if hasattr(self, 'trajectory_color_combo') else 'particle'
+        particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+        
+        # Determine unique values and labels
+        if color_by == 'cell_id' and 'cell_id' in self.df_tracking.columns:
+            unique_vals = sorted(self.df_tracking['cell_id'].dropna().unique())
+            label_prefix = "Cell "
+        elif color_by == 'spot_type' and 'spot_type' in self.df_tracking.columns:
+            unique_vals = sorted(self.df_tracking['spot_type'].dropna().unique())
+            label_prefix = "Ch "
+        else:
+            # Don't show legend for particle ID (too many entries)
+            return
+        
+        if len(unique_vals) < 2 or len(unique_vals) > 10:
+            # Skip legend if only 1 category or too many
+            return
+        
+        # Color palette
+        color_palette = [
+            '#00FFFF', '#FF00FF', '#00FF00', '#FF8000', '#FFFF00',
+            '#FF0000', '#00BFFF', '#FF69B4', '#7FFF00', '#FF6347'
+        ]
+        
+        # Build legend handles
+        legend_handles = []
+        for i, val in enumerate(unique_vals):
+            color = color_palette[i % len(color_palette)]
+            line = plt.Line2D([0], [0], color=color, linewidth=2, label=f"{label_prefix}{int(val)}")
+            legend_handles.append(line)
+        
+        # Add legend to axes
+        leg = ax.legend(
+            handles=legend_handles,
+            loc='upper left',
+            fontsize=7,
+            framealpha=0.7,
+            facecolor='black',
+            edgecolor='white',
+            labelcolor='white',
+            handlelength=1,
+            borderpad=0.3,
+            labelspacing=0.2
+        )
+        leg.set_zorder(100)
 
     def on_intensity_changed(self, value):
         self.display_tracking_visualization()
@@ -10354,6 +10652,15 @@ class GUI(QMainWindow):
                     va='top',
                     ha='left'
                 )
+        
+        # Draw trajectories if enabled
+        if hasattr(self, 'checkbox_show_trajectories') and self.checkbox_show_trajectories.isChecked():
+            self._draw_trajectories_on_axes(ax_main, frame_idx)
+            
+            # Add small color legend if multiple trajectories are drawn
+            self._add_trajectory_legend(ax_main)
+        
+        # Draw rectangle around selected spot
         if found_spot:
             rect = patches.Rectangle((x0, y0), crop_sz, crop_sz, edgecolor='white', facecolor='none', linewidth=2)
             ax_main.add_patch(rect)
@@ -10367,6 +10674,9 @@ class GUI(QMainWindow):
             ax.axis('off')
         fig.tight_layout()
         self.canvas_tracking_vis.draw_idle()
+        
+        # Update trajectory statistics panel
+        self._update_trajectory_stats()
 
 
     def reset_tracking_visualization_tab(self):
@@ -10529,6 +10839,7 @@ class GUI(QMainWindow):
         self.canvas_tracking_vis = FigureCanvas(self.figure_tracking_vis)
         left_layout.addWidget(self.canvas_tracking_vis)
         self.canvas_tracking_vis.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
         # Percentile spinboxes for intensity scaling
         spin_layout = QHBoxLayout()
         self.min_percentile_spinbox_tracking_vis = QDoubleSpinBox(self)
@@ -10582,28 +10893,126 @@ class GUI(QMainWindow):
         self.export_tracking_vis_video_button = QPushButton("Export Video", self)
         self.export_tracking_vis_video_button.clicked.connect(self.export_tracking_visualization_video)
         export_buttons_layout.addWidget(self.export_tracking_vis_video_button)
-        # Right side: Tracked particles list
-        right_layout.addWidget(QLabel("Tracked Particles:"))
+        # Right side: Enhanced controls panel
+        right_layout.addWidget(QLabel("<b>Trajectory Display</b>"))
+        
+        # Show trajectories checkbox
+        self.checkbox_show_trajectories = QCheckBox("Show Trajectories")
+        self.checkbox_show_trajectories.setChecked(True)
+        self.checkbox_show_trajectories.stateChanged.connect(self.display_tracking_visualization)
+        right_layout.addWidget(self.checkbox_show_trajectories)
+        
+        # Trajectory tail length
+        tail_layout = QHBoxLayout()
+        tail_layout.addWidget(QLabel("Tail Length:"))
+        self.trajectory_tail_spinbox = QSpinBox()
+        self.trajectory_tail_spinbox.setRange(1, 100)
+        self.trajectory_tail_spinbox.setValue(10)
+        self.trajectory_tail_spinbox.setToolTip("Number of frames to show in trajectory tail (0 = full)")
+        self.trajectory_tail_spinbox.valueChanged.connect(self.display_tracking_visualization)
+        tail_layout.addWidget(self.trajectory_tail_spinbox)
+        right_layout.addLayout(tail_layout)
+        
+        # Color-by dropdown
+        color_layout = QHBoxLayout()
+        color_layout.addWidget(QLabel("Color By:"))
+        self.trajectory_color_combo = QComboBox()
+        self.trajectory_color_combo.addItem("Particle ID", "particle")
+        self.trajectory_color_combo.addItem("Cell ID", "cell_id")
+        self.trajectory_color_combo.addItem("Channel", "spot_type")
+        self.trajectory_color_combo.currentIndexChanged.connect(self.display_tracking_visualization)
+        color_layout.addWidget(self.trajectory_color_combo)
+        right_layout.addLayout(color_layout)
+        
+        # Separator
+        right_layout.addWidget(QLabel(""))
+        right_layout.addWidget(QLabel("<b>Particle Selection</b>"))
+        
+        # Filter by cell_id
+        cell_filter_layout = QHBoxLayout()
+        cell_filter_layout.addWidget(QLabel("Filter Cell:"))
+        self.vis_cell_filter_combo = QComboBox()
+        self.vis_cell_filter_combo.addItem("All Cells", -1)
+        self.vis_cell_filter_combo.currentIndexChanged.connect(self._update_particle_list_filtered)
+        cell_filter_layout.addWidget(self.vis_cell_filter_combo)
+        right_layout.addLayout(cell_filter_layout)
+        
+        # Tracked particles list (multi-select)
         self.tracked_particles_list = QListWidget()
-        self.tracked_particles_list.setFixedWidth(100)
-        self.tracked_particles_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.tracked_particles_list.currentItemChanged.connect(self.on_particle_selected)
+        self.tracked_particles_list.setFixedWidth(150)
+        self.tracked_particles_list.setFixedHeight(200)
+        self.tracked_particles_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tracked_particles_list.itemSelectionChanged.connect(self.display_tracking_visualization)
         right_layout.addWidget(self.tracked_particles_list)
+        
+        # Select All / Clear buttons
+        select_buttons_layout = QHBoxLayout()
+        self.select_all_particles_btn = QPushButton("Select All")
+        self.select_all_particles_btn.clicked.connect(self._select_all_particles)
+        select_buttons_layout.addWidget(self.select_all_particles_btn)
+        self.clear_particles_btn = QPushButton("Clear")
+        self.clear_particles_btn.clicked.connect(self._clear_particle_selection)
+        select_buttons_layout.addWidget(self.clear_particles_btn)
+        right_layout.addLayout(select_buttons_layout)
+        
+        # Separator
+        right_layout.addWidget(QLabel(""))
+        right_layout.addWidget(QLabel("<b>Display Options</b>"))
+        
+        # Existing checkboxes
         self.checkbox_remove_bg = QCheckBox("Remove Background")    
         self.checkbox_remove_bg.setChecked(False)
-        # Add checkbox for background removal
-        right_layout.addWidget(self.checkbox_remove_bg)                    
+        right_layout.addWidget(self.checkbox_remove_bg)
+        
         self.checkbox_scalebar = QCheckBox("Show Scalebar")     
         self.checkbox_scalebar.setChecked(False)    
-        # Add checkbox for scalebar
-        right_layout.addWidget(self.checkbox_scalebar)     
+        right_layout.addWidget(self.checkbox_scalebar)
+        
         self.checkbox_show_timestamp = QCheckBox("Show Time Stamp")
         self.checkbox_show_timestamp.setChecked(False) 
         right_layout.addWidget(self.checkbox_show_timestamp)
+        
         # Connect checkboxes to update visualization    
         self.checkbox_remove_bg.stateChanged.connect(self.display_tracking_visualization)
         self.checkbox_scalebar.stateChanged.connect(self.display_tracking_visualization)   
-        self.checkbox_show_timestamp.stateChanged.connect(self.display_tracking_visualization)           
+        self.checkbox_show_timestamp.stateChanged.connect(self.display_tracking_visualization)
+        
+        # Separator
+        right_layout.addWidget(QLabel(""))
+        right_layout.addWidget(QLabel("<b>Playback</b>"))
+        
+        # Playback speed control
+        speed_layout = QHBoxLayout()
+        speed_layout.addWidget(QLabel("Speed:"))
+        self.playback_speed_combo = QComboBox()
+        self.playback_speed_combo.addItem("0.5x", 0.5)
+        self.playback_speed_combo.addItem("1x", 1.0)
+        self.playback_speed_combo.addItem("2x", 2.0)
+        self.playback_speed_combo.addItem("4x", 4.0)
+        self.playback_speed_combo.setCurrentIndex(1)  # Default 1x
+        self.playback_speed_combo.currentIndexChanged.connect(self._update_playback_speed)
+        speed_layout.addWidget(self.playback_speed_combo)
+        right_layout.addLayout(speed_layout)
+        
+        # Separator
+        right_layout.addWidget(QLabel(""))
+        right_layout.addWidget(QLabel("<b>Trajectory Stats</b>"))
+        
+        # Trajectory statistics label (updated when selection changes)
+        self.trajectory_stats_label = QLabel("Select a trajectory")
+        self.trajectory_stats_label.setWordWrap(True)
+        self.trajectory_stats_label.setStyleSheet("""
+            QLabel {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                padding: 5px;
+                border-radius: 3px;
+                font-family: monospace;
+                font-size: 10px;
+            }
+        """)
+        right_layout.addWidget(self.trajectory_stats_label)
+        
         right_layout.addStretch()
 
 # =============================================================================
@@ -13270,6 +13679,11 @@ class GUI(QMainWindow):
                 # Silently reset the visualization tab without warning
                 self.reset_tracking_visualization_tab()
                 return
+            
+            # Populate cell filter dropdown
+            if hasattr(self, '_populate_vis_cell_filter'):
+                self._populate_vis_cell_filter()
+            
             self.tracked_particles_list.clear()
             # Use unique_particle if available, otherwise fall back to particle
             particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
