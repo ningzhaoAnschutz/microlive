@@ -7,6 +7,7 @@ This tutorial provides comprehensive step-by-step instructions for all analysis 
 ## Prerequisites
 
 Before starting, ensure you have:
+
 - Sample microscopy data (.lif or .tif format)
 - Basic understanding of your imaging parameters
 - Sufficient computational resources for your dataset
@@ -16,11 +17,13 @@ Before starting, ensure you have:
 ## Tutorial 1: Import Tab - Image Loading and Visualization
 
 ### Overview
+
 Learn to load, visualize, and navigate through microscopy data with proper display settings.
 
 ### Step 1: Application Launch and File Loading
 
 1. **Launch the Application**
+
    ```bash
    python gui/micro.py
    ```
@@ -48,6 +51,7 @@ Learn to load, visualize, and navigate through microscopy data with proper displ
 2. **Handle Missing Metadata**
 
 If prompted, enter missing values:
+
 - **PhysicalSizeX and PhysicalSizeY**: Pixel size in nanometers (nm) for both X and Y dimensions
 - **PhysicalSizeZ**: Z-step size in nanometers (nm)
 - **TimeIncrement**: Time interval between frames in seconds (s)
@@ -102,6 +106,7 @@ These values are crucial for quantitative analysis and proper scaling of measure
    - Scalebar included if voxel size is available
 
 ### Expected Results
+
 - Properly loaded and calibrated microscopy data
 - Optimized display settings for visualization
 - Understanding of data structure and quality
@@ -111,6 +116,7 @@ These values are crucial for quantitative analysis and proper scaling of measure
 ## Tutorial 2: Segmentation Tab - Cell Boundary Definition
 
 ### Overview
+
 Define cellular regions for masking subsequent analyses, ensuring particles are analyzed only within cells of interest.
 
 ### Step 1: Segmentation Setup
@@ -172,6 +178,7 @@ Define cellular regions for masking subsequent analyses, ensuring particles are 
    - Save documentation of segmentation approach
 
 ### Expected Results
+
 - Binary mask defining cellular region
 - Quality segmentation for subsequent masking
 - Exported documentation of segmentation
@@ -181,6 +188,7 @@ Define cellular regions for masking subsequent analyses, ensuring particles are 
 ## Tutorial 3: Photobleaching Tab - Intensity Correction
 
 ### Overview
+
 Correct for photobleaching artifacts that affect quantitative fluorescence measurements over time.
 
 ### Step 1: Prerequisites Check
@@ -241,6 +249,7 @@ Correct for photobleaching artifacts that affect quantitative fluorescence measu
    - Save plots showing correction effectiveness
 
 ### Expected Results
+
 - Quantified photobleaching parameters
 - Corrected image stack for quantitative analysis
 - Documentation of correction effectiveness
@@ -250,6 +259,7 @@ Correct for photobleaching artifacts that affect quantitative fluorescence measu
 ## Tutorial 4: Tracking Tab - Particle Detection and Trajectory Linking
 
 ### Overview
+
 Detect particles and link them into trajectories for dynamic analysis.
 
 ### Step 1: Tracking Setup and Image Source
@@ -353,6 +363,7 @@ Detect particles and link them into trajectories for dynamic analysis.
    - Includes all enabled overlays and colormaps
 
 ### Expected Results
+
 - Complete particle trajectory dataset
 - Quantitative measurements for each detection
 - Visual documentation of tracking quality
@@ -363,6 +374,7 @@ Detect particles and link them into trajectories for dynamic analysis.
 ## Tutorial 5: Distribution Tab - Statistical Analysis of Particle Properties
 
 ### Overview
+
 Generate histograms and statistical summaries of measured particle properties.
 
 ### Step 1: Data Requirements
@@ -424,6 +436,7 @@ Generate histograms and statistical summaries of measured particle properties.
    - Include in publications or reports
 
 ### Expected Results
+
 - Quantitative distribution of particle properties
 - Statistical summary (mean, median)
 - Visual representation suitable for publication
@@ -433,6 +446,7 @@ Generate histograms and statistical summaries of measured particle properties.
 ## Tutorial 6: Time Course Tab - Temporal Dynamics Analysis
 
 ### Overview
+
 Analyze how particle properties change over time, revealing dynamic processes.
 
 ### Step 1: Time Course Setup
@@ -469,7 +483,6 @@ Analyze how particle properties change over time, revealing dynamic processes.
    - **Trends**: Look for increases, decreases, or oscillations
    - **Variability**: Assess consistency across time
 
-
 ### Step 4: Export Time Course Data
 
 1. **Save Time Course Plots**
@@ -478,6 +491,7 @@ Analyze how particle properties change over time, revealing dynamic processes.
    - Suitable for presentations and publications
 
 ### Expected Results
+
 - Temporal profiles of particle properties
 - Identification of dynamic processes
 - Quantitative time course data for further analysis
@@ -487,6 +501,7 @@ Analyze how particle properties change over time, revealing dynamic processes.
 ## Tutorial 7: Correlation Tab - Temporal Correlation Analysis
 
 ### Overview
+
 Analyze temporal correlations in particle dynamics to extract kinetic information and assess particle interactions.
 
 ### Step 1: Correlation Analysis Prerequisites
@@ -581,6 +596,7 @@ Analyze temporal correlations in particle dynamics to extract kinetic informatio
    - Include both raw data and fitted curves
 
 ### Expected Results
+
 - Quantitative correlation functions
 - Kinetic parameters from curve fitting
 - Temporal relationships between channels
@@ -591,6 +607,7 @@ Analyze temporal correlations in particle dynamics to extract kinetic informatio
 ## Tutorial 8: Colocalization Tab - Automated Spatial Analysis
 
 ### Overview
+
 Quantify spatial relationships between particles in different channels using automated methods.
 
 ### Step 1: Colocalization Prerequisites
@@ -670,6 +687,7 @@ Quantify spatial relationships between particles in different channels using aut
    - Includes colocalization percentage in title
 
 ### Expected Results
+
 - Quantitative colocalization percentage
 - Visual matrix showing analysis results
 - CSV file with detailed statistics
@@ -680,6 +698,7 @@ Quantify spatial relationships between particles in different channels using aut
 ## Tutorial 9: Colocalization Manual Tab - Expert Validation
 
 ### Overview
+
 Manually verify and refine automated colocalization results through expert visual inspection.
 
 ### Step 1: Manual Verification Setup
@@ -704,7 +723,6 @@ Manually verify and refine automated colocalization results through expert visua
    - Check boxes for true colocalization
    - Uncheck boxes for false positives
    - Base decisions on visual overlap and intensity
-
 
 ### Step 3: Statistical Tracking
 
@@ -738,6 +756,7 @@ Manually verify and refine automated colocalization results through expert visua
    - Method marked as "Manual" for documentation
 
 ### Expected Results
+
 - Expert-validated colocalization percentage
 - Refined analysis with reduced false positives/negatives
 - Documentation of manual validation process
@@ -748,6 +767,7 @@ Manually verify and refine automated colocalization results through expert visua
 ## Tutorial 10: Tracking Visualization Tab - Advanced Particle Inspection
 
 ### Overview
+
 Detailed visualization and analysis of individual particle trajectories with multi-channel context.
 
 ### Step 1: Tracking Visualization Setup
@@ -822,6 +842,7 @@ Detailed visualization and analysis of individual particle trajectories with mul
    - Useful for presentations and detailed analysis
 
 ### Expected Results
+
 - Detailed inspection of individual particle behavior
 - Multi-channel context for particle analysis
 - High-quality visualizations for documentation
@@ -829,76 +850,10 @@ Detailed visualization and analysis of individual particle trajectories with mul
 
 ---
 
-## Tutorial 11: Crops Tab - Particle Crop Analysis
+## Tutorial 11: Export Tab - Comprehensive Data Management
 
 ### Overview
-Generate and analyze standardized crops around detected particles for detailed morphological analysis.
 
-### Step 1: Crops Analysis Setup
-
-1. **Navigate to Crops Tab**
-   - Click "Crops" tab
-   - Requires completed particle tracking
-
-2. **Channel Selection**
-   - Click channel buttons to select analysis channel
-   - Choose channel with best particle contrast
-   - Can generate crops for each channel separately
-
-### Step 2: Generate Particle Crops
-
-1. **Execute Crop Analysis**
-   - Click "Plot Crops" button
-   - Generates standardized crops around each detected particle
-   - Crops are normalized for consistent comparison
-
-2. **Crop Matrix Display**
-   - Grid layout shows all particle crops
-   - Consistent size and scale for comparison
-   - Background normalized for visualization
-
-### Step 3: Crop Analysis and Interpretation
-
-1. **Visual Inspection**
-   - Assess particle morphology consistency
-   - Identify outliers or artifacts
-   - Evaluate detection quality across dataset
-
-2. **Pattern Recognition**
-   - Look for morphological patterns
-   - Identify different particle types
-   - Assess size and shape distributions
-
-### Step 4: Quality Control
-
-1. **Detection Validation**
-   - Verify that crops contain actual particles
-   - Identify false positive detections
-   - Assess background contamination
-
-2. **Parameter Optimization**
-   - Use crop analysis to refine detection parameters
-   - Adjust threshold or spot size if needed
-   - Re-run tracking with optimized parameters
-
-### Step 5: Export Crop Analysis
-
-1. **Save Crop Matrix**
-   - Click "Export Crops Image"
-   - High-resolution grid of all particle crops
-   - Useful for presentations and documentation
-
-### Expected Results
-- Standardized particle crops for morphological analysis
-- Quality assessment of particle detection
-- Visual documentation of particle characteristics
-- Basis for detection parameter optimization
-
----
-
-## Tutorial 12: Export Tab - Comprehensive Data Management
-
-### Overview
 Organize and export all analysis results in a structured, documented format for sharing and archival.
 
 ### Step 1: Export Preparation
@@ -947,7 +902,6 @@ Organize and export all analysis results in a structured, documented format for 
    - **Export Colocalization Data**: Colocalization CSV
    - **Export Manual Colocalization Image**: Manual verification
    - **Export Manual Colocalization Data**: Manual CSV
-   - **Export Crops Image**: Particle crop matrix
    - **Export Metadata File**: Complete analysis parameters
    - **Export User Comments**: User comments as a text file
    - **Export Random Spots Data**: Control measurements for random positions inside the mask
@@ -999,6 +953,7 @@ Organize and export all analysis results in a structured, documented format for 
    - Maintain version control for analysis parameters
 
 ### Expected Results
+
 - Organized folder containing all analysis results
 - Complete documentation of analysis parameters
 - Consistent file naming and structure
@@ -1010,24 +965,30 @@ Organize and export all analysis results in a structured, documented format for 
 ## Troubleshooting Common Issues
 
 ### Loading and Display Issues
+
 **Problem**: Image fails to load or displays incorrectly
-**Solutions**: 
+**Solutions**:
+
 - Check file format compatibility (.lif, .tif, .ome.tif)
 - Verify file path and permissions
 - Ensure sufficient memory for large files
 - Check metadata completeness
 
 ### Segmentation Problems
+
 **Problem**: Poor segmentation quality
 **Solutions**:
+
 - Try different channels for segmentation
 - Adjust watershed threshold factor
 - Use maximum projection for thick samples
 - Consider manual segmentation for complex shapes
 
 ### Detection Issues
+
 **Problem**: Too few particles detected
 **Solutions**:
+
 - Lower detection threshold
 - Check segmentation mask coverage
 - Verify channel selection
@@ -1035,14 +996,17 @@ Organize and export all analysis results in a structured, documented format for 
 
 **Problem**: Too many false detections
 **Solutions**:
+
 - Raise detection threshold
 - Improve segmentation to exclude background
 - Adjust spot size to match particle size
 - Check for imaging artifacts
 
 ### Tracking Problems
+
 **Problem**: Broken trajectories
 **Solutions**:
+
 - Increase maximum search range
 - Add memory frames for tracking gaps
 - Improve detection consistency
@@ -1050,14 +1014,17 @@ Organize and export all analysis results in a structured, documented format for 
 
 **Problem**: Incorrect particle linking
 **Solutions**:
+
 - Decrease search range to prevent over-linking
 - Reduce memory frames
 - Improve detection specificity
 - Check for high particle density issues
 
 ### Performance Issues
+
 **Problem**: Slow processing or memory errors
 **Solutions**:
+
 - Use 2D projection mode
 - Process smaller regions or time ranges
 - Close unused files and applications
@@ -1065,8 +1032,10 @@ Organize and export all analysis results in a structured, documented format for 
 - Use lower resolution for initial optimization
 
 ### Analysis Quality Issues
+
 **Problem**: Poor correlation results
 **Solutions**:
+
 - Increase minimum trajectory length
 - Improve tracking quality
 - Check temporal sampling rate
@@ -1074,6 +1043,7 @@ Organize and export all analysis results in a structured, documented format for 
 
 **Problem**: Inconsistent colocalization
 **Solutions**:
+
 - Verify channel registration
 - Check detection parameters consistency
 - Use manual verification for validation
@@ -1082,29 +1052,34 @@ Organize and export all analysis results in a structured, documented format for 
 ## Best Practices Summary
 
 ### Data Quality
+
 1. **Start with high-quality data**: Proper acquisition parameters, sufficient signal-to-noise ratio
 2. **Verify metadata**: Ensure pixel sizes and time intervals are correct
 3. **Optimize imaging**: Balance temporal resolution, spatial resolution, and photobleaching
 
 ### Analysis Workflow
+
 1. **Sequential approach**: Follow tab order for logical workflow progression
 2. **Parameter testing**: Test on subsets before full analysis
 3. **Quality control**: Visually inspect results at each step
 4. **Documentation**: Export parameters and add comments throughout
 
 ### Result Validation
+
 1. **Visual inspection**: Always verify automated results visually
 2. **Control experiments**: Include appropriate negative and positive controls
 3. **Reproducibility**: Test parameter sensitivity and biological replicates
 4. **Statistical rigor**: Use appropriate sample sizes and statistical tests
 
 ### Data Management
+
 1. **Consistent naming**: Use systematic file and folder naming
 2. **Complete export**: Always export metadata with results
 3. **Version control**: Track analysis parameters across iterations
 4. **Backup strategy**: Maintain copies of raw data and analysis results
 
 ### Publication Preparation
+
 1. **Method documentation**: Export complete parameter sets
 2. **Visual documentation**: Export high-quality figures
 3. **Statistical reporting**: Include appropriate error bars and sample sizes

@@ -26,6 +26,7 @@ import re
 import shutil
 import socket
 import sys
+import warnings
 ### Third-party imports
 import pandas as pd
 import numpy as np
@@ -148,8 +149,6 @@ class PatchMPSFloat64:
             torch.zeros = self.original_zeros
 
 # Configure settings and warnings
-import warnings
-from PyQt5.QtWidgets import QMessageBox
 
 
 

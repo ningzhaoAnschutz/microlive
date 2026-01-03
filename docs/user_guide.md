@@ -47,26 +47,28 @@ For detailed step-by-step instructions, see the [Complete Tutorial](tutorial.md)
 
 ### Tab Organization
 
-The application is organized into 12 main tabs, each serving specific functions:
+The application is organized into 13 main tabs, each serving specific functions:
 
 **Core Modules:**
 
 - **Import**: Primary image visualization and navigation
-- **Segmentation**: Define regions of interest
+- **Registration**: Image alignment and drift correction
+- **Segmentation**: Define regions of interest (Watershed, Cellpose, Manual, Import)
 - **Tracking**: Particle detection and trajectory analysis
 
 **Analysis Modules:**
 
+- **MSD**: Mean squared displacement analysis for diffusion
 - **Distribution**: Statistical analysis of particle properties
 - **Time Course**: Temporal analysis visualization
 - **Correlation**: Auto- and cross-correlation analysis
-- **Colocalization**: Automated and manual colocalization
+- **Colocalization**: Automated colocalization analysis
+- **Coloc Manual**: Manual colocalization verification
 
 **Specialized Tools:**
 
 - **Photobleaching**: Intensity correction
-- **Tracking Visualization**: Enhanced particle display
-- **Crops**: Particle crop analysis
+- **Visualization**: Enhanced tracking visualization with trajectory display
 - **Export**: Comprehensive data export
 
 ### Common Interface Elements
@@ -132,7 +134,9 @@ Each channel has independent intensity controls:
 
 - **Background Removal**: Toggle to remove background using segmentation mask
 - **Time Stamps**: Display time information on images
-- **Colormaps**: Automatic ImageJ-style colormaps for each channel
+- **Colormaps**: Automatic ImageJ-style colormaps for each channel (Green, Magenta, Yellow)
+- **Merge Brightness**: Multiple channels are automatically scaled to 60% brightness when merged in the Import tab to prevent oversaturation. The Visualization tab provides a slider to adjust brightness (10-100%)
+- **Interactive Zoom**: Click and drag a rectangle on the image to zoom in; double-click to reset view
 - **Export Options**: Save current view as PNG or export videos
 
 ### Theme and Appearance
