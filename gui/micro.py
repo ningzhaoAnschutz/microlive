@@ -2872,6 +2872,18 @@ class GUI(QMainWindow):
                 norm_channel = gaussian_filter(norm_channel, sigma=params['sigma'])
             colored_channel = cmap_list[i](norm_channel)
             combined_image += colored_channel
+        
+        # Apply brightness scaling (prevents oversaturation with multiple channels)
+        # Visualization tab uses slider; Import tab uses fixed 60%
+        brightness = 0.6  # Default 60% brightness
+        if hasattr(self, 'merge_brightness_slider'):
+            brightness = self.merge_brightness_slider.value() / 100.0
+            if hasattr(self, 'merge_brightness_label'):
+                self.merge_brightness_label.setText(f"{int(brightness * 100)}%")
+        
+        if brightness < 1.0:
+            combined_image = combined_image * brightness
+        
         merged_img = np.clip(combined_image, 0, 1)
         return merged_img
 
@@ -2910,6 +2922,19 @@ class GUI(QMainWindow):
         self.merged_mode = True
         self.figure_display.clear()
         self.ax_display = self.figure_display.add_subplot(111)
+        
+        # Recreate RectangleSelector on new axes (fixes zoom after tab switch)
+        self.display_zoom_selector = RectangleSelector(
+            self.ax_display,
+            self._on_display_zoom_select,
+            useblit=True,
+            button=[1],  # Left mouse button only
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
         # Apply background removal if requested
         img_to_show = merged_img
         if self.display_remove_background_checkbox.isChecked() and self.active_mask is not None:
@@ -3078,6 +3103,7 @@ class GUI(QMainWindow):
         self.merge_color_channels_button = QPushButton("Merge Channels", self)
         self.merge_color_channels_button.clicked.connect(self.merge_color_channels)
         self.channel_buttons_layout_display.addWidget(self.merge_color_channels_button)
+        
         # Controls: slider + play
         controls_layout = QHBoxLayout()
         self.time_slider_display = QSlider(Qt.Horizontal, self)
@@ -10858,6 +10884,19 @@ class GUI(QMainWindow):
         self.max_percentile_spinbox_tracking_vis.valueChanged.connect(lambda v: self.display_tracking_visualization())
         spin_layout.addWidget(QLabel("Max Int", self))
         spin_layout.addWidget(self.max_percentile_spinbox_tracking_vis)
+        
+        # Merge brightness slider (reduces saturation for multi-channel merge)
+        spin_layout.addWidget(QLabel("Merge Brightness", self))
+        self.merge_brightness_slider = QSlider(Qt.Horizontal)
+        self.merge_brightness_slider.setRange(10, 100)
+        self.merge_brightness_slider.setValue(50)  # Default 50% to prevent oversaturation
+        self.merge_brightness_slider.setMaximumWidth(80)
+        self.merge_brightness_slider.valueChanged.connect(lambda v: self.display_tracking_visualization())
+        spin_layout.addWidget(self.merge_brightness_slider)
+        self.merge_brightness_label = QLabel("50%")
+        self.merge_brightness_label.setMinimumWidth(35)
+        spin_layout.addWidget(self.merge_brightness_label)
+        
         left_layout.addLayout(spin_layout)
         # Channel selection buttons + Merge toggle
         self.channel_buttons_tracking_vis = []
