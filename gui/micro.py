@@ -3819,6 +3819,13 @@ class GUI(QMainWindow):
             n_cells = int(np.max(self.cellpose_masks_cyto)) if self.cellpose_masks_cyto is not None else 0
             self.statusBar().showMessage(f"Cytosol segmented: {n_cells} cells found (Ch{channel}, {z_info})")
             
+            # Reset size slider to center (0 = original size)
+            if hasattr(self, 'cyto_size_slider'):
+                self.cyto_size_slider.blockSignals(True)
+                self.cyto_size_slider.setValue(0)
+                self.cyto_size_slider.blockSignals(False)
+                self.cyto_size_label.setText("0")
+            
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -3953,6 +3960,13 @@ class GUI(QMainWindow):
             z_info = f"Z={self.segmentation_current_z}" if self.segmentation_current_z >= 0 else "Max Projection"
             n_nuc = int(np.max(self.cellpose_masks_nuc)) if self.cellpose_masks_nuc is not None else 0
             self.statusBar().showMessage(f"Nucleus segmented: {n_nuc} nuclei found (Ch{channel}, {z_info})")
+            
+            # Reset size slider to center (0 = original size)
+            if hasattr(self, 'nuc_size_slider'):
+                self.nuc_size_slider.blockSignals(True)
+                self.nuc_size_slider.setValue(0)
+                self.nuc_size_slider.blockSignals(False)
+                self.nuc_size_label.setText("0")
             
             self.synchronize_and_plot_cellpose()
             
