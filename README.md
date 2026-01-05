@@ -1,4 +1,4 @@
-# MicroLive `<img src="docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />`
+# MicroLive <img src="docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />
 
 **Authors:** Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao
 
