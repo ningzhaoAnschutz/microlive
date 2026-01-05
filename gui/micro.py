@@ -7253,8 +7253,9 @@ class GUI(QMainWindow):
             displacement_px = np.sqrt((x_end - x_start)**2 + (y_end - y_start)**2)
             
             # Convert to µm if voxel size known
-            if getattr(self, 'voxel_yx_nm', None):
-                displacement_um = displacement_px * self.voxel_yx_nm / 1000
+            voxel_yx = getattr(self, 'voxel_yx_nm', None)
+            if voxel_yx:
+                displacement_um = float(displacement_px) * float(voxel_yx) / 1000
                 disp_str = f"{displacement_um:.2f} µm"
             else:
                 disp_str = f"{displacement_px:.1f} px"
@@ -7264,8 +7265,8 @@ class GUI(QMainWindow):
             dy = np.diff(traj['y'].values)
             path_length_px = np.sum(np.sqrt(dx**2 + dy**2))
             
-            if getattr(self, 'voxel_yx_nm', None):
-                path_um = path_length_px * self.voxel_yx_nm / 1000
+            if voxel_yx:
+                path_um = float(path_length_px) * float(voxel_yx) / 1000
                 path_str = f"{path_um:.2f} µm"
             else:
                 path_str = f"{path_length_px:.1f} px"
@@ -7273,12 +7274,16 @@ class GUI(QMainWindow):
             # Mean speed
             time_interval = getattr(self, 'time_interval_value', None)
             if time_interval and n_frames > 1:
-                total_time = (n_frames - 1) * time_interval
-                if getattr(self, 'voxel_yx_nm', None):
-                    speed = (path_length_px * self.voxel_yx_nm / 1000) / total_time
+                # Convert to float to handle Decimal types from metadata
+                time_interval_f = float(time_interval)
+                total_time = (n_frames - 1) * time_interval_f
+                voxel_yx = getattr(self, 'voxel_yx_nm', None)
+                if voxel_yx:
+                    voxel_yx_f = float(voxel_yx)
+                    speed = (float(path_length_px) * voxel_yx_f / 1000) / total_time
                     speed_str = f"{speed:.3f} µm/s"
                 else:
-                    speed = path_length_px / total_time
+                    speed = float(path_length_px) / total_time
                     speed_str = f"{speed:.2f} px/s"
             else:
                 speed_str = "N/A"
