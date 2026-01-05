@@ -293,10 +293,15 @@ class Plots:
         else:
             fig = figure
             fig.clear()
+        
+        # Add subplot with no padding to maximize image display area
         ax = fig.add_subplot(111)
         ax.imshow(big_image)
         ax.axis('off')
-        fig.tight_layout()
+        
+        # Full-bleed layout - remove all padding to fill available space
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig.patch.set_facecolor('black')
 
 
     def plot_autocorrelation(self, mean_correlation, error_correlation, lags, correlations_array=None,
@@ -770,7 +775,12 @@ class Metadata:
                     write_attr('Link Using 3D Coordinates', 'link_using_3d_coordinates')
                 
                 write_subsection('Channels')
-                write_attr('Spot Detection Channel', 'channels_spots')
+                # Report multi-channel tracking if available
+                if hasattr(self, 'tracked_channels') and self.tracked_channels:
+                    write_value('Tracked Channels', str(self.tracked_channels))
+                else:
+                    # Fall back to legacy single-channel attribute
+                    write_attr('Spot Detection Channel', 'channels_spots')
                 write_attr('Cytosol Channel', 'channels_cytosol')
                 write_attr('Nucleus Channel', 'channels_nucleus')
                 
@@ -813,9 +823,45 @@ class Metadata:
                 
                 # Colocalization / ML
                 write_section('Colocalization Parameters')
+                
+                write_subsection('Visual (ML/Intensity)')
                 write_attr('Method', 'colocalization_method')
                 write_attr('Threshold Value', 'colocalization_threshold_value')
                 write_attr('ML Threshold', 'ml_threshold_input')
+                
+                # Distance Colocalization
+                write_subsection('Distance-Based')
+                dist_results = getattr(self, 'distance_coloc_results', None)
+                if dist_results:
+                    ch0 = dist_results.get('channel_0', 'N/A')
+                    ch1 = dist_results.get('channel_1', 'N/A')
+                    threshold_px = dist_results.get('threshold_distance_px', 'N/A')
+                    threshold_nm = dist_results.get('threshold_distance_nm', 'N/A')
+                    use_3d = dist_results.get('use_3d', False)
+                    
+                    write_value('Analysis Performed', 'Yes')
+                    write_value('Channel 0', ch0)
+                    write_value('Channel 1', ch1)
+                    write_value('Distance Threshold (px)', threshold_px)
+                    write_value('Distance Threshold (nm)', threshold_nm)
+                    write_value('3D Distance', 'Yes' if use_3d else 'No')
+                    
+                    # Add summary statistics if available
+                    df_class = dist_results.get('df_classification')
+                    if df_class is not None and len(df_class) > 0:
+                        total_coloc = int(df_class['num_0_1'].sum())
+                        total_ch0_only = int(df_class['num_0_only'].sum())
+                        total_ch1_only = int(df_class['num_1_only'].sum())
+                        total_unique = total_ch0_only + total_ch1_only + total_coloc
+                        pct_coloc = 100 * total_coloc / total_unique if total_unique > 0 else 0
+                        
+                        write_value('Colocalized Spots', total_coloc)
+                        write_value(f'Ch{ch0} Only', total_ch0_only)
+                        write_value(f'Ch{ch1} Only', total_ch1_only)
+                        write_value('Total Unique Spots', total_unique)
+                        write_value('Colocalization %', f'{pct_coloc:.2f}%')
+                else:
+                    write_value('Analysis Performed', 'No')
                 
                 # Reproducibility
                 write_section('Environment')
@@ -1021,27 +1067,6 @@ class GUI(QMainWindow):
                 return (self.cellpose_masks_nuc > 0).astype(np.uint8)
         return self.segmentation_mask
 
-    @property
-    def active_labeled_mask(self):
-        """
-        Returns the labeled mask with cell IDs (for per-cell analysis).
-        Returns None if no mask is set.
-        When TYX mode is active, returns the labeled mask for the current frame.
-        """
-        if self._active_mask_source == 'cellpose':
-            # Check for TYX masks first - return current frame's labeled mask
-            if getattr(self, 'use_tyx_masks', False):
-                if hasattr(self, 'cellpose_masks_cyto_tyx') and self.cellpose_masks_cyto_tyx is not None:
-                    return self.cellpose_masks_cyto_tyx[self.current_frame]
-                elif hasattr(self, 'cellpose_masks_nuc_tyx') and self.cellpose_masks_nuc_tyx is not None:
-                    return self.cellpose_masks_nuc_tyx[self.current_frame]
-            # Fallback to YX masks
-            if self.cellpose_masks_cyto is not None:
-                return self.cellpose_masks_cyto
-            elif self.cellpose_masks_nuc is not None:
-                return self.cellpose_masks_nuc
-        return self.segmentation_mask
-
     def _format_time_interval(self, value):
         """Format time interval for display, handling small values appropriately.
         
@@ -1192,8 +1217,7 @@ class GUI(QMainWindow):
         self.tabs.addTab(self.correlation_tab, "Correlation")
         self.colocalization_tab = QWidget()
         self.tabs.addTab(self.colocalization_tab, "Colocalization")
-        self.colocalization_manual_tab = QWidget()
-        self.tabs.addTab(self.colocalization_manual_tab, "Coloc Manual")
+        # Note: Coloc Manual is now a sub-tab within Colocalization (Phase 1 consolidation)
         self.tracking_visualization_tab = QWidget()
         self.tabs.addTab(self.tracking_visualization_tab, "Visualization")
         self.export_tab = QWidget()
@@ -1209,8 +1233,7 @@ class GUI(QMainWindow):
         self.setup_distributions_tab()
         self.setup_time_course_tab()
         self.setup_correlation_tab()
-        self.setup_colocalization_tab()
-        self.setup_colocalization_manual_tab()
+        self.setup_colocalization_tab()  # Includes Visual, Distance, and Manual sub-tabs
         self.setup_export_tab()
         self.applyTheme(self.themeToggle.isChecked())
         self.on_tab_change(0)
@@ -1769,7 +1792,7 @@ class GUI(QMainWindow):
             btn.setParent(None)
         self.channel_buttons_display = []
         for idx, channel_name in enumerate(self.channel_names):
-            button = QPushButton(f"Channel {idx}", self)
+            button = QPushButton(f"Ch {idx}", self)
             button.clicked.connect(partial(self.update_channel, idx))
             self.channel_buttons_layout_display.addWidget(button)
             self.channel_buttons_display.append(button)
@@ -1777,7 +1800,7 @@ class GUI(QMainWindow):
             btn.setParent(None)
         self.channel_buttons_tracking = []
         for idx, channel_name in enumerate(self.channel_names):
-            button = QPushButton(f"Channel {idx}", self)
+            button = QPushButton(f"Ch {idx}", self)
             button.clicked.connect(partial(self.update_channel, idx))
             self.channel_buttons_layout_tracking.addWidget(button)
             self.channel_buttons_tracking.append(button)
@@ -1785,7 +1808,7 @@ class GUI(QMainWindow):
             btn.setParent(None)
         self.channel_buttons_tracking_vis = []
         for idx, channel_name in enumerate(self.channel_names):
-            btn = QPushButton(f"Channel {idx}", self)
+            btn = QPushButton(f"Ch {idx}", self)
             btn.clicked.connect(partial(self.select_tracking_vis_channel, idx))
             self.channel_buttons_layout_tracking_vis.addWidget(btn)
             self.channel_buttons_tracking_vis.append(btn)
@@ -1796,7 +1819,7 @@ class GUI(QMainWindow):
                 btn.setParent(None)
         self.channel_buttons_reg = []
         for idx, channel_name in enumerate(self.channel_names):
-            button = QPushButton(f"Channel {idx}", self)
+            button = QPushButton(f"Ch {idx}", self)
             button.clicked.connect(partial(self.update_registration_channel, idx))
             self.channel_buttons_layout_reg.addWidget(button)
             self.channel_buttons_reg.append(button)
@@ -2172,7 +2195,7 @@ class GUI(QMainWindow):
         if detected_channel_names and len(detected_channel_names) == self.number_color_channels:
             self.channel_names = detected_channel_names
         else:
-            self.channel_names = [f"Channel {i}" for i in range(C)]
+            self.channel_names = [f"Ch {i}" for i in range(C)]
         # Populate various UI elements with image info
         p = Path(file_path)
         self.data_folder_path = p
@@ -2319,6 +2342,13 @@ class GUI(QMainWindow):
         if hasattr(self, 'play_button_reg'):
             self.play_button_reg.setText("▶")
         
+        # Stop distance colocalization timer
+        if hasattr(self, 'dist_play_timer'):
+            self.dist_play_timer.stop()
+        if hasattr(self, 'dist_play_button'):
+            self.dist_play_button.setChecked(False)
+            self.dist_play_button.setText("▶")
+        
         # Legacy compatibility
         self.playing = False
     
@@ -2395,10 +2425,13 @@ class GUI(QMainWindow):
             self.channelControlsTabs.blockSignals(True)   
             self.channelControlsTabs.setCurrentIndex(channel) 
             self.channelControlsTabs.blockSignals(False)
+        
+        # Clear detection preview BEFORE plotting to avoid showing old channel's spots
+        self.detected_spots_frame = None
+        
         self.plot_image()
         self.plot_tracking()
         self.update_threshold_histogram()
-        self.detected_spots_frame = None
         self.populate_colocalization_channels()
         
         # Reset or restore threshold for the new channel
@@ -2416,17 +2449,6 @@ class GUI(QMainWindow):
             self._reset_threshold_for_new_channel()
 
     # Note: update_channel_crops removed - Crops tab has been deprecated
-
-    def _update_all_frame_labels(self, value):
-        """Update all frame labels across all tabs with the current frame value."""
-        total_frames = getattr(self, 'total_frames', 1)
-        frame_text = f"{value}/{total_frames - 1}"
-        
-        for label_name in ['frame_label_display', 'frame_label_tracking', 
-                          'frame_label_tracking_vis', 'frame_label_cellpose', 
-                          'frame_label_reg']:
-            if hasattr(self, label_name):
-                getattr(self, label_name).setText(frame_text)
 
     def update_frame(self, value):
         self.current_frame = value
@@ -2886,30 +2908,6 @@ class GUI(QMainWindow):
         
         merged_img = np.clip(combined_image, 0, 1)
         return merged_img
-
-    def colorize_single_channel(self, gray_img, channel_index):
-        """
-        Given a single-channel (grayscale) image (uint8), return a 3-channel image
-        where intensity is mapped to a specific color based on channel_index.
-        Examples:
-        - channel 0: green (0, intensity, 0)
-        - channel 1: magenta (intensity, 0, intensity)
-        - channel 2: yellow (intensity, intensity, 0)
-        For other channels, uses a standard grayscale to BGR conversion.
-        """
-        if channel_index == 0:
-            # Green: R=0, B=0, G=intensity
-            color_img = np.dstack((np.zeros_like(gray_img), gray_img, np.zeros_like(gray_img)))
-        elif channel_index == 1:
-            # Magenta: G=0, R=B=intensity
-            color_img = np.dstack((gray_img, np.zeros_like(gray_img), gray_img))
-        elif channel_index == 2:
-            # Yellow: B=0, R=G=intensity
-            color_img = np.dstack((gray_img, gray_img, np.zeros_like(gray_img)))
-        else:
-            # Other channels: use OpenCV conversion (all channels equal)
-            color_img = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2BGR)
-        return color_img
 
     def merge_color_channels(self):
         if self.image_stack is None:
@@ -3490,230 +3488,184 @@ class GUI(QMainWindow):
         """Update the value label for min_frames slider."""
         self.min_frames_value_label.setText(str(value))
     
-    def _on_expansion_slider_changed(self, value):
+    def _on_cyto_size_slider_changed(self, value):
         """
-        Apply mask expansion when slider value changes.
-        Uses Voronoi-like expansion from ORIGINAL masks to allow shrinking back.
+        Apply cytosol mask size adjustment when slider value changes.
+        Positive = expand, Negative = shrink, 0 = original.
+        Works independently from nucleus mask.
         """
         # Update label
-        if hasattr(self, 'expansion_value_label'):
-            self.expansion_value_label.setText(str(value))
+        if hasattr(self, 'cyto_size_label'):
+            self.cyto_size_label.setText(str(value))
         
-        # Check if we have any masks to expand
-        has_masks = (self.cellpose_masks_cyto is not None or 
-                     self.cellpose_masks_nuc is not None)
-        if not has_masks:
-            return  # No masks yet, nothing to do
+        # Check if we have cytosol mask
+        if self.cellpose_masks_cyto is None:
+            return
         
-        # Store originals if not yet stored (first-time expansion)
-        if self._original_cellpose_masks_cyto is None and self.cellpose_masks_cyto is not None:
+        # Store original if not yet stored
+        if self._original_cellpose_masks_cyto is None:
             self._original_cellpose_masks_cyto = self.cellpose_masks_cyto.copy()
-        if self._original_cellpose_masks_nuc is None and self.cellpose_masks_nuc is not None:
-            self._original_cellpose_masks_nuc = self.cellpose_masks_nuc.copy()
         
         # For TYX masks
         if getattr(self, 'use_tyx_masks', False):
             if self._original_cellpose_masks_cyto_tyx is None and self.cellpose_masks_cyto_tyx is not None:
                 self._original_cellpose_masks_cyto_tyx = self.cellpose_masks_cyto_tyx.copy()
-            if self._original_cellpose_masks_nuc_tyx is None and self.cellpose_masks_nuc_tyx is not None:
-                self._original_cellpose_masks_nuc_tyx = self.cellpose_masks_nuc_tyx.copy()
         
-        # Reset shrink slider when expanding (they're mutually exclusive from original)
-        if value > 0 and hasattr(self, 'cell_shrink_slider'):
-            self.cell_shrink_slider.blockSignals(True)
-            self.cell_shrink_slider.setValue(0)
-            self.cell_shrink_slider.blockSignals(False)
-            if hasattr(self, 'shrink_value_label'):
-                self.shrink_value_label.setText("0")
-        
-
-        # Apply expansion from originals
+        # Apply transformation
         if value == 0:
-            # Restore originals
+            # Restore original
             if self._original_cellpose_masks_cyto is not None:
                 self.cellpose_masks_cyto = self._original_cellpose_masks_cyto.copy()
-            if self._original_cellpose_masks_nuc is not None:
-                self.cellpose_masks_nuc = self._original_cellpose_masks_nuc.copy()
-            if getattr(self, 'use_tyx_masks', False):
-                if self._original_cellpose_masks_cyto_tyx is not None:
-                    self.cellpose_masks_cyto_tyx = self._original_cellpose_masks_cyto_tyx.copy()
-                if self._original_cellpose_masks_nuc_tyx is not None:
-                    self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
-        else:
-            # Apply expansion from originals
-            def expand_labeled_mask(mask, expansion_pixels):
-                """Expand each label in a mask without overlaps (Voronoi-like)."""
-                if mask is None:
-                    return None
-                
-                expanded = np.zeros_like(mask)
-                unique_labels = np.unique(mask)
-                unique_labels = unique_labels[unique_labels != 0]
-                
-                if len(unique_labels) == 0:
-                    return mask.copy()
-                
-                # Compute distance from each cell for all pixels
-                all_distances = np.full((len(unique_labels),) + mask.shape, np.inf)
-                
-                for i, label_id in enumerate(unique_labels):
-                    cell_mask = (mask == label_id)
-                    all_distances[i] = distance_transform_edt(~cell_mask)
-                
-                min_distance_idx = np.argmin(all_distances, axis=0)
-                min_distances = np.min(all_distances, axis=0)
-                
-                for i, label_id in enumerate(unique_labels):
-                    # Original cell pixels keep their label
-                    expanded[mask == label_id] = label_id
-                    # Expanded region: closest to this cell and within expansion distance
-                    expansion_mask = (
-                        (min_distance_idx == i) & 
-                        (min_distances <= expansion_pixels) & 
-                        (min_distances > 0)
+            if getattr(self, 'use_tyx_masks', False) and self._original_cellpose_masks_cyto_tyx is not None:
+                self.cellpose_masks_cyto_tyx = self._original_cellpose_masks_cyto_tyx.copy()
+            msg = "Cytosol mask restored to original size"
+        elif value > 0:
+            # Expand
+            self.cellpose_masks_cyto = self._expand_labeled_mask(
+                self._original_cellpose_masks_cyto, value
+            )
+            if getattr(self, 'use_tyx_masks', False) and self._original_cellpose_masks_cyto_tyx is not None:
+                self.cellpose_masks_cyto_tyx = self.cellpose_masks_cyto_tyx.copy()
+                for t in range(self._original_cellpose_masks_cyto_tyx.shape[0]):
+                    self.cellpose_masks_cyto_tyx[t] = self._expand_labeled_mask(
+                        self._original_cellpose_masks_cyto_tyx[t], value
                     )
-                    expanded[expansion_mask] = label_id
-                
-                return expanded
-            
-            # Expand cytosol from original
-            if self._original_cellpose_masks_cyto is not None:
-                self.cellpose_masks_cyto = expand_labeled_mask(
-                    self._original_cellpose_masks_cyto, value
-                )
-            
-            # Expand nucleus from original
-            if self._original_cellpose_masks_nuc is not None:
-                self.cellpose_masks_nuc = expand_labeled_mask(
-                    self._original_cellpose_masks_nuc, value
-                )
-            
-            # Expand TYX masks from originals
-            if getattr(self, 'use_tyx_masks', False):
-                if self._original_cellpose_masks_cyto_tyx is not None:
-                    for t in range(self._original_cellpose_masks_cyto_tyx.shape[0]):
-                        self.cellpose_masks_cyto_tyx[t] = expand_labeled_mask(
-                            self._original_cellpose_masks_cyto_tyx[t], value
-                        )
-                if self._original_cellpose_masks_nuc_tyx is not None:
-                    for t in range(self._original_cellpose_masks_nuc_tyx.shape[0]):
-                        self.cellpose_masks_nuc_tyx[t] = expand_labeled_mask(
-                            self._original_cellpose_masks_nuc_tyx[t], value
-                        )
+            msg = f"Cytosol mask expanded by {value}px"
+        else:
+            # Shrink (value is negative, use abs)
+            self.cellpose_masks_cyto = self._shrink_labeled_mask(
+                self._original_cellpose_masks_cyto, abs(value)
+            )
+            if getattr(self, 'use_tyx_masks', False) and self._original_cellpose_masks_cyto_tyx is not None:
+                self.cellpose_masks_cyto_tyx = self.cellpose_masks_cyto_tyx.copy()
+                for t in range(self._original_cellpose_masks_cyto_tyx.shape[0]):
+                    self.cellpose_masks_cyto_tyx[t] = self._shrink_labeled_mask(
+                        self._original_cellpose_masks_cyto_tyx[t], abs(value)
+                    )
+            msg = f"Cytosol mask shrunk by {abs(value)}px"
         
         # Update display
         self.plot_cellpose_results()
         n_cyto = int(self.cellpose_masks_cyto.max()) if self.cellpose_masks_cyto is not None else 0
-        n_nuc = int(self.cellpose_masks_nuc.max()) if self.cellpose_masks_nuc is not None else 0
-        if value == 0:
-            self.statusBar().showMessage(f"Masks restored to original size. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
-        else:
-            self.statusBar().showMessage(f"Masks expanded by {value}px. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
+        self.statusBar().showMessage(f"{msg}. Cells: {n_cyto}")
     
-    def _on_shrink_slider_changed(self, value):
+    def _on_nuc_size_slider_changed(self, value):
         """
-        Apply mask shrinking (erosion) when slider value changes.
-        Uses morphological erosion from ORIGINAL masks to allow returning to 0.
+        Apply nucleus mask size adjustment when slider value changes.
+        Positive = expand, Negative = shrink, 0 = original.
+        Works independently from cytosol mask.
         """
         # Update label
-        if hasattr(self, 'shrink_value_label'):
-            self.shrink_value_label.setText(str(value))
+        if hasattr(self, 'nuc_size_label'):
+            self.nuc_size_label.setText(str(value))
         
-        # Check if we have any masks to shrink
-        has_masks = (self.cellpose_masks_cyto is not None or 
-                     self.cellpose_masks_nuc is not None)
-        if not has_masks:
-            return  # No masks yet, nothing to do
+        # Check if we have nucleus mask
+        if self.cellpose_masks_nuc is None:
+            return
         
-        # Store originals if not yet stored (first-time modification)
-        if self._original_cellpose_masks_cyto is None and self.cellpose_masks_cyto is not None:
-            self._original_cellpose_masks_cyto = self.cellpose_masks_cyto.copy()
-        if self._original_cellpose_masks_nuc is None and self.cellpose_masks_nuc is not None:
+        # Store original if not yet stored
+        if self._original_cellpose_masks_nuc is None:
             self._original_cellpose_masks_nuc = self.cellpose_masks_nuc.copy()
         
         # For TYX masks
         if getattr(self, 'use_tyx_masks', False):
-            if self._original_cellpose_masks_cyto_tyx is None and self.cellpose_masks_cyto_tyx is not None:
-                self._original_cellpose_masks_cyto_tyx = self.cellpose_masks_cyto_tyx.copy()
             if self._original_cellpose_masks_nuc_tyx is None and self.cellpose_masks_nuc_tyx is not None:
                 self._original_cellpose_masks_nuc_tyx = self.cellpose_masks_nuc_tyx.copy()
         
-        # Reset expand slider when shrinking (they're mutually exclusive from original)
-        if value > 0 and hasattr(self, 'cell_expansion_slider'):
-            self.cell_expansion_slider.blockSignals(True)
-            self.cell_expansion_slider.setValue(0)
-            self.cell_expansion_slider.blockSignals(False)
-            if hasattr(self, 'expansion_value_label'):
-                self.expansion_value_label.setText("0")
-        
-        # Apply shrinking from originals
+        # Apply transformation
         if value == 0:
-            # Restore originals
-            if self._original_cellpose_masks_cyto is not None:
-                self.cellpose_masks_cyto = self._original_cellpose_masks_cyto.copy()
+            # Restore original
             if self._original_cellpose_masks_nuc is not None:
                 self.cellpose_masks_nuc = self._original_cellpose_masks_nuc.copy()
-            if getattr(self, 'use_tyx_masks', False):
-                if self._original_cellpose_masks_cyto_tyx is not None:
-                    self.cellpose_masks_cyto_tyx = self._original_cellpose_masks_cyto_tyx.copy()
-                if self._original_cellpose_masks_nuc_tyx is not None:
-                    self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
+            if getattr(self, 'use_tyx_masks', False) and self._original_cellpose_masks_nuc_tyx is not None:
+                self.cellpose_masks_nuc_tyx = self._original_cellpose_masks_nuc_tyx.copy()
+            msg = "Nucleus mask restored to original size"
+        elif value > 0:
+            # Expand
+            self.cellpose_masks_nuc = self._expand_labeled_mask(
+                self._original_cellpose_masks_nuc, value
+            )
+            if getattr(self, 'use_tyx_masks', False) and self._original_cellpose_masks_nuc_tyx is not None:
+                self.cellpose_masks_nuc_tyx = self.cellpose_masks_nuc_tyx.copy()
+                for t in range(self._original_cellpose_masks_nuc_tyx.shape[0]):
+                    self.cellpose_masks_nuc_tyx[t] = self._expand_labeled_mask(
+                        self._original_cellpose_masks_nuc_tyx[t], value
+                    )
+            msg = f"Nucleus mask expanded by {value}px"
         else:
-            # Apply erosion from originals
-            def shrink_labeled_mask(mask, shrink_pixels):
-                """Shrink each label in a mask by eroding from boundaries."""
-                if mask is None:
-                    return None
-                
-                shrunk = np.zeros_like(mask)
-                unique_labels = np.unique(mask)
-                unique_labels = unique_labels[unique_labels != 0]
-                
-                if len(unique_labels) == 0:
-                    return mask.copy()
-                
-                for label_id in unique_labels:
-                    cell_mask = (mask == label_id)
-                    # Distance from boundary (positive inside cell)
-                    dist_inside = distance_transform_edt(cell_mask)
-                    # Keep only pixels that are more than shrink_pixels from edge
-                    shrunk[dist_inside > shrink_pixels] = label_id
-                
-                return shrunk
-            
-            # Shrink cytosol from original
-            if self._original_cellpose_masks_cyto is not None:
-                self.cellpose_masks_cyto = shrink_labeled_mask(
-                    self._original_cellpose_masks_cyto, value
-                )
-            
-            # Shrink nucleus from original
-            if self._original_cellpose_masks_nuc is not None:
-                self.cellpose_masks_nuc = shrink_labeled_mask(
-                    self._original_cellpose_masks_nuc, value
-                )
-            
-            # Shrink TYX masks from originals
-            if getattr(self, 'use_tyx_masks', False):
-                if self._original_cellpose_masks_cyto_tyx is not None:
-                    for t in range(self._original_cellpose_masks_cyto_tyx.shape[0]):
-                        self.cellpose_masks_cyto_tyx[t] = shrink_labeled_mask(
-                            self._original_cellpose_masks_cyto_tyx[t], value
-                        )
-                if self._original_cellpose_masks_nuc_tyx is not None:
-                    for t in range(self._original_cellpose_masks_nuc_tyx.shape[0]):
-                        self.cellpose_masks_nuc_tyx[t] = shrink_labeled_mask(
-                            self._original_cellpose_masks_nuc_tyx[t], value
-                        )
+            # Shrink (value is negative, use abs)
+            self.cellpose_masks_nuc = self._shrink_labeled_mask(
+                self._original_cellpose_masks_nuc, abs(value)
+            )
+            if getattr(self, 'use_tyx_masks', False) and self._original_cellpose_masks_nuc_tyx is not None:
+                self.cellpose_masks_nuc_tyx = self.cellpose_masks_nuc_tyx.copy()
+                for t in range(self._original_cellpose_masks_nuc_tyx.shape[0]):
+                    self.cellpose_masks_nuc_tyx[t] = self._shrink_labeled_mask(
+                        self._original_cellpose_masks_nuc_tyx[t], abs(value)
+                    )
+            msg = f"Nucleus mask shrunk by {abs(value)}px"
         
         # Update display
         self.plot_cellpose_results()
-        n_cyto = int(self.cellpose_masks_cyto.max()) if self.cellpose_masks_cyto is not None else 0
         n_nuc = int(self.cellpose_masks_nuc.max()) if self.cellpose_masks_nuc is not None else 0
-        if value == 0:
-            self.statusBar().showMessage(f"Masks restored to original size. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
-        else:
-            self.statusBar().showMessage(f"Masks shrunk by {value}px. Cytosol: {n_cyto}, Nucleus: {n_nuc}")
+        self.statusBar().showMessage(f"{msg}. Cells: {n_nuc}")
+    
+    def _expand_labeled_mask(self, mask, expansion_pixels):
+        """Expand each label in a mask without overlaps (Voronoi-like)."""
+        if mask is None:
+            return None
+        
+        expanded = np.zeros_like(mask)
+        unique_labels = np.unique(mask)
+        unique_labels = unique_labels[unique_labels != 0]
+        
+        if len(unique_labels) == 0:
+            return mask.copy()
+        
+        # Compute distance from each cell for all pixels
+        all_distances = np.full((len(unique_labels),) + mask.shape, np.inf)
+        
+        for i, label_id in enumerate(unique_labels):
+            cell_mask = (mask == label_id)
+            all_distances[i] = distance_transform_edt(~cell_mask)
+        
+        min_distance_idx = np.argmin(all_distances, axis=0)
+        min_distances = np.min(all_distances, axis=0)
+        
+        for i, label_id in enumerate(unique_labels):
+            # Original cell pixels keep their label
+            expanded[mask == label_id] = label_id
+            # Expanded region: closest to this cell and within expansion distance
+            expansion_mask = (
+                (min_distance_idx == i) & 
+                (min_distances <= expansion_pixels) & 
+                (min_distances > 0)
+            )
+            expanded[expansion_mask] = label_id
+        
+        return expanded
+    
+    def _shrink_labeled_mask(self, mask, shrink_pixels):
+        """Shrink each label in a mask by eroding from boundaries."""
+        if mask is None:
+            return None
+        
+        shrunk = np.zeros_like(mask)
+        unique_labels = np.unique(mask)
+        unique_labels = unique_labels[unique_labels != 0]
+        
+        if len(unique_labels) == 0:
+            return mask.copy()
+        
+        for label_id in unique_labels:
+            cell_mask = (mask == label_id)
+            # Distance from boundary (positive inside cell)
+            dist_inside = distance_transform_edt(cell_mask)
+            # Keep only pixels that are more than shrink_pixels from edge
+            shrunk[dist_inside > shrink_pixels] = label_id
+        
+        return shrunk
+
     
 
     def _update_cellpose_sliders_for_image(self, total_frames):
@@ -3744,8 +3696,8 @@ class GUI(QMainWindow):
             return
         
         try:
-            # Get parameters - channel is determined by left panel selection
-            channel = self.current_channel
+            # Get parameters - channel is determined by left panel selection in Segmentation tab
+            channel = self.segmentation_current_channel
             diameter = int(self.cellpose_cyto_diameter_input.value())
             model_name = self.cellpose_cyto_model_input.currentText()
             
@@ -3817,8 +3769,17 @@ class GUI(QMainWindow):
             else:
                 # Standard YX mask (existing behavior)
                 image_to_use = self.get_current_image_source()
-                if image_to_use.ndim == 5:
-                    img = image_to_use[self.segmentation_current_frame, :, :, :, :]
+                
+                # Get current Z-slice selection (-1 = max projection, else specific Z)
+                current_z = getattr(self, 'segmentation_current_z', -1)
+                
+                if image_to_use.ndim == 5:  # TZYXC format
+                    if current_z >= 0 and current_z < image_to_use.shape[1]:
+                        # Use specific Z-slice (expand dims to keep 4D: ZYXC -> 1,Y,X,C)
+                        img = image_to_use[self.segmentation_current_frame, current_z:current_z+1, :, :, :]
+                    else:
+                        # Use all Z for max projection (default behavior)
+                        img = image_to_use[self.segmentation_current_frame, :, :, :, :]
                 else:
                     img = image_to_use
                     
@@ -3850,8 +3811,14 @@ class GUI(QMainWindow):
             self._active_mask_source = 'cellpose'
             # Clear watershed mask since we're using Cellpose now
             self.segmentation_mask = None
-            # Record Z-slice used: -2 indicates Cellpose Z-optimization
-            self.segmentation_z_used_for_mask = -2  # Special value for Cellpose
+            # Record Z-slice used for mask (current_z or -1 for max projection)
+            self.segmentation_z_used_for_mask = getattr(self, 'segmentation_current_z', -1)
+            
+            # Show status message with Z and channel info
+            z_info = f"Z={self.segmentation_current_z}" if self.segmentation_current_z >= 0 else "Max Projection"
+            n_cells = int(np.max(self.cellpose_masks_cyto)) if self.cellpose_masks_cyto is not None else 0
+            self.statusBar().showMessage(f"Cytosol segmented: {n_cells} cells found (Ch{channel}, {z_info})")
+            
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -3863,8 +3830,8 @@ class GUI(QMainWindow):
             return
             
         try:
-            # Get parameters - channel is determined by left panel selection
-            channel = self.current_channel
+            # Get parameters - channel is determined by left panel selection in Segmentation tab
+            channel = self.segmentation_current_channel
             diameter = int(self.cellpose_nuc_diameter_input.value())
             model_name = self.cellpose_nuc_model_input.currentText()
             
@@ -3937,8 +3904,17 @@ class GUI(QMainWindow):
             else:
                 # Standard YX mask (existing behavior)
                 image_to_use = self.get_current_image_source()
-                if image_to_use.ndim == 5:
-                    img = image_to_use[self.segmentation_current_frame, :, :, :, :]
+                
+                # Get current Z-slice selection (-1 = max projection, else specific Z)
+                current_z = getattr(self, 'segmentation_current_z', -1)
+                
+                if image_to_use.ndim == 5:  # TZYXC format
+                    if current_z >= 0 and current_z < image_to_use.shape[1]:
+                        # Use specific Z-slice (expand dims to keep 4D: ZYXC -> 1,Y,X,C)
+                        img = image_to_use[self.segmentation_current_frame, current_z:current_z+1, :, :, :]
+                    else:
+                        # Use all Z for max projection (default behavior)
+                        img = image_to_use[self.segmentation_current_frame, :, :, :, :]
                 else:
                     img = image_to_use
                     
@@ -3970,8 +3946,14 @@ class GUI(QMainWindow):
             self._active_mask_source = 'cellpose'
             # Clear watershed mask since we're using Cellpose now
             self.segmentation_mask = None
-            # Record Z-slice used: -2 indicates Cellpose Z-optimization
-            self.segmentation_z_used_for_mask = -2  # Special value for Cellpose
+            # Record Z-slice used for mask (current_z or -1 for max projection)
+            self.segmentation_z_used_for_mask = getattr(self, 'segmentation_current_z', -1)
+            
+            # Show status message with Z and channel info
+            z_info = f"Z={self.segmentation_current_z}" if self.segmentation_current_z >= 0 else "Max Projection"
+            n_nuc = int(np.max(self.cellpose_masks_nuc)) if self.cellpose_masks_nuc is not None else 0
+            self.statusBar().showMessage(f"Nucleus segmented: {n_nuc} nuclei found (Ch{channel}, {z_info})")
+            
             self.synchronize_and_plot_cellpose()
             
         except Exception as e:
@@ -4462,10 +4444,17 @@ class GUI(QMainWindow):
         fr = self.segmentation_current_frame    # Use segmentation frame, not separate cellpose frame
         
         if image_to_use.ndim == 5:
-            # [T, Z, Y, X, C] -> Max projection over Z for display
-            img_slice = image_to_use[fr, :, :, :, ch]
-            if img_slice.ndim == 3:  # ZYX
-                img_slice = np.max(img_slice, axis=0)
+            # [T, Z, Y, X, C] -> Use selected Z-slice or max projection
+            current_z = getattr(self, 'segmentation_current_z', -1)
+            
+            if current_z >= 0 and current_z < image_to_use.shape[1]:
+                # Use specific Z-slice
+                img_slice = image_to_use[fr, current_z, :, :, ch]
+            else:
+                # Max projection over Z for display (-1 or invalid)
+                img_slice = image_to_use[fr, :, :, :, ch]
+                if img_slice.ndim == 3:  # ZYX
+                    img_slice = np.max(img_slice, axis=0)
         else:
             # Fallback
             img_slice = np.zeros((512, 512))
@@ -4556,7 +4545,7 @@ class GUI(QMainWindow):
             btn.setParent(None)
         self.segmentation_channel_buttons = []
         for idx, channel_name in enumerate(self.channel_names):
-            btn = QPushButton(f"Channel {idx}", self)
+            btn = QPushButton(f"Ch {idx}", self)
             btn.clicked.connect(partial(self.update_segmentation_channel, idx))
             self.segmentation_channel_buttons_layout.addWidget(btn)
             self.segmentation_channel_buttons.append(btn)
@@ -5719,6 +5708,25 @@ class GUI(QMainWindow):
         self.btn_run_cyto.clicked.connect(self.run_cellpose_cyto)
         cyto_layout.addRow(self.btn_run_cyto)
         
+        # Cytosol Size Adjustment Slider (-20 to +20, centered at 0)
+        cyto_size_layout = QHBoxLayout()
+        cyto_size_layout.addWidget(QLabel("Size Adjust:"))
+        self.cyto_size_slider = QSlider(Qt.Horizontal)
+        self.cyto_size_slider.setMinimum(-20)
+        self.cyto_size_slider.setMaximum(20)
+        self.cyto_size_slider.setValue(0)
+        self.cyto_size_slider.setTickPosition(QSlider.TicksBelow)
+        self.cyto_size_slider.setTickInterval(5)
+        self.cyto_size_slider.setToolTip(
+            "Adjust cytosol mask size: 0 = original, + = expand, - = shrink (px)"
+        )
+        self.cyto_size_slider.valueChanged.connect(self._on_cyto_size_slider_changed)
+        cyto_size_layout.addWidget(self.cyto_size_slider)
+        self.cyto_size_label = QLabel("0")
+        self.cyto_size_label.setMinimumWidth(30)
+        cyto_size_layout.addWidget(self.cyto_size_label)
+        cyto_layout.addRow(cyto_size_layout)
+        
         cyto_group.setLayout(cyto_layout)
         cellpose_layout.addWidget(cyto_group)
         
@@ -5743,6 +5751,25 @@ class GUI(QMainWindow):
         self.btn_run_nuc = QPushButton("Segment Nucleus")
         self.btn_run_nuc.clicked.connect(self.run_cellpose_nuc)
         nuc_layout.addRow(self.btn_run_nuc)
+        
+        # Nucleus Size Adjustment Slider (-20 to +20, centered at 0)
+        nuc_size_layout = QHBoxLayout()
+        nuc_size_layout.addWidget(QLabel("Size Adjust:"))
+        self.nuc_size_slider = QSlider(Qt.Horizontal)
+        self.nuc_size_slider.setMinimum(-20)
+        self.nuc_size_slider.setMaximum(20)
+        self.nuc_size_slider.setValue(0)
+        self.nuc_size_slider.setTickPosition(QSlider.TicksBelow)
+        self.nuc_size_slider.setTickInterval(5)
+        self.nuc_size_slider.setToolTip(
+            "Adjust nucleus mask size: 0 = original, + = expand, - = shrink (px)"
+        )
+        self.nuc_size_slider.valueChanged.connect(self._on_nuc_size_slider_changed)
+        nuc_size_layout.addWidget(self.nuc_size_slider)
+        self.nuc_size_label = QLabel("0")
+        self.nuc_size_label.setMinimumWidth(30)
+        nuc_size_layout.addWidget(self.nuc_size_label)
+        nuc_layout.addRow(nuc_size_layout)
         
         nuc_group.setLayout(nuc_layout)
         cellpose_layout.addWidget(nuc_group)
@@ -5815,46 +5842,6 @@ class GUI(QMainWindow):
         self.chk_remove_unpaired_cells.setChecked(False)
         self.chk_remove_unpaired_cells.stateChanged.connect(self.on_remove_unpaired_cells_changed)
         improve_layout.addRow(self.chk_remove_unpaired_cells)
-        
-        # Mask expansion slider
-        expand_layout = QHBoxLayout()
-        expand_layout.addWidget(QLabel("Expand masks (px):"))
-        
-        self.cell_expansion_slider = QSlider(Qt.Horizontal)
-        self.cell_expansion_slider.setMinimum(0)
-        self.cell_expansion_slider.setMaximum(20)
-        self.cell_expansion_slider.setValue(0)
-        self.cell_expansion_slider.setTickPosition(QSlider.TicksBelow)
-        self.cell_expansion_slider.setTickInterval(1)
-        self.cell_expansion_slider.setToolTip("Expand all cell masks by the specified number of pixels (0 = original size)")
-        self.cell_expansion_slider.valueChanged.connect(self._on_expansion_slider_changed)
-        expand_layout.addWidget(self.cell_expansion_slider)
-        
-        self.expansion_value_label = QLabel("0")
-        self.expansion_value_label.setMinimumWidth(20)
-        expand_layout.addWidget(self.expansion_value_label)
-        
-        improve_layout.addRow(expand_layout)
-        
-        # Mask shrink slider
-        shrink_layout = QHBoxLayout()
-        shrink_layout.addWidget(QLabel("Shrink masks (px):"))
-        
-        self.cell_shrink_slider = QSlider(Qt.Horizontal)
-        self.cell_shrink_slider.setMinimum(0)
-        self.cell_shrink_slider.setMaximum(20)
-        self.cell_shrink_slider.setValue(0)
-        self.cell_shrink_slider.setTickPosition(QSlider.TicksBelow)
-        self.cell_shrink_slider.setTickInterval(1)
-        self.cell_shrink_slider.setToolTip("Shrink all cell masks by the specified number of pixels (0 = original size)")
-        self.cell_shrink_slider.valueChanged.connect(self._on_shrink_slider_changed)
-        shrink_layout.addWidget(self.cell_shrink_slider)
-        
-        self.shrink_value_label = QLabel("0")
-        self.shrink_value_label.setMinimumWidth(20)
-        shrink_layout.addWidget(self.shrink_value_label)
-        
-        improve_layout.addRow(shrink_layout)
         
         improve_group.setLayout(improve_layout)
         cellpose_layout.addWidget(improve_group)
@@ -6313,6 +6300,12 @@ class GUI(QMainWindow):
         memory           = parameters['memory']
         list_voxels      = parameters['list_voxels']
 
+        # Inform user about single-frame limitation
+        if getattr(self, 'total_frames', 0) == 1:
+            self.statusBar().showMessage(
+                "Single frame detected: Running detection only (linking requires multiple frames)"
+            )
+
         try:
             df_list, _ = mi.ParticleTracking(
                 image=corrected_image,
@@ -6357,6 +6350,9 @@ class GUI(QMainWindow):
         1. Photobleaching corrected image (highest - this would be correction of registered if that was used)
         2. Registered image (stabilized)
         3. Original raw image
+        
+        The user selection combo box is for display purposes - the processing pipeline
+        always uses the most processed image available for consistency.
         """
         # Return corrected image if available (highest priority)
         # This handles the case where photobleaching is applied to registered image
@@ -6368,13 +6364,6 @@ class GUI(QMainWindow):
         # Fall back to original
         return self.image_stack
 
-    def show_tracking_error(self, error_message):
-        QMessageBox.warning(self, "Tracking Error", error_message)
-
-    def on_tracking_max_percentile_changed(self, val):
-        self.tracking_max_percentile = float(val)
-        self.plot_tracking()
-    
     def update_threshold_histogram(self):
         if self.image_stack is None:
             self.ax_threshold_hist.clear()
@@ -6414,7 +6403,10 @@ class GUI(QMainWindow):
         self.threshold_slider.setMinimum(slider_min)
         self.threshold_slider.setMaximum(slider_max)
         if not hasattr(self, 'user_selected_threshold') or self.user_selected_threshold is None:
+            # Block signals to prevent triggering detection when just updating histogram
+            self.threshold_slider.blockSignals(True)
             self.threshold_slider.setValue(slider_min)
+            self.threshold_slider.blockSignals(False)
         else:
             self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=3)
         self.canvas_threshold_hist.draw_idle()
@@ -6526,9 +6518,6 @@ class GUI(QMainWindow):
         self.image_source_combo_value = self.image_source_combo.currentText()
         self.plot_tracking()
 
-    def update_threshold_spot_detection(self, value):
-        self.threshold_spot_detection = value
-
     def update_min_length_trajectory(self, value):
         self.min_length_trajectory = value
     
@@ -6537,7 +6526,8 @@ class GUI(QMainWindow):
         Calculate optimal min_length_trajectory based on movie length.
         
         Scaling:
-        - Short movies (≤20 frames): 5-10
+        - Very short movies (≤5 frames): 1-2 (allow minimal trajectories)
+        - Short movies (5-20 frames): 2-10
         - Medium movies (20-80 frames): 10-20
         - Long movies (80+ frames): 20-50 (capped)
         
@@ -6547,7 +6537,11 @@ class GUI(QMainWindow):
         Returns:
             int: Optimal min trajectory length
         """
-        if total_frames <= 10:
+        if total_frames <= 1:
+            return 1  # Single frame: allow detection-only (no linking possible)
+        elif total_frames <= 5:
+            return max(2, total_frames // 2)  # At least 2, but no more than half
+        elif total_frames <= 10:
             return 5
         elif total_frames <= 20:
             # Scale from 5 to 10 for 10-20 frames
@@ -6659,6 +6653,15 @@ class GUI(QMainWindow):
         """Update the visual state of 2D/3D toggle buttons."""
         is_2d = self.use_maximum_projection
         
+        # Check if 3D mode is even possible (need Z > 1)
+        z_dim = self.image_stack.shape[1] if self.image_stack is not None else 1
+        z_insufficient = (z_dim <= 1)
+        
+        # If Z=1 and user selected 3D, force back to 2D mode silently
+        if z_insufficient and not is_2d:
+            self.use_maximum_projection = True
+            is_2d = True
+        
         # Common styles
         base_style = """
             QPushButton {{
@@ -6672,6 +6675,11 @@ class GUI(QMainWindow):
             }}
             QPushButton:hover {{
                 background-color: {hover_color};
+            }}
+            QPushButton:disabled {{
+                background-color: #1a1a1a;
+                color: #444444;
+                border-color: #333333;
             }}
         """
         
@@ -6718,6 +6726,8 @@ class GUI(QMainWindow):
         if hasattr(self, 'btn_mode_3d'):
             self.btn_mode_3d.setStyleSheet(style_3d)
             self.btn_mode_3d.setChecked(not is_2d)
+            # Disable 3D button if Z=1 (3D tracking impossible)
+            self.btn_mode_3d.setEnabled(not z_insufficient)
         if hasattr(self, 'btn_mode_2d'):
             self.btn_mode_2d.setStyleSheet(style_2d)
             self.btn_mode_2d.setChecked(is_2d)
@@ -6726,7 +6736,24 @@ class GUI(QMainWindow):
         """Update the status indicator showing current tracking mode details."""
         is_2d = self.use_maximum_projection
         
-        if is_2d:
+        # Check if 3D mode is even possible (need Z > 1)
+        z_dim = self.image_stack.shape[1] if self.image_stack is not None else 1
+        z_insufficient = (z_dim <= 1)
+        
+        if z_insufficient:
+            # Single Z-plane: 3D is not available
+            status_html = """
+                <div style='text-align: center; padding: 6px;'>
+                    <span style='color: #f39c12; font-size: 14px; font-weight: bold;'>
+                        ⚠ 2D MODE (Single Z-plane)
+                    </span><br/>
+                    <span style='color: #aaaaaa; font-size: 11px;'>
+                        Image has only 1 Z-plane; 3D detection unavailable
+                    </span>
+                </div>
+            """
+            border_color = "#f39c12"
+        elif is_2d:
             status_html = """
                 <div style='text-align: center; padding: 6px;'>
                     <span style='color: #00d4aa; font-size: 14px; font-weight: bold;'>
@@ -6928,26 +6955,6 @@ class GUI(QMainWindow):
         self.tracking_vis_merged = True
         self.display_tracking_visualization()
     
-    def on_particle_selected(self, current, previous):
-        """Respond when a tracked particle is selected from the list."""
-        if current is None:
-            return
-        particle_id = current.data(Qt.UserRole)
-        if particle_id is None:
-            return
-        self.selected_particle_id = particle_id  # Keep as-is (can be string like "1_0")
-        if getattr(self, 'playing', False):
-            self.play_pause()
-        if not self.df_tracking.empty:
-            # Use unique_particle if available, otherwise fall back to particle
-            particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
-            frames = self.df_tracking[self.df_tracking[particle_col] == particle_id]['frame']
-            if not frames.empty:
-                first_frame = int(frames.min())
-                self.update_frame(first_frame)
-                return
-        self.display_tracking_visualization()
-    
     def _select_all_particles(self):
         """Select all particles in the list."""
         if hasattr(self, 'tracked_particles_list'):
@@ -7011,17 +7018,6 @@ class GUI(QMainWindow):
         
         self.vis_cell_filter_combo.blockSignals(False)
 
-    def on_tracking_merge_toggled(self, checked):
-        self.tracking_vis_merged = checked
-        self.display_tracking_visualization()
-
-    def on_tracking_channel_selected(self, channel_index, checked):
-        if not checked:
-            return
-        self.tracking_vis_merged = False
-        self.current_channel = channel_index
-        self.display_tracking_visualization()
-    
     def _draw_trajectories_on_axes(self, ax, current_frame):
         """Draw trajectory paths on the visualization axes.
         
@@ -7257,16 +7253,6 @@ class GUI(QMainWindow):
         )
         leg.set_zorder(100)
 
-    def on_intensity_changed(self, value):
-        self.display_tracking_visualization()
-
-    
-    def format_time(self, seconds):
-        """Convert time in seconds to 'M min S s' or 'S s' string format."""
-        minutes = int(seconds // 60)
-        remaining_seconds = int(seconds % 60)
-        return f"{minutes} min {remaining_seconds} s" if minutes > 0 else f"{remaining_seconds} s"
-
     def _on_tracking_zoom_select(self, eclick, erelease):
         """Handle ROI selection from right-click drag on tracking canvas."""
         if self.image_stack is None:
@@ -7421,13 +7407,33 @@ class GUI(QMainWindow):
         self.ax_tracking.imshow(normalized_image, cmap=cmap_imagej, vmin=0, vmax=1)
         
         # Apply zoom immediately after imshow to prevent other elements from resetting limits
+        zoom_scale = 1.0  # Default: no zoom adjustment
         if self.tracking_zoom_roi is not None:
             x_min, x_max, y_min, y_max = self.tracking_zoom_roi
             self.ax_tracking.set_xlim(x_min, x_max)
             self.ax_tracking.set_ylim(y_max, y_min)  # Inverted for image coordinates
+            # Calculate zoom factor: ratio of visible area to full image
+            # Smaller visible area = more zoomed in = LARGER markers (inverted from before)
+            full_width = normalized_image.shape[1]
+            visible_width = x_max - x_min
+            if full_width > 0 and visible_width > 0:
+                zoom_ratio = visible_width / full_width
+                # Invert the scale: full view (zoom_ratio=1) gets smaller markers
+                # Zoomed in (zoom_ratio=0.1) gets normal/larger markers
+                # At full view: zoom_scale ~ 0.4; When zoomed to 10%: zoom_scale ~ 1.0
+                zoom_scale = max(0.4, min(1.0, 1.0 - (zoom_ratio ** 0.5) * 0.6))
+        else:
+            # Full view (no zoom): use smaller markers based on image size
+            # For smaller images like 928x624, markers should be proportionally smaller
+            full_width = normalized_image.shape[1]
+            # Scale down for smaller images: 1024px = 0.4, 2048px = 0.7, 4096px+ = 1.0
+            image_scale = min(1.0, max(0.3, (full_width / 2048.0) ** 0.5))
+            zoom_scale = image_scale
         
         dpi = self.figure_tracking.get_dpi()
         marker_scale = dpi / 100.0
+        # Apply zoom-aware line width (thinner at full view, thicker when zoomed)
+        spot_linewidth = max(0.3, 1.0 * zoom_scale)
         
         # Get tracking data for current frame
         # Priority: 1) Multi-channel tracking data for this frame (filtered by channel if needed)
@@ -7445,13 +7451,21 @@ class GUI(QMainWindow):
             # Filter by current channel if "All Ch" is not checked
             if not show_all_channels and 'spot_type' in df_frame.columns and len(df_frame) > 0:
                 # Only show spots for the currently selected channel
-                df_frame = df_frame[df_frame['spot_type'] == self.current_channel]
+                # Use explicit int casting to ensure proper comparison
+                df_frame = df_frame[df_frame['spot_type'].astype(int) == int(self.current_channel)]
         
         # If we have a detection preview (detected_spots_frame), include it
         # This allows showing detection results while preserving multi-channel tracking
-        if (hasattr(self, 'detected_spots_frame') and 
+        # IMPORTANT: Skip preview logic when "All Channels" is checked and we have tracking data,
+        # since the preview is only for the current channel and would interfere with multi-channel display
+        use_preview = (
+            hasattr(self, 'detected_spots_frame') and 
             self.detected_spots_frame is not None and 
-            len(self.detected_spots_frame) > 0):
+            len(self.detected_spots_frame) > 0 and
+            not (show_all_channels and not df_frame.empty)  # Skip preview if showing all channels with existing data
+        )
+        
+        if use_preview:
             # Handle both single frame and multi-frame detection preview
             if 'frame' in self.detected_spots_frame.columns:
                 preview_frame = self.detected_spots_frame[
@@ -7461,7 +7475,7 @@ class GUI(QMainWindow):
                 # Single frame detection without frame column
                 preview_frame = self.detected_spots_frame
             
-            # Only include preview if it's for the current channel
+            # Only include preview if it's for the current channel (filter to get only current ch)
             if 'spot_type' in preview_frame.columns and len(preview_frame) > 0:
                 preview_frame = preview_frame[preview_frame['spot_type'] == self.current_channel]
             
@@ -7473,10 +7487,11 @@ class GUI(QMainWindow):
                     # Preview takes precedence for its channel (replaces tracked data for that channel)
                     preview_spot_type = preview_frame['spot_type'].iloc[0] if 'spot_type' in preview_frame.columns else None
                     if preview_spot_type is not None:
-                        # Remove existing spots for the preview channel from df_frame
+                        # Only remove/replace data for the preview's channel, preserving other channels
                         df_frame = df_frame[df_frame['spot_type'] != preview_spot_type]
                         # Add the preview spots
                         df_frame = pd.concat([df_frame, preview_frame], ignore_index=True)
+        
         
         # Filter spots by Z-plane if viewing a specific Z-slice (for 3D tracking)
         if z_val < Z and 'z' in df_frame.columns and len(df_frame) > 0:
@@ -7515,16 +7530,16 @@ class GUI(QMainWindow):
                     if not single_spots.empty:
                         self.ax_tracking.scatter(
                             single_spots['x'], single_spots['y'],
-                            s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                            marker='o', linewidth=1,
+                            s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS * zoom_scale,
+                            marker='o', linewidth=spot_linewidth,
                             edgecolors=edge_color, facecolors='none'
                         )
                     
                     if not cluster_spots.empty:
                         self.ax_tracking.scatter(
                             cluster_spots['x'], cluster_spots['y'],
-                            s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                            marker='s', linewidth=1,
+                            s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS * zoom_scale,
+                            marker='s', linewidth=spot_linewidth,
                             edgecolors=edge_color, facecolors='none'
                         )
                     
@@ -7532,7 +7547,7 @@ class GUI(QMainWindow):
                     total_count = len(df_ch)
                     ch_legend = self.ax_tracking.scatter([], [],
                                                          s=self.yx_spot_size_in_px * 5 * marker_scale,
-                                                         marker='o', linewidth=1,
+                                                         marker='o', linewidth=spot_linewidth,
                                                          edgecolors=edge_color, facecolors='none')
                     legend_handles.append(ch_legend)
                     legend_labels.append(f"Ch {int(spot_type)}: {total_count}")
@@ -7551,40 +7566,40 @@ class GUI(QMainWindow):
                 if not single_spots.empty:
                     self.ax_tracking.scatter(
                         single_spots['x'], single_spots['y'],
-                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                        marker='o', linewidth=1,
+                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS * zoom_scale,
+                        marker='o', linewidth=spot_linewidth,
                         edgecolors=edge_color, facecolors='none'
                     )
                     count_spots = single_spots.shape[0]
                     spot_legend = self.ax_tracking.scatter([], [],
                                                            s=self.yx_spot_size_in_px * 5 * marker_scale,
-                                                           marker='o', linewidth=1,
+                                                           marker='o', linewidth=spot_linewidth,
                                                            edgecolors=edge_color, facecolors='none')
                     legend_handles.append(spot_legend)
                     legend_labels.append(f"Spots: {count_spots}")
                 else:
                     self.ax_tracking.scatter(
                         [], [],
-                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                        marker='o', linewidth=1,
+                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS * zoom_scale,
+                        marker='o', linewidth=spot_linewidth,
                         edgecolors=edge_color, facecolors='none'
                     )
                     legend_labels.append(f"Spots: 0")
                     legend_handles.append(self.ax_tracking.scatter([], [],
                                                                    s=self.yx_spot_size_in_px * 5 * marker_scale,
-                                                                   marker='o', linewidth=1,
+                                                                   marker='o', linewidth=spot_linewidth,
                                                                    edgecolors=edge_color, facecolors='none'))
                 if not cluster_spots.empty:
                     self.ax_tracking.scatter(
                         cluster_spots['x'], cluster_spots['y'],
-                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS,
-                        marker='s', linewidth=1,
+                        s=self.yx_spot_size_in_px * 6 * marker_scale * SCALE_SPOTS * zoom_scale,
+                        marker='s', linewidth=spot_linewidth,
                         edgecolors=edge_color, facecolors='none'
                     )
                     count_clusters = cluster_spots.shape[0]
                     cluster_legend = self.ax_tracking.scatter([], [],
                                                               s=self.yx_spot_size_in_px * 5 * marker_scale * SCALE_SPOTS,
-                                                              marker='s', linewidth=1,
+                                                              marker='s', linewidth=spot_linewidth,
                                                               edgecolors=edge_color, facecolors='none')
                     legend_handles.append(cluster_legend)
                     legend_labels.append(f"Clusters: {count_clusters}")
@@ -7929,7 +7944,7 @@ class GUI(QMainWindow):
                 df_tracking['spot_type'] = tracking_channel
                 
                 # Check if there's existing detection-only data for other channels
-                # If so, clear it since we can't mix tracking with detection-only
+                # If so, warn user since we can't mix tracking with detection-only
                 has_detection_only = False
                 for ch, params in self.tracking_parameters_per_channel.items():
                     if ch != tracking_channel and params.get('detection_only', False):
@@ -7937,8 +7952,16 @@ class GUI(QMainWindow):
                         break
                 
                 if has_detection_only:
-                    # Silently clear detection-only data when doing full tracking
-                    # (Tracking takes precedence over detection)
+                    # Ask user before clearing detection-only data
+                    reply = QMessageBox.question(
+                        self, "Mode Mismatch",
+                        "You have detection data (without linking) for other channels.\n\n"
+                        "Tracking (with linking) cannot be mixed with detection-only data.\n\n"
+                        "Clear all channel data and start fresh with tracking?",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
                     self._clear_all_tracking_data()
                 
                 # Store per-channel tracking data
@@ -7978,9 +8001,11 @@ class GUI(QMainWindow):
             self.display_correlation_plot()
             self.channels_spots = [self.current_channel]
             self.populate_colocalization_channels()
-            self.manual_current_image_name = None
-            self.manual_scroll_area.setWidget(QWidget())
-            self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
+            # Reset verification subtabs
+            if hasattr(self, 'verify_visual_scroll_area'):
+                self.verify_visual_scroll_area.setWidget(QWidget())
+            if hasattr(self, 'verify_distance_scroll_area'):
+                self.verify_distance_scroll_area.setWidget(QWidget())
             self.MIN_FRAMES_MSD = 20
             self.MIN_PARTICLES_MSD = 10
 
@@ -9084,7 +9109,7 @@ class GUI(QMainWindow):
             cb.setParent(None)
         self.channel_checkboxes = []
         for idx, channel_name in enumerate(self.channel_names):
-            checkbox = QCheckBox(f"Channel {idx}")
+            checkbox = QCheckBox(f"Ch {idx}")
             if idx == 0:
                 checkbox.setChecked(True)
             checkbox.stateChanged.connect(self.on_channel_selection_changed)
@@ -9109,6 +9134,15 @@ class GUI(QMainWindow):
 
     def compute_correlations(self):
         # 1) sanity checks
+        
+        # Check for insufficient time points (correlation needs multiple frames)
+        if getattr(self, 'total_frames', 0) < 3:
+            QMessageBox.warning(self, "Insufficient Data", 
+                "Correlation analysis requires at least 3 time points.\n\n"
+                f"Current image has {getattr(self, 'total_frames', 0)} frame(s). "
+                "Autocorrelation measures temporal patterns which require multiple time points.")
+            return
+        
         if not getattr(self, 'has_tracked', False):
             QMessageBox.warning(self, "Correlation Unavailable",
                                 "You must run particle tracking before computing correlations.")
@@ -9510,34 +9544,10 @@ class GUI(QMainWindow):
 # =============================================================================
 # =============================================================================
 
-    def update_manual_stats_label(self):
-        """Update the manual colocalization stats label based on checked spots."""
-        if not hasattr(self, 'manual_checkboxes'):
-            return
-        total = len(self.manual_checkboxes)
-        marked = sum(1 for chk in self.manual_checkboxes if chk.isChecked())
-        percent = (marked / total * 100.0) if total > 0 else 0.0
-        self.manual_stats_label.setText(f"Total Spots: {total} | Colocalized: {marked} | {percent:.2f}%")
-
-    def populate_manual_checkboxes(self):
-        """Populate manual colocalization checkboxes based on last results (ML or Intensity)."""
-        if not self.colocalization_results:
-            return  # Only proceed if colocalization has been computed
-        flag_vector = self.colocalization_results.get('flag_vector')
-        if flag_vector is None:
-            return
-        # Set each checkbox according to the corresponding flag (True/False)
-        for checkbox, flag in zip(self.manual_checkboxes, flag_vector):
-            checkbox.setChecked(bool(flag))
-        self.update_manual_stats_label()
-
-    def cleanup_manual_colocalization(self):
-        """Cleanup manual colocalization checkboxes."""
-        if not hasattr(self, 'manual_checkboxes'):
-            return
-        for checkbox in self.manual_checkboxes:
-            checkbox.setChecked(False)
-        self.update_manual_stats_label()
+    # Note: update_manual_stats_label(), populate_manual_checkboxes(), and cleanup_manual_colocalization()
+    # have been removed and replaced by dedicated functions in each verification subtab:
+    # - _update_verify_visual_stats(), populate_verify_visual(), cleanup_verify_visual()
+    # - _update_verify_distance_stats(), populate_verify_distance(), cleanup_verify_distance()
 
     def update_colocalization_method(self):
         """Enable the ML threshold input if ML is selected; otherwise, enable the SNR threshold input."""
@@ -9764,12 +9774,13 @@ class GUI(QMainWindow):
         
         self.colocalization_percentage_label.setText(label_text)
         
-        # Clear manual colocalization UI so new results can load
-        self.manual_scroll_area.setWidget(QWidget())
-        self.manual_checkboxes = []
-        self.manual_mean_crop = None
-        self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
-        self.manual_current_image_name = None
+        # Clear Verify Visual UI so new results can load
+        if hasattr(self, 'verify_visual_scroll_area'):
+            self.verify_visual_scroll_area.setWidget(QWidget())
+        if hasattr(self, 'verify_visual_checkboxes'):
+            self.verify_visual_checkboxes = []
+        if hasattr(self, 'verify_visual_stats_label'):
+            self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
 
         self.colocalization_results = {
             'mean_crop_filtered': display_crop,
@@ -9911,11 +9922,12 @@ class GUI(QMainWindow):
         """
         Calculate optimal number of columns for colocalization crop display.
         
-        Uses adaptive scaling to create a balanced grid:
-        - Small counts (≤100): 4-10 columns (larger crops)
-        - Medium counts (100-500): 10-20 columns
-        - Large counts (500-2000): 20-35 columns
-        - Very large counts (2000+): 35-50 columns
+        Uses adaptive scaling to create a balanced, wide grid:
+        - Small counts (≤100): 8-15 columns
+        - Medium counts (100-500): 15-40 columns
+        - Large counts (500-2000): 40-80 columns
+        - Very large counts (2000-5000): 80-120 columns
+        - Massive counts (5000+): 120-200 columns
         
         Args:
             n_spots: Number of spots to display
@@ -9924,104 +9936,30 @@ class GUI(QMainWindow):
             int: Optimal number of columns
         """
         if n_spots <= 0:
-            return 10  # Default
+            return 15  # Default
         
         if n_spots <= 100:
-            # Small: sqrt, bounded 4-10
-            optimal = max(4, min(10, int(np.sqrt(n_spots))))
+            # Small: bounded 8-15
+            optimal = max(8, min(15, int(np.sqrt(n_spots) * 1.5)))
         elif n_spots <= 500:
-            # Medium: sqrt, bounded 10-20
-            optimal = max(10, min(20, int(np.sqrt(n_spots))))
+            # Medium: scale from 15 to 40
+            optimal = 15 + int((n_spots - 100) * 25 / 400)
         elif n_spots <= 2000:
-            # Large: scale from 20 to 35 between 500-2000 spots
-            # Linear interpolation: 20 + (n-500) * 15 / 1500
-            optimal = 20 + int((n_spots - 500) * 15 / 1500)
+            # Large: scale from 40 to 80 between 500-2000 spots
+            optimal = 40 + int((n_spots - 500) * 40 / 1500)
+        elif n_spots <= 5000:
+            # Very large: scale from 80 to 120 between 2000-5000 spots
+            optimal = 80 + int((n_spots - 2000) * 40 / 3000)
         else:
-            # Very large: scale from 35 to 50 for 2000+
-            # Cap at 50 columns
-            optimal = min(50, 35 + int((n_spots - 2000) * 15 / 3000))
+            # Massive: scale from 120 to 200 for 5000+
+            optimal = min(200, 120 + int((n_spots - 5000) * 80 / 10000))
         
         return optimal
 
 
-    def display_colocalization_manual(self):
-        """Populate the Manual Colocalization tab with spot crops + checkboxes + separators."""
-        scale_factor = getattr(self, "coloc_thumbnail_scale", 4)
-        current_name = getattr(self, "selected_image_name", None)
-        previous_name = getattr(self, "manual_current_image_name", None)
-        if previous_name == current_name:
-            self.update_manual_stats_label()
-            return
-        if not hasattr(self, "manual_current_image_name"):
-            self.manual_current_image_name = None
-        if not getattr(self, 'has_tracked', False) and self.df_tracking.empty:
-            QMessageBox.warning(self, "No Data", "Please perform particle tracking first.")
-            return
-        image = self.corrected_image if self.corrected_image is not None else self.image_stack
-        if image is None:
-            QMessageBox.warning(self, "No Image", "No image loaded.")
-            return
-        if getattr(self, 'use_maximum_projection', False):
-            num_z = image.shape[1]
-            max_proj = np.max(image, axis=1, keepdims=True)
-            image = np.repeat(max_proj, num_z, axis=1)
-        crop_size = int(self.yx_spot_size_in_px) + 5
-        if crop_size % 2 == 0:
-            crop_size += 1
-        _, mean_crop, _, crop_size = mi.CropArray(
-            image=image,
-            df_crops=self.df_tracking,
-            crop_size=crop_size,
-            remove_outliers=False,
-            max_percentile=99.95
-        ).run()
-        if mean_crop is None or mean_crop.size == 0:
-            QMessageBox.information(self, "No Spots", "No detected spots to display.")
-            return
-        num_spots = mean_crop.shape[0] // crop_size
-        self.manual_scroll_area.takeWidget()
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(3)
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        self.manual_checkboxes = []
-        for i in range(num_spots):
-            spot_layout = QHBoxLayout()
-            spot_layout.setSpacing(1)
-            spot_layout.setContentsMargins(0, 0, 0, 0)
-            crop_block = mean_crop[i*crop_size:(i+1)*crop_size, :, :]
-            for ch in range(image.shape[-1]):
-                channel_crop = crop_block[:, :, ch]
-                cmin, cmax = np.nanmin(channel_crop), np.nanmax(channel_crop)
-                norm = ((channel_crop - cmin) / (cmax - cmin) * 255).astype(np.uint8) if cmax > cmin else np.zeros_like(channel_crop, np.uint8)
-                h, w = norm.shape
-                qimg = QImage(norm.data, w, h, w, QImage.Format_Grayscale8).copy()
-                pix = QPixmap.fromImage(qimg)
-                pix = pix.scaled(w*scale_factor, h*scale_factor, Qt.IgnoreAspectRatio, Qt.FastTransformation)
-                lbl = QLabel()
-                lbl.setPixmap(pix)
-                spot_layout.addWidget(lbl)
-            chk = QCheckBox(f"Spot {i+1}")
-            chk.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            spot_layout.addWidget(chk)
-            self.manual_checkboxes.append(chk)
-            chk.toggled.connect(self.update_manual_stats_label)
-            container_layout.addLayout(spot_layout)
-            if i < num_spots - 1:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.HLine)
-                sep.setFrameShadow(QFrame.Sunken)
-                container_layout.addWidget(sep)
-        self.manual_mean_crop = mean_crop
-        self.manual_crop_size = crop_size
-        self.manual_scroll_area.setWidget(container)
-        self.manual_stats_label.setText(f"Total Spots: {num_spots} | Colocalized: 0 | 0.00%")
-        self.manual_current_image_name = self.selected_image_name
-        try:
-            self.plot_image()
-            self.plot_segmentation()
-        except Exception:
-            pass
+    # Note: display_colocalization_manual() removed - replaced by separate 
+    # populate_verify_visual() and populate_verify_distance() functions
+
 
     def extract_colocalization_data(self, save_df=True):
         if not self.colocalization_results:
@@ -10139,16 +10077,20 @@ class GUI(QMainWindow):
                     QMessageBox.critical(self, "Export Failed", f"Error: {str(e)}")
 
     def reset_colocalization_tab(self):
-        self.figure_colocalization.clear()
-        ax = self.figure_colocalization.add_subplot(111)
-        ax.set_facecolor('black')
-        ax.axis('off')
-        ax.text(0.5, 0.5, 'No colocalization data available.',
-                horizontalalignment='center', verticalalignment='center',
-                fontsize=12, color='white', transform=ax.transAxes)
-        self.canvas_colocalization.draw()
+        """Reset all colocalization sub-tabs: Visual, Distance, and Manual."""
+        # === Reset Visual (ML/Intensity) sub-tab ===
+        if hasattr(self, 'figure_colocalization'):
+            self.figure_colocalization.clear()
+            ax = self.figure_colocalization.add_subplot(111)
+            ax.set_facecolor('black')
+            ax.axis('off')
+            ax.text(0.5, 0.5, 'No colocalization data available.',
+                    horizontalalignment='center', verticalalignment='center',
+                    fontsize=12, color='white', transform=ax.transAxes)
+            self.canvas_colocalization.draw()
         self.colocalization_results = None
-        self.colocalization_percentage_label.setText("")
+        if hasattr(self, 'colocalization_percentage_label'):
+            self.colocalization_percentage_label.setText("")
         
         # Reset columns spinbox to default
         if hasattr(self, 'columns_spinbox'):
@@ -10163,19 +10105,116 @@ class GUI(QMainWindow):
             self.coloc_cell_combo.clear()
             self.coloc_cell_combo.addItem("All Cells (pooled)", -1)
             self.coloc_cell_combo.addItem("All Cells (per-cell avg)", -2)
+        
+        # === Reset Distance sub-tab ===
+        if hasattr(self, 'distance_coloc_results'):
+            self.distance_coloc_results = None
+        if hasattr(self, 'dist_results_label'):
+            self.dist_results_label.setText("")
+        if hasattr(self, 'dist_percell_table'):
+            self.dist_percell_table.setText("")
+        if hasattr(self, 'dist_cell_combo'):
+            self.dist_cell_combo.clear()
+            self.dist_cell_combo.addItem("All Cells (pooled)", -1)
+            self.dist_cell_combo.addItem("All Cells (per-cell avg)", -2)
+        if hasattr(self, 'dist_channel_0_combo'):
+            self.dist_channel_0_combo.clear()
+        if hasattr(self, 'dist_channel_1_combo'):
+            self.dist_channel_1_combo.clear()
+        if hasattr(self, 'figure_dist_coloc'):
+            self.figure_dist_coloc.clear()
+            ax = self.figure_dist_coloc.add_subplot(111)
+            ax.set_facecolor('black')
+            ax.axis('off')
+            ax.text(0.5, 0.5, 'Run distance colocalization to see results.',
+                    horizontalalignment='center', verticalalignment='center',
+                    fontsize=12, color='white', transform=ax.transAxes)
+            self.canvas_dist_coloc.draw()
+        if hasattr(self, 'dist_frame_slider'):
+            self.dist_frame_slider.setMaximum(0)
+            self.dist_frame_slider.setValue(0)
+        if hasattr(self, 'dist_frame_label'):
+            self.dist_frame_label.setText("Frame: 0/0")
+        if hasattr(self, 'dist_play_timer') and self.dist_play_timer.isActive():
+            self.dist_play_timer.stop()
+        if hasattr(self, 'dist_play_button'):
+            self.dist_play_button.setChecked(False)
+            self.dist_play_button.setText("▶")
+        
+        # Reset Z-slider
+        if hasattr(self, 'z_slider_dist_coloc'):
+            self.z_slider_dist_coloc.setMaximum(0)
+            self.z_slider_dist_coloc.setValue(0)
+            self.z_slider_dist_coloc.setEnabled(False)
+        if hasattr(self, 'z_label_dist_coloc'):
+            self.z_label_dist_coloc.setText("Max")
+            self.z_label_dist_coloc.setStyleSheet("color: cyan; font-weight: bold;")
+        self.dist_coloc_current_z = -1
+        
+        # Reset zoom ROI
+        self.dist_coloc_zoom_roi = None
+        if hasattr(self, 'dist_coloc_zoom_label'):
+            self.dist_coloc_zoom_label.setText("🔍 Full View")
+            self.dist_coloc_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # === Reset Manual Verify sub-tab ===
+        self.reset_manual_colocalization()
     
     def extract_manual_colocalization_data(self, save_df=True):
-        if not hasattr(self, 'manual_checkboxes') or len(self.manual_checkboxes) == 0:
+        """Extract and optionally save manual colocalization data.
+        
+        Checks both Verify Visual and Verify Distance subtabs for data.
+        """
+        # Check which verification subtab has data
+        has_visual = hasattr(self, 'verify_visual_checkboxes') and len(self.verify_visual_checkboxes) > 0
+        has_distance = hasattr(self, 'verify_distance_checkboxes') and len(self.verify_distance_checkboxes) > 0
+        
+        if not has_visual and not has_distance:
             print("No manual colocalization data!")
-            QMessageBox.warning(self, "No Data", "No manual colocalization selections available.")
+            QMessageBox.warning(self, "No Data", "No manual colocalization selections available.\nUse Verify Visual or Verify Distance tabs first.")
             return
+        
+        # Prioritize the most recently active/populated subtab
+        current_tab = self.coloc_subtabs.currentIndex() if hasattr(self, 'coloc_subtabs') else -1
+        
+        if current_tab == 1 and has_visual:  # Verify Visual tab
+            method_name = "Verify Visual"
+            checkboxes = self.verify_visual_checkboxes
+            if hasattr(self, 'colocalization_results') and self.colocalization_results:
+                ch1 = self.colocalization_results.get('ch1_index', 0)
+                ch2 = self.colocalization_results.get('ch2_index', 1)
+                threshold_value = self.colocalization_results.get('threshold_value')
+                orig_method = self.colocalization_results.get('method', 'ML')
+                method_name = f"Verify Visual ({orig_method})"
+            else:
+                ch1, ch2, threshold_value = 0, 1, None
+        elif current_tab == 3 and has_distance:  # Verify Distance tab
+            method_name = "Verify Distance"
+            checkboxes = self.verify_distance_checkboxes
+            if hasattr(self, 'distance_coloc_results') and self.distance_coloc_results:
+                results = self.distance_coloc_results
+                ch1 = results.get('channel_0', 0)
+                ch2 = results.get('channel_1', 1)
+                threshold_value = results.get('threshold_distance_px', 2.0)
+                use_3d = results.get('use_3d', False)
+                method_name = f"Verify Distance {'3D' if use_3d else '2D'}"
+            else:
+                ch1, ch2, threshold_value = 0, 1, None
+        elif has_visual:  # Default to Visual if available
+            method_name = "Verify Visual"
+            checkboxes = self.verify_visual_checkboxes
+            ch1, ch2, threshold_value = 0, 1, None
+        else:  # Default to Distance
+            method_name = "Verify Distance"
+            checkboxes = self.verify_distance_checkboxes
+            ch1, ch2, threshold_value = 0, 1, None
+        
         # Summarize results
-        ch1 = self.channel_combo_box_1.currentIndex() if hasattr(self, 'channel_combo_box_1') else 0
-        ch2 = self.channel_combo_box_2.currentIndex() if hasattr(self, 'channel_combo_box_2') else 1
-        total = len(self.manual_checkboxes)
-        colocalized = sum(1 for chk in self.manual_checkboxes if chk.isChecked())
+        total = len(checkboxes)
+        colocalized = sum(1 for chk in checkboxes if chk.isChecked())
         percent = (colocalized / total * 100.0) if total > 0 else 0.0
-        # Prepare DataFrame (one summary row)
+        
+        # Prepare DataFrame
         base_name = (self.file_label.text() if hasattr(self, 'file_label') else 'tracking_data').split('.')[0]
         image_name = self.selected_image_name if hasattr(self, 'selected_image_name') else ''
         df = pd.DataFrame([{
@@ -10186,8 +10225,8 @@ class GUI(QMainWindow):
             "number of spots reference": total,
             "number of spots colocalize": colocalized,
             "colocalization percentage": percent,
-            "threshold value": None,
-            "method": "Manual"
+            "threshold value": threshold_value,
+            "method": method_name
         }])
         self.df_manual_colocalization = df
         if save_df:
@@ -10316,7 +10355,37 @@ class GUI(QMainWindow):
             self.canvas_colocalization.draw_idle()
 
     def setup_colocalization_tab(self):
-        layout = QVBoxLayout(self.colocalization_tab)
+        """Setup colocalization tab with sub-tabs for Visual, Distance, and verification."""
+        main_layout = QVBoxLayout(self.colocalization_tab)
+        
+        # Create sub-tab widget
+        self.coloc_subtabs = QTabWidget()
+        
+        # Tab 0: Visual (ML/Intensity) - Analysis
+        self.coloc_visual_widget = QWidget()
+        self.setup_coloc_visual_subtab()
+        self.coloc_subtabs.addTab(self.coloc_visual_widget, "Visual")
+        
+        # Tab 1: Verify Visual - Manual verification of Visual results
+        self.coloc_verify_visual_widget = QWidget()
+        self.setup_coloc_verify_visual_subtab()
+        self.coloc_subtabs.addTab(self.coloc_verify_visual_widget, "Verify Visual")
+        
+        # Tab 2: Distance - Analysis
+        self.coloc_distance_widget = QWidget()
+        self.setup_coloc_distance_subtab()
+        self.coloc_subtabs.addTab(self.coloc_distance_widget, "Distance")
+        
+        # Tab 3: Verify Distance - Manual verification of Distance results
+        self.coloc_verify_distance_widget = QWidget()
+        self.setup_coloc_verify_distance_subtab()
+        self.coloc_subtabs.addTab(self.coloc_verify_distance_widget, "Verify Distance")
+        
+        main_layout.addWidget(self.coloc_subtabs)
+    
+    def setup_coloc_visual_subtab(self):
+        """Setup Visual (ML/Intensity) colocalization sub-tab."""
+        layout = QVBoxLayout(self.coloc_visual_widget)
         top_layout = QHBoxLayout()
         
         # Tracking channel selector (single channel only)
@@ -10339,7 +10408,9 @@ class GUI(QMainWindow):
         channelGroup = QGroupBox("Select Channels")
         chLayout = QHBoxLayout(channelGroup)
         self.channel_combo_box_1 = QComboBox()
+        self.channel_combo_box_1.setMinimumWidth(100)  # Ensure channel names are visible
         self.channel_combo_box_2 = QComboBox()
+        self.channel_combo_box_2.setMinimumWidth(100)  # Ensure channel names are visible
         chLayout.addWidget(QLabel("Reference:"))
         chLayout.addWidget(self.channel_combo_box_1)
         chLayout.addWidget(QLabel("Colocalize:"))
@@ -10384,9 +10455,9 @@ class GUI(QMainWindow):
         columnsLayout = QHBoxLayout(columnsGroup)
         columnsLayout.addWidget(QLabel("Columns:"))
         self.columns_spinbox = QSpinBox()
-        self.columns_spinbox.setRange(4, 50)
-        self.columns_spinbox.setValue(12)  # Auto-adjusted when running
-        self.columns_spinbox.setToolTip("Auto-adjusted based on spot count (4-20 recommended)")
+        self.columns_spinbox.setRange(4, 200)
+        self.columns_spinbox.setValue(20)  # Auto-adjusted when running
+        self.columns_spinbox.setToolTip("Auto-adjusted based on spot count (larger = wider image)")
         columnsLayout.addWidget(self.columns_spinbox)
         top_layout.addWidget(columnsGroup)
         actionsGroup = QGroupBox("Actions")
@@ -10405,10 +10476,11 @@ class GUI(QMainWindow):
         self.colocalization_percentage_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #00cc66;")
         layout.addWidget(self.colocalization_percentage_label)
         
-        # Per-cell summary table (collapsible)
+        # Per-cell summary table (hidden - kept for export functionality)
         self.coloc_percell_group = QGroupBox("Per-Cell Results")
         self.coloc_percell_group.setCheckable(True)
-        self.coloc_percell_group.setChecked(False)  # Collapsed by default
+        self.coloc_percell_group.setChecked(False)
+        self.coloc_percell_group.setVisible(False)  # Hidden to maximize visualization space
         percell_layout = QVBoxLayout(self.coloc_percell_group)
         self.coloc_percell_table = QLabel("")
         self.coloc_percell_table.setStyleSheet("font-family: monospace; font-size: 11px;")
@@ -10433,116 +10505,1436 @@ class GUI(QMainWindow):
             'motion_notify_event',
             self.on_colocalization_hover
         )
+    
+    def setup_coloc_distance_subtab(self):
+        """Setup Distance-based colocalization sub-tab.
+        
+        This tab enables colocalization analysis based on Euclidean distance
+        between spots detected in two different tracked channels.
+        UI designed to match Tracking tab style for consistency.
+        """
+        layout = QVBoxLayout(self.coloc_distance_widget)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
+        
+        # Controls row (compact)
+        controls = QHBoxLayout()
+        controls.setSpacing(10)
+        
+        # Channel selectors (tracked channels only)
+        ch_group = QGroupBox("Channels")
+        ch_layout = QHBoxLayout(ch_group)
+        ch_layout.setContentsMargins(5, 5, 5, 5)
+        ch_layout.addWidget(QLabel("Reference:"))
+        self.dist_channel_0_combo = QComboBox()
+        self.dist_channel_0_combo.setMinimumWidth(80)
+        ch_layout.addWidget(self.dist_channel_0_combo)
+        ch_layout.addWidget(QLabel("Colocalize:"))
+        self.dist_channel_1_combo = QComboBox()
+        self.dist_channel_1_combo.setMinimumWidth(80)
+        ch_layout.addWidget(self.dist_channel_1_combo)
+        controls.addWidget(ch_group)
+        
+        # Cell selector
+        cell_group = QGroupBox("Cell")
+        cell_layout = QHBoxLayout(cell_group)
+        cell_layout.setContentsMargins(5, 5, 5, 5)
+        self.dist_cell_combo = QComboBox()
+        self.dist_cell_combo.addItem("All Cells (pooled)", -1)
+        self.dist_cell_combo.addItem("All Cells (per-cell avg)", -2)
+        # Connect to re-run analysis when cell selection changes (only if results exist)
+        self.dist_cell_combo.currentIndexChanged.connect(self._on_dist_cell_changed)
+        cell_layout.addWidget(self.dist_cell_combo)
+        controls.addWidget(cell_group)
+        
+        # Distance threshold
+        thresh_group = QGroupBox("Threshold")
+        thresh_layout = QHBoxLayout(thresh_group)
+        thresh_layout.setContentsMargins(5, 5, 5, 5)
+        self.dist_threshold_spinbox = QDoubleSpinBox()
+        self.dist_threshold_spinbox.setRange(0.5, 20.0)
+        self.dist_threshold_spinbox.setValue(2.0)
+        self.dist_threshold_spinbox.setSingleStep(0.5)
+        self.dist_threshold_spinbox.setToolTip("Maximum distance in pixels for spots to be considered colocalized")
+        self.dist_threshold_spinbox.valueChanged.connect(self.update_distance_nm_label)
+        thresh_layout.addWidget(self.dist_threshold_spinbox)
+        thresh_layout.addWidget(QLabel("px"))
+        self.dist_nm_label = QLabel("= 0.0 nm")
+        thresh_layout.addWidget(self.dist_nm_label)
+        controls.addWidget(thresh_group)
+        
+        # 3D checkbox
+        self.dist_use_3d_checkbox = QCheckBox("Use 3D")
+        self.dist_use_3d_checkbox.setToolTip("Include Z-axis in distance calculation")
+        controls.addWidget(self.dist_use_3d_checkbox)
+        
+        # Actions (Verify is in separate subtab)
+        actions_group = QGroupBox("Actions")
+        actions_layout = QHBoxLayout(actions_group)
+        actions_layout.setContentsMargins(5, 5, 5, 5)
+        self.dist_run_button = QPushButton("Run")
+        self.dist_run_button.clicked.connect(self.run_distance_colocalization)
+        actions_layout.addWidget(self.dist_run_button)
+        self.dist_export_data_button = QPushButton("Export Data")
+        self.dist_export_data_button.clicked.connect(self.export_distance_colocalization_data)
+        actions_layout.addWidget(self.dist_export_data_button)
+        self.dist_export_image_button = QPushButton("Export Image")
+        self.dist_export_image_button.clicked.connect(self.export_distance_colocalization_image)
+        actions_layout.addWidget(self.dist_export_image_button)
+        controls.addWidget(actions_group)
+        
+        controls.addStretch()
+        layout.addLayout(controls)
+        
+        # Results summary (compact)
+        self.dist_results_label = QLabel("")
+        self.dist_results_label.setAlignment(Qt.AlignCenter)
+        self.dist_results_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #00cc66;")
+        layout.addWidget(self.dist_results_label)
+        
+        # Per-cell results - keep but hidden by default for export functionality
+        self.dist_percell_group = QGroupBox("Per-Cell Results")
+        self.dist_percell_group.setCheckable(True)
+        self.dist_percell_group.setChecked(False)
+        self.dist_percell_group.setVisible(False)  # Hidden by default
+        percell_layout = QVBoxLayout(self.dist_percell_group)
+        self.dist_percell_table = QLabel("")
+        self.dist_percell_table.setStyleSheet("font-family: monospace; font-size: 11px;")
+        self.dist_percell_table.setWordWrap(True)
+        percell_layout.addWidget(self.dist_percell_table)
+        layout.addWidget(self.dist_percell_group)
+        
+        # Hidden radio buttons (keep for functionality but don't show)
+        self.dist_view_scatter_radio = QRadioButton("Scatter")
+        self.dist_view_scatter_radio.setChecked(False)  # Default to overlay
+        self.dist_view_scatter_radio.setVisible(False)
+        self.dist_view_overlay_radio = QRadioButton("Overlay")
+        self.dist_view_overlay_radio.setChecked(True)  # Default to overlay
+        self.dist_view_overlay_radio.setVisible(False)
+        self.dist_view_scatter_radio.toggled.connect(self.display_distance_colocalization)
+        
+        # Matplotlib canvas with Z-slider (matching Tracking tab layout)
+        self.figure_dist_coloc = Figure(facecolor='black')
+        self.canvas_dist_coloc = FigureCanvas(self.figure_dist_coloc)
+        self.canvas_dist_coloc.setStyleSheet("background-color: black;")
+        
+        # Initialize axes for RectangleSelector
+        self.ax_dist_coloc = self.figure_dist_coloc.add_subplot(111)
+        self.ax_dist_coloc.set_facecolor('black')
+        
+        # Initialize zoom ROI state
+        self.dist_coloc_zoom_roi = None
+        
+        # Set up zoom feature: RectangleSelector for left-click drag
+        self.dist_coloc_zoom_selector = RectangleSelector(
+            self.ax_dist_coloc,
+            self._on_dist_coloc_zoom_select,
+            useblit=True,
+            button=[1],  # Left mouse button only
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
+        # Connect double-click to reset zoom
+        self.canvas_dist_coloc.mpl_connect('button_press_event', self._on_dist_coloc_canvas_click)
+        
+        # Create horizontal layout for canvas + Z-slider
+        canvas_slider_layout = QHBoxLayout()
+        canvas_slider_layout.addWidget(self.canvas_dist_coloc, 1)  # Stretch
+        
+        # Z-slider with label (vertical, on the right of canvas) - minimal width
+        z_slider_container = QWidget()
+        z_slider_container.setFixedWidth(40)
+        z_slider_layout = QVBoxLayout(z_slider_container)
+        z_slider_layout.setContentsMargins(2, 0, 2, 0)
+        z_slider_layout.setSpacing(2)
+        
+        z_label_top = QLabel("Z")
+        z_label_top.setAlignment(Qt.AlignCenter)
+        z_label_top.setStyleSheet("color: white; font-weight: bold; font-size: 10px;")
+        z_slider_layout.addWidget(z_label_top)
+        
+        # Initialize vertical Z-plane slider for distance colocalization visualization
+        self.z_slider_dist_coloc = QSlider(Qt.Vertical, self)
+        self.z_slider_dist_coloc.setMinimum(0)
+        self.z_slider_dist_coloc.setMaximum(0)  # Will be set when image loads
+        self.z_slider_dist_coloc.setTickPosition(QSlider.NoTicks)
+        self.z_slider_dist_coloc.setInvertedAppearance(True)  # Top = highest Z index (max projection)
+        self.z_slider_dist_coloc.valueChanged.connect(self.update_z_dist_coloc)
+        z_slider_layout.addWidget(self.z_slider_dist_coloc, stretch=1)
+        
+        self.z_label_dist_coloc = QLabel("Max")
+        self.z_label_dist_coloc.setAlignment(Qt.AlignCenter)
+        self.z_label_dist_coloc.setStyleSheet("color: cyan; font-weight: bold; font-size: 9px;")
+        z_slider_layout.addWidget(self.z_label_dist_coloc)
+        
+        canvas_slider_layout.addWidget(z_slider_container)
+        layout.addLayout(canvas_slider_layout, 1)  # Stretch factor for canvas area
+        
+        # Zoom ROI status label and instructions
+        zoom_info_layout = QHBoxLayout()
+        zoom_info_layout.setContentsMargins(0, 2, 0, 2)
+        
+        self.dist_coloc_zoom_label = QLabel("🔍 Full View")
+        self.dist_coloc_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        zoom_info_layout.addWidget(self.dist_coloc_zoom_label)
+        
+        zoom_info_layout.addStretch()
+        
+        zoom_hint_label = QLabel("Click-drag to zoom, Double-click to reset")
+        zoom_hint_label.setStyleSheet("color: #555555; font-size: 9px; font-style: italic;")
+        zoom_info_layout.addWidget(zoom_hint_label)
+        
+        layout.addLayout(zoom_info_layout)
+        
+        # Bottom controls (time slider like tracking)
+        bottom_controls = QHBoxLayout()
+        bottom_controls.setSpacing(5)
+        
+        # Play button
+        self.dist_play_button = QPushButton("▶")
+        self.dist_play_button.setCheckable(True)
+        self.dist_play_button.setMaximumWidth(35)
+        self.dist_play_button.clicked.connect(self.toggle_distance_playback)
+        bottom_controls.addWidget(self.dist_play_button)
+        
+        # Time slider
+        self.dist_frame_slider = QSlider(Qt.Horizontal)
+        self.dist_frame_slider.setMinimum(0)
+        self.dist_frame_slider.setMaximum(0)
+        self.dist_frame_slider.valueChanged.connect(self.on_distance_frame_changed)
+        bottom_controls.addWidget(self.dist_frame_slider, 1)  # Stretch
+        
+        # Frame label
+        self.dist_frame_label = QLabel("0/0")
+        self.dist_frame_label.setMinimumWidth(50)
+        bottom_controls.addWidget(self.dist_frame_label)
+        
+        layout.addLayout(bottom_controls)
+        
+        # Timer for playback
+        self.dist_play_timer = QTimer(self)
+        self.dist_play_timer.timeout.connect(self.advance_distance_frame)
+        
+        # Initialize distance nm label
+        self.update_distance_nm_label()
+        
+        # Initialize current Z-plane state (-1 = max projection)
+        self.dist_coloc_current_z = -1
 
-    def sort_manual_colocalization(self):
-        """Sort the manual colocalization results by prediction metric (lowest to highest) and refresh the display."""
-        if not hasattr(self, 'manual_checkboxes') or len(self.manual_checkboxes) == 0:
-            return  # Only proceed if manual data is loaded
-
-        values = self.colocalization_results.get('prediction_values_vector') if hasattr(self, 'colocalization_results') else None
-        if values is None:
-            return  # No values to sort by
-
-        sorted_idx = np.argsort(np.array(values))  # sort indices from lowest to highest prediction value
-
-        # Preserve current checked states (if none checked yet, use initial prediction flags)
-        current_flags = [chk.isChecked() for chk in self.manual_checkboxes]
-        if any(current_flags):
-            sorted_flags = [current_flags[i] for i in sorted_idx]
-        else:
-            pred_flags = self.colocalization_results.get('flag_vector', [])
-            sorted_flags = [bool(pred_flags[i]) for i in sorted_idx]
-
-        mean_crop = getattr(self, 'manual_mean_crop', None)
-        crop_size = getattr(self, 'manual_crop_size', None)
-        if mean_crop is None or crop_size is None:
+    def setup_coloc_verify_visual_subtab(self):
+        """Setup Verify Visual sub-tab for manual verification of Visual (ML/Intensity) results."""
+        layout = QVBoxLayout(self.coloc_verify_visual_widget)
+        layout.setContentsMargins(10, 5, 10, 5)
+        
+        # Info label
+        info_label = QLabel("Review and correct Visual (ML/Intensity) colocalization results:")
+        info_label.setStyleSheet("font-style: italic; color: #999;")
+        layout.addWidget(info_label)
+        
+        # Top bar with stats and buttons
+        top_bar = QHBoxLayout()
+        self.verify_visual_stats_label = QLabel("Run Visual colocalization first, then click Populate")
+        top_bar.addWidget(self.verify_visual_stats_label)
+        top_bar.addStretch()
+        
+        self.verify_visual_populate_button = QPushButton("Populate")
+        self.verify_visual_populate_button.clicked.connect(self.populate_verify_visual)
+        top_bar.addWidget(self.verify_visual_populate_button)
+        
+        self.verify_visual_sort_button = QPushButton("Sort")
+        self.verify_visual_sort_button.clicked.connect(self.sort_verify_visual)
+        top_bar.addWidget(self.verify_visual_sort_button)
+        
+        self.verify_visual_cleanup_button = QPushButton("Cleanup")
+        self.verify_visual_cleanup_button.clicked.connect(self.cleanup_verify_visual)
+        top_bar.addWidget(self.verify_visual_cleanup_button)
+        
+        self.verify_visual_export_button = QPushButton("Export Data")
+        self.verify_visual_export_button.clicked.connect(self.export_verify_visual_data)
+        top_bar.addWidget(self.verify_visual_export_button)
+        
+        layout.addLayout(top_bar)
+        
+        # Scroll area for spot listings
+        self.verify_visual_scroll_area = QScrollArea()
+        self.verify_visual_scroll_area.setMaximumWidth(400)
+        self.verify_visual_scroll_area.setWidgetResizable(True)
+        self.verify_visual_scroll_area.setContentsMargins(0, 0, 0, 0)
+        placeholder = QWidget()
+        self.verify_visual_scroll_area.setWidget(placeholder)
+        
+        # Center scroll area
+        hcenter = QHBoxLayout()
+        hcenter.addStretch()
+        hcenter.addWidget(self.verify_visual_scroll_area)
+        hcenter.addStretch()
+        layout.addLayout(hcenter)
+        
+        # Initialize checkbox list
+        self.verify_visual_checkboxes = []
+    
+    def setup_coloc_verify_distance_subtab(self):
+        """Setup Verify Distance sub-tab for manual verification of Distance-based results."""
+        layout = QVBoxLayout(self.coloc_verify_distance_widget)
+        layout.setContentsMargins(10, 5, 10, 5)
+        
+        # Info label
+        info_label = QLabel("Review and correct Distance-based colocalization results:")
+        info_label.setStyleSheet("font-style: italic; color: #999;")
+        layout.addWidget(info_label)
+        
+        # Top bar with stats and buttons
+        top_bar = QHBoxLayout()
+        self.verify_distance_stats_label = QLabel("Run Distance colocalization first, then click Populate")
+        top_bar.addWidget(self.verify_distance_stats_label)
+        top_bar.addStretch()
+        
+        self.verify_distance_populate_button = QPushButton("Populate")
+        self.verify_distance_populate_button.clicked.connect(self.populate_verify_distance)
+        top_bar.addWidget(self.verify_distance_populate_button)
+        
+        self.verify_distance_sort_button = QPushButton("Sort")
+        self.verify_distance_sort_button.clicked.connect(self.sort_verify_distance)
+        top_bar.addWidget(self.verify_distance_sort_button)
+        
+        self.verify_distance_cleanup_button = QPushButton("Cleanup")
+        self.verify_distance_cleanup_button.clicked.connect(self.cleanup_verify_distance)
+        top_bar.addWidget(self.verify_distance_cleanup_button)
+        
+        self.verify_distance_export_button = QPushButton("Export Data")
+        self.verify_distance_export_button.clicked.connect(self.export_verify_distance_data)
+        top_bar.addWidget(self.verify_distance_export_button)
+        
+        layout.addLayout(top_bar)
+        
+        # Scroll area for spot listings
+        self.verify_distance_scroll_area = QScrollArea()
+        self.verify_distance_scroll_area.setMaximumWidth(400)
+        self.verify_distance_scroll_area.setWidgetResizable(True)
+        self.verify_distance_scroll_area.setContentsMargins(0, 0, 0, 0)
+        placeholder = QWidget()
+        self.verify_distance_scroll_area.setWidget(placeholder)
+        
+        # Center scroll area
+        hcenter = QHBoxLayout()
+        hcenter.addStretch()
+        hcenter.addWidget(self.verify_distance_scroll_area)
+        hcenter.addStretch()
+        layout.addLayout(hcenter)
+        
+        # Initialize checkbox list
+        self.verify_distance_checkboxes = []
+    
+    # === Distance Colocalization Zoom Handlers ===
+    
+    def _on_dist_coloc_zoom_select(self, eclick, erelease):
+        """Handle ROI selection from left-click drag on distance colocalization canvas."""
+        if self.image_stack is None:
             return
+        
+        x1, y1 = eclick.xdata, eclick.ydata
+        x2, y2 = erelease.xdata, erelease.ydata
+        
+        # Handle None values (click outside axes)
+        if x1 is None or x2 is None or y1 is None or y2 is None:
+            return
+        
+        # Calculate ROI bounds
+        x_min, x_max = min(x1, x2), max(x1, x2)
+        y_min, y_max = min(y1, y2), max(y1, y2)
+        
+        # Enforce minimum ROI size (50x50 pixels)
+        if (x_max - x_min) < 50 or (y_max - y_min) < 50:
+            return
+        
+        # Clamp to image bounds
+        _, _, H, W, _ = self.image_stack.shape
+        x_min = max(0, x_min)
+        x_max = min(W, x_max)
+        y_min = max(0, y_min)
+        y_max = min(H, y_max)
+        
+        # Store ROI
+        self.dist_coloc_zoom_roi = (x_min, x_max, y_min, y_max)
+        
+        # Update label
+        if hasattr(self, 'dist_coloc_zoom_label'):
+            self.dist_coloc_zoom_label.setText(f"🔍 ROI: X[{int(x_min)}:{int(x_max)}] Y[{int(y_min)}:{int(y_max)}]")
+            self.dist_coloc_zoom_label.setStyleSheet("color: #00d4aa; font-size: 10px; font-weight: bold;")
+        
+        # Redraw with zoom
+        self.display_distance_colocalization()
 
-        num_spots = len(self.manual_checkboxes)
-        # Rebuild the scroll area content in sorted order
-        self.manual_scroll_area.takeWidget()
+    def _on_dist_coloc_canvas_click(self, event):
+        """Handle mouse clicks on distance coloc canvas - double-click to reset zoom."""
+        if event.dblclick:
+            self._reset_dist_coloc_zoom()
+
+    def _reset_dist_coloc_zoom(self):
+        """Reset zoom to show full image."""
+        self.dist_coloc_zoom_roi = None
+        
+        # Update label
+        if hasattr(self, 'dist_coloc_zoom_label'):
+            self.dist_coloc_zoom_label.setText("🔍 Full View")
+            self.dist_coloc_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # Redraw without zoom
+        self.display_distance_colocalization()
+    
+    def update_z_dist_coloc(self, value):
+        """Handle Z-slider value change for Distance Colocalization tab.
+        
+        When slider is at max (Z), show max projection with all spots.
+        When slider is at specific value (0 to Z-1), show that Z-plane
+        and only spots from that plane (for 3D tracking).
+        """
+        # Update current Z state
+        if hasattr(self, 'z_slider_dist_coloc'):
+            max_val = self.z_slider_dist_coloc.maximum()
+            if value == max_val:
+                self.dist_coloc_current_z = -1  # Max projection
+                if hasattr(self, 'z_label_dist_coloc'):
+                    self.z_label_dist_coloc.setText("Max")
+                    self.z_label_dist_coloc.setStyleSheet("color: cyan; font-weight: bold;")
+            else:
+                self.dist_coloc_current_z = value
+                if hasattr(self, 'z_label_dist_coloc'):
+                    self.z_label_dist_coloc.setText(f"Z={value}")
+                    self.z_label_dist_coloc.setStyleSheet("color: lime; font-weight: bold;")
+        
+        # Redraw with new Z-plane
+        self.display_distance_colocalization()
+    
+    def reset_dist_coloc_z_slider(self):
+        """Reset Z-slider to default (max projection) and update from image dimensions."""
+        if not hasattr(self, 'z_slider_dist_coloc'):
+            return
+            
+        if self.image_stack is None:
+            self.z_slider_dist_coloc.setMaximum(0)
+            self.z_slider_dist_coloc.setValue(0)
+            self.z_slider_dist_coloc.setEnabled(False)
+            self.dist_coloc_current_z = -1
+            return
+        
+        # Get Z dimension from image (TZYXC format, Z is axis 1)
+        z_dim = self.image_stack.shape[1]
+        
+        self.z_slider_dist_coloc.blockSignals(True)
+        self.z_slider_dist_coloc.setMinimum(0)
+        if z_dim > 1:
+            self.z_slider_dist_coloc.setMaximum(z_dim)  # max = "Max Projection" position
+        else:
+            self.z_slider_dist_coloc.setMaximum(0)
+        self.z_slider_dist_coloc.setValue(z_dim if z_dim > 1 else 0)  # Default to max projection
+        self.z_slider_dist_coloc.blockSignals(False)
+        
+        # Enable slider only if more than 1 Z-slice
+        self.z_slider_dist_coloc.setEnabled(z_dim > 1)
+        
+        self.dist_coloc_current_z = -1  # Default to max projection
+        
+        if hasattr(self, 'z_label_dist_coloc'):
+            self.z_label_dist_coloc.setText("Max")
+            self.z_label_dist_coloc.setStyleSheet("color: cyan; font-weight: bold;")
+    
+    # === Distance Colocalization Helper Methods (Placeholder) ===
+    
+    def update_distance_nm_label(self):
+        """Update the nm equivalent label based on current threshold and pixel size."""
+        threshold_px = self.dist_threshold_spinbox.value() if hasattr(self, 'dist_threshold_spinbox') else 2.0
+        # Use voxel_yx_nm which is set from the Import tab (in nanometers)
+        pixel_size_nm = getattr(self, 'voxel_yx_nm', None)
+        if pixel_size_nm is None or np.isnan(pixel_size_nm) or pixel_size_nm <= 0:
+            pixel_size_nm = 130.0  # Default: 130 nm per pixel
+        threshold_nm = threshold_px * pixel_size_nm
+        if hasattr(self, 'dist_nm_label'):
+            self.dist_nm_label.setText(f"= {threshold_nm:.1f} nm")
+    
+    def populate_distance_channel_combos(self):
+        """Populate distance colocalization channel combos with tracked channels."""
+        if not hasattr(self, 'dist_channel_0_combo') or not hasattr(self, 'dist_channel_1_combo'):
+            return
+        
+        self.dist_channel_0_combo.clear()
+        self.dist_channel_1_combo.clear()
+        
+        # Get tracked channels from df_tracking
+        if hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+            tracked_channels = sorted(self.df_tracking['spot_type'].unique().tolist())
+            for ch in tracked_channels:
+                self.dist_channel_0_combo.addItem(f"Ch {ch}", ch)
+                self.dist_channel_1_combo.addItem(f"Ch {ch}", ch)
+            
+            # Default: select different channels if possible
+            if len(tracked_channels) >= 2:
+                self.dist_channel_0_combo.setCurrentIndex(0)
+                self.dist_channel_1_combo.setCurrentIndex(1)
+        else:
+            self.dist_channel_0_combo.addItem("No tracked channels", -1)
+            self.dist_channel_1_combo.addItem("No tracked channels", -1)
+        
+        # Also populate cell selector
+        self._populate_dist_cell_selector()
+        
+        # Update 3D checkbox availability based on Z planes
+        self._update_distance_3d_availability()
+        
+        # Update nm label
+        self.update_distance_nm_label()
+    
+    def _populate_dist_cell_selector(self):
+        """Populate the distance colocalization cell selector."""
+        if not hasattr(self, 'dist_cell_combo'):
+            return
+        
+        current_data = self.dist_cell_combo.currentData()
+        self.dist_cell_combo.clear()
+        self.dist_cell_combo.addItem("All Cells (pooled)", -1)
+        self.dist_cell_combo.addItem("All Cells (per-cell avg)", -2)
+        
+        # Add individual cells if available
+        if hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'cell_id' in self.df_tracking.columns:
+            cell_ids = sorted(self.df_tracking['cell_id'].unique().tolist())
+            for cid in cell_ids:
+                self.dist_cell_combo.addItem(f"Cell {cid}", cid)
+        
+        # Restore previous selection if possible
+        if current_data is not None:
+            idx = self.dist_cell_combo.findData(current_data)
+            if idx >= 0:
+                self.dist_cell_combo.setCurrentIndex(idx)
+    
+    def _update_distance_3d_availability(self):
+        """Enable/disable 3D checkbox based on available Z planes."""
+        if not hasattr(self, 'dist_use_3d_checkbox'):
+            return
+        
+        # Check if we have multiple Z planes
+        has_3d = False
+        if hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'z' in self.df_tracking.columns:
+            z_values = self.df_tracking['z'].unique()
+            has_3d = len(z_values) > 1
+        
+        self.dist_use_3d_checkbox.setEnabled(has_3d)
+        if not has_3d:
+            self.dist_use_3d_checkbox.setChecked(False)
+            self.dist_use_3d_checkbox.setToolTip("3D requires multiple Z planes (only 1 Z plane detected)")
+        else:
+            self.dist_use_3d_checkbox.setToolTip("Include Z-axis in distance calculation (uses voxel size for scaling)")
+    
+    def _on_dist_cell_changed(self, index):
+        """Handle cell selection change in Distance colocalization - re-run analysis if results exist."""
+        # Only re-run if we already have results (user has run analysis at least once)
+        if hasattr(self, 'distance_coloc_results') and self.distance_coloc_results is not None:
+            self.run_distance_colocalization()
+    
+    def run_distance_colocalization(self):
+        """Run distance-based colocalization analysis using the ColocalizationDistance class."""
+        if not getattr(self, 'has_tracked', False) or self.df_tracking.empty:
+            QMessageBox.warning(self, "No Tracking Data", 
+                                "Please run tracking on at least 2 channels first.")
+            return
+        
+        # Get tracked channels from df_tracking
+        tracked_channels = sorted(self.df_tracking['spot_type'].unique().tolist())
+        if len(tracked_channels) < 2:
+            QMessageBox.warning(self, "Insufficient Channels",
+                                f"Distance colocalization requires ≥2 tracked channels.\n"
+                                f"Found: {len(tracked_channels)} channel(s).")
+            return
+        
+        # Get parameters from UI
+        ch0 = self.dist_channel_0_combo.currentData()
+        ch1 = self.dist_channel_1_combo.currentData()
+        
+        if ch0 is None or ch1 is None or ch0 == -1 or ch1 == -1:
+            QMessageBox.warning(self, "Invalid Channels", "Please select valid channels.")
+            return
+        
+        if ch0 == ch1:
+            QMessageBox.warning(self, "Same Channel", "Please select two different channels.")
+            return
+        
+        threshold_px = self.dist_threshold_spinbox.value()
+        use_3d = self.dist_use_3d_checkbox.isChecked()
+        cell_selection = self.dist_cell_combo.currentData()
+        
+        # Calculate nm equivalent using validated voxel sizes
+        pixel_size_nm = getattr(self, 'voxel_yx_nm', None)
+        if pixel_size_nm is None or np.isnan(pixel_size_nm) or pixel_size_nm <= 0:
+            pixel_size_nm = 130.0  # Default: 130 nm per pixel
+        threshold_nm = threshold_px * pixel_size_nm
+        
+        # Prepare voxel sizes for 3D
+        # To properly handle anisotropic voxels, we need to scale Z coordinates
+        # relative to XY. ColocalizationDistance uses: scale[0] = voxel_z / psf_z
+        # We want scale[0] = voxel_z / voxel_xy to match the MSD approach.
+        # So we set psf_z = voxel_xy and psf_yx = voxel_xy.
+        # This makes: scale = [voxel_z/voxel_xy, voxel_xy/voxel_xy, voxel_xy/voxel_xy]
+        #                   = [voxel_z/voxel_xy, 1, 1]
+        # Z is scaled by ratio of voxel sizes, XY unchanged.
+        voxel_z = None
+        psf_z = None
+        voxel_xy = None
+        psf_yx = None
+        
+        if use_3d:
+            # Get Z voxel size in nm
+            voxel_z_nm = getattr(self, 'voxel_z_nm', None)
+            if voxel_z_nm is None or np.isnan(voxel_z_nm) or voxel_z_nm <= 0:
+                voxel_z_nm = 300.0  # Default: 300 nm per z-slice
+            voxel_z = voxel_z_nm
+            voxel_xy = pixel_size_nm
+            
+            # For anisotropic scaling, we want Z in "XY-equivalent pixels"
+            # Set psf_z = voxel_xy so that scale[0] = voxel_z / voxel_xy
+            # This scales Z coordinates by the ratio of voxel sizes
+            psf_z = voxel_xy  # NOT voxel_z - this gives us the correct ratio
+            psf_yx = voxel_xy  # XY stays at 1:1
+        
+        # Filter df_tracking based on cell selection if needed
+        df = self.df_tracking.copy()
+        if cell_selection is not None and cell_selection >= 0:
+            df = df[df['cell_id'] == cell_selection]
+        
+        if df.empty:
+            QMessageBox.warning(self, "No Data", "No spots found for the selected cell.")
+            return
+        
+        # Run ColocalizationDistance
+        try:
+            from src.microscopy import ColocalizationDistance
+            coloc = ColocalizationDistance(
+                df=df,
+                list_spot_type_to_compare=[ch0, ch1],
+                threshold_distance=threshold_px,
+                voxel_size_z=voxel_z,
+                psf_z=psf_z,
+                voxel_size_yx=voxel_xy,
+                psf_yx=psf_yx,
+                show_plot=False,
+                report_codetected_spots_in_both_channels=False
+            )
+            
+            (df_classification, df_colocalized, df_ch0_only, 
+             df_ch1_only, df_ch0_all, df_ch1_all) = coloc.extract_spot_classification_from_df()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Distance colocalization failed:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+            return
+        
+        # Store results
+        self.distance_coloc_results = {
+            'method': 'distance',
+            'channel_0': ch0,
+            'channel_1': ch1,
+            'threshold_distance_px': threshold_px,
+            'threshold_distance_nm': threshold_nm,
+            'use_3d': use_3d,
+            'voxel_z_nm': voxel_z,
+            'voxel_xy_nm': voxel_xy,
+            'cell_selection': cell_selection,
+            'df_classification': df_classification,
+            'df_colocalized': df_colocalized,
+            'df_ch0_only': df_ch0_only,
+            'df_ch1_only': df_ch1_only,
+            'df_ch0_all': df_ch0_all,
+            'df_ch1_all': df_ch1_all
+        }
+        
+        # Update frame slider for time-lapse
+        if hasattr(self, 'image_stack') and self.image_stack is not None:
+            num_frames = self.image_stack.shape[0] if self.image_stack.ndim >= 3 else 1
+            self.dist_frame_slider.setMaximum(max(0, num_frames - 1))
+            self.dist_frame_slider.setValue(self.current_frame)
+            self.dist_frame_label.setText(f"Frame: {self.current_frame}/{num_frames - 1}")
+        
+        # Initialize Z-slider based on image dimensions
+        self.reset_dist_coloc_z_slider()
+        
+        # Reset zoom state
+        self._reset_dist_coloc_zoom()
+        
+        # Update display
+        self.display_distance_colocalization()
+    
+    def export_distance_colocalization_data(self):
+        """Export distance colocalization data to CSV."""
+        if not hasattr(self, 'distance_coloc_results'):
+            QMessageBox.warning(self, "No Results", 
+                                "Please run Distance colocalization first.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Distance Colocalization Data", "", "CSV Files (*.csv)")
+        
+        if not file_path:
+            return
+        
+        try:
+            results = self.distance_coloc_results
+            df_class = results['df_classification'].copy()
+            
+            # Add metadata columns
+            df_class['method'] = 'distance'
+            df_class['threshold_px'] = results['threshold_distance_px']
+            df_class['threshold_nm'] = results['threshold_distance_nm']
+            df_class['use_3d'] = results['use_3d']
+            df_class['channel_0'] = results['channel_0']
+            df_class['channel_1'] = results['channel_1']
+            
+            df_class.to_csv(file_path, index=False)
+            QMessageBox.information(self, "Export Complete", 
+                                    f"Distance colocalization data exported to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Error exporting data:\n{str(e)}")
+    
+    def export_distance_colocalization_image(self):
+        """Export distance colocalization visualization."""
+        if not hasattr(self, 'distance_coloc_results'):
+            QMessageBox.warning(self, "No Results", 
+                                "Please run Distance colocalization first.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Distance Colocalization Image", "", "PNG Files (*.png);;PDF Files (*.pdf)")
+        
+        if not file_path:
+            return
+        
+        try:
+            self.figure_dist_coloc.savefig(file_path, dpi=150, bbox_inches='tight', 
+                                           facecolor='black', edgecolor='none')
+            QMessageBox.information(self, "Export Complete", 
+                                    f"Image exported to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Error exporting image:\n{str(e)}")
+    
+    def display_distance_colocalization(self):
+        """Display distance colocalization results."""
+        if not hasattr(self, 'distance_coloc_results'):
+            # Show placeholder with tracking-like black background
+            fig = self.figure_dist_coloc
+            fig.clear()
+            fig.patch.set_facecolor('black')
+            ax = fig.add_subplot(111)
+            ax.set_facecolor('black')
+            ax.axis('off')
+            ax.text(0.5, 0.5, 'Run distance colocalization to see results.',
+                    horizontalalignment='center', verticalalignment='center',
+                    fontsize=12, color='#666666', transform=ax.transAxes)
+            fig.tight_layout(pad=0)
+            self.canvas_dist_coloc.draw()
+            return
+        
+        results = self.distance_coloc_results
+        df_class = results['df_classification']
+        ch0, ch1 = results['channel_0'], results['channel_1']
+        
+        # Calculate totals
+        total_coloc = int(df_class['num_0_1'].sum())
+        total_ch0_only = int(df_class['num_0_only'].sum())
+        total_ch1_only = int(df_class['num_1_only'].sum())
+        total_ch0 = int(df_class['num_0_total'].sum())
+        total_ch1 = int(df_class['num_1_total'].sum())
+        total_unique = total_ch0_only + total_ch1_only + total_coloc
+        pct_coloc = 100 * total_coloc / total_unique if total_unique > 0 else 0
+        
+        # Update summary label
+        self.dist_results_label.setText(
+            f"Colocalized: {total_coloc}/{total_unique} ({pct_coloc:.1f}%)  |  "
+            f"Ch{ch0} only: {total_ch0_only} ({100*total_ch0_only/total_unique:.1f}%)  |  "
+            f"Ch{ch1} only: {total_ch1_only} ({100*total_ch1_only/total_unique:.1f}%)"
+        )
+        
+        # Update per-cell table
+        self._update_distance_percell_table(df_class, ch0, ch1)
+        
+        # Draw visualization
+        is_scatter = self.dist_view_scatter_radio.isChecked()
+        if is_scatter:
+            self._draw_distance_scatter()
+        else:
+            self._draw_distance_overlay()
+    
+    def _update_distance_percell_table(self, df_class, ch0, ch1):
+        """Update the per-cell results table for distance colocalization."""
+        if not hasattr(self, 'dist_percell_table'):
+            return
+        
+        # Build table text
+        lines = [f"{'Cell':>6} | {'Ch'+str(ch0)+' Only':>10} | {'Ch'+str(ch1)+' Only':>10} | {'Colocalized':>11} | {'Total':>6} | {'% Coloc':>8}"]
+        lines.append("-" * 70)
+        
+        for _, row in df_class.iterrows():
+            cell_id = int(row['cell_id'])
+            ch0_only = int(row['num_0_only'])
+            ch1_only = int(row['num_1_only'])
+            coloc = int(row['num_0_1'])
+            total = ch0_only + ch1_only + coloc
+            pct = 100 * coloc / total if total > 0 else 0
+            lines.append(f"{cell_id:>6} | {ch0_only:>10} | {ch1_only:>10} | {coloc:>11} | {total:>6} | {pct:>7.1f}%")
+        
+        self.dist_percell_table.setText("\n".join(lines))
+    
+    def _draw_distance_scatter(self):
+        """Draw scatter plot of spot classifications."""
+        fig = self.figure_dist_coloc
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('#1a1a1a')
+        
+        results = self.distance_coloc_results
+        ch0, ch1 = results['channel_0'], results['channel_1']
+        
+        # Get coordinate dataframes
+        df_ch0 = results['df_ch0_only']
+        df_ch1 = results['df_ch1_only']
+        df_both = results['df_colocalized']
+        
+        # Get colors for each channel
+        color_ch0 = self._get_channel_color_for_scatter(ch0)
+        color_ch1 = self._get_channel_color_for_scatter(ch1)
+        
+        # Plot each category
+        if not df_ch0.empty:
+            ax.scatter(df_ch0['x'], df_ch0['y'], c=[color_ch0], 
+                       s=20, alpha=0.7, label=f'Ch{ch0} only ({len(df_ch0)})', 
+                       marker='o', edgecolors='none')
+        if not df_ch1.empty:
+            ax.scatter(df_ch1['x'], df_ch1['y'], c=[color_ch1],
+                       s=20, alpha=0.7, label=f'Ch{ch1} only ({len(df_ch1)})',
+                       marker='o', edgecolors='none')
+        if not df_both.empty:
+            ax.scatter(df_both['x'], df_both['y'], c='white', edgecolors='yellow',
+                       s=40, alpha=0.9, label=f'Colocalized ({len(df_both)})',
+                       marker='o', linewidths=1)
+        
+        ax.set_xlabel('X (pixels)', color='white')
+        ax.set_ylabel('Y (pixels)', color='white')
+        ax.tick_params(colors='white')
+        ax.legend(loc='upper right', facecolor='#333333', edgecolor='white', 
+                  labelcolor='white', fontsize=9)
+        ax.invert_yaxis()  # Image coordinates
+        ax.set_aspect('equal')
+        
+        # Add title with threshold info
+        threshold_px = results['threshold_distance_px']
+        threshold_nm = results['threshold_distance_nm']
+        use_3d = results['use_3d']
+        dim_str = "3D" if use_3d else "2D"
+        ax.set_title(f"Distance Colocalization ({dim_str}): Threshold = {threshold_px:.1f} px ({threshold_nm:.0f} nm)",
+                     color='white', fontsize=11)
+        
+        fig.tight_layout()
+        self.canvas_dist_coloc.draw()
+    
+    def _draw_distance_overlay(self):
+        """Draw image overlay with spot markers for the current frame (tracking-like style)."""
+        fig = self.figure_dist_coloc
+        fig.clear()
+        fig.patch.set_facecolor('black')
+        ax = fig.add_subplot(111)
+        ax.set_facecolor('black')
+        
+        # Re-initialize RectangleSelector on new axes
+        self.ax_dist_coloc = ax
+        self.dist_coloc_zoom_selector = RectangleSelector(
+            ax,
+            self._on_dist_coloc_zoom_select,
+            useblit=True,
+            button=[1],
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
+        results = self.distance_coloc_results
+        ch0, ch1 = results['channel_0'], results['channel_1']
+        
+        # Get current frame image
+        frame_idx = self.dist_frame_slider.value() if hasattr(self, 'dist_frame_slider') else self.current_frame
+        img_src = self.get_current_image_source()
+        
+        if img_src is None:
+            ax.text(0.5, 0.5, 'No image available.',
+                    ha='center', va='center', fontsize=12, color='white', transform=ax.transAxes)
+            self.canvas_dist_coloc.draw()
+            return
+        
+        # Get current Z-plane selection (-1 = max projection)
+        current_z = getattr(self, 'dist_coloc_current_z', -1)
+        
+        # Get frame projection or specific Z-plane
+        if img_src.ndim == 5:  # TZYXC format
+            if current_z == -1:
+                # Max Z projection
+                proj = np.max(img_src[frame_idx], axis=0)
+            else:
+                # Specific Z-plane
+                z_idx = min(current_z, img_src.shape[1] - 1)
+                proj = img_src[frame_idx, z_idx]
+        elif img_src.ndim == 4:  # TYXC
+            proj = img_src[frame_idx]
+        else:
+            proj = img_src
+        
+        # Normalize and create RGB for display
+        if proj.ndim == 2:
+            proj = proj[:, :, np.newaxis]
+        
+        # Create merged RGB view of the two channels
+        H, W, C = proj.shape
+        rgb = np.zeros((H, W, 3), dtype=np.float32)
+        
+        # Channel colors
+        color_ch0 = self._get_channel_color_for_scatter(ch0)
+        color_ch1 = self._get_channel_color_for_scatter(ch1)
+        
+        # Use percentile-based scaling like Tracking tab (not min-max which always fills full range)
+        # Brightness factor: 0.4 = 40% brightness (allows spots/markers to stand out)
+        brightness = 0.4
+        
+        if ch0 < C:
+            ch0_data = proj[:, :, ch0].astype(np.float32)
+            # Percentile-based normalization (1st-99th percentile)
+            p_low, p_high = np.percentile(ch0_data[ch0_data > 0], [1, 99]) if np.any(ch0_data > 0) else (0, 1)
+            ch0_norm = np.clip((ch0_data - p_low) / (p_high - p_low + 1e-8), 0, 1)
+            for i, c in enumerate(color_ch0[:3]):
+                rgb[:, :, i] += ch0_norm * c * brightness
+        
+        if ch1 < C:
+            ch1_data = proj[:, :, ch1].astype(np.float32)
+            # Percentile-based normalization
+            p_low, p_high = np.percentile(ch1_data[ch1_data > 0], [1, 99]) if np.any(ch1_data > 0) else (0, 1)
+            ch1_norm = np.clip((ch1_data - p_low) / (p_high - p_low + 1e-8), 0, 1)
+            for i, c in enumerate(color_ch1[:3]):
+                rgb[:, :, i] += ch1_norm * c * brightness
+        
+        rgb = np.clip(rgb, 0, 1)
+        
+        ax.imshow(rgb)
+        
+        # Apply zoom if ROI is set
+        if self.dist_coloc_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.dist_coloc_zoom_roi
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_max, y_min)  # Inverted for image coordinates
+        
+        # Filter spots by current frame using the original tracking dataframe
+        # Get all spots for this frame from the tracking dataframe
+        df_track = self.df_tracking.copy()
+        df_frame = df_track[df_track['frame'] == frame_idx]
+        
+        # Filter by cell selection if a specific cell is selected
+        cell_selection = self.dist_cell_combo.currentData() if hasattr(self, 'dist_cell_combo') else -1
+        if cell_selection is not None and cell_selection >= 0 and 'cell_id' in df_frame.columns:
+            df_frame = df_frame[df_frame['cell_id'] == cell_selection]
+        
+        # Filter by Z-plane if not in max projection mode
+        if current_z != -1 and 'z' in df_frame.columns:
+            # Filter spots to current Z-plane (with some tolerance for subpixel positions)
+            z_tolerance = 0.5
+            df_frame = df_frame[np.abs(df_frame['z'] - current_z) <= z_tolerance]
+        
+        # Get colocalized coordinates (from all frames - we'll match by position)
+        df_coloc_all = results['df_colocalized']
+        
+        # Separate by channel and determine colocalization status for this frame
+        df_ch0_frame = df_frame[df_frame['spot_type'] == ch0]
+        df_ch1_frame = df_frame[df_frame['spot_type'] == ch1]
+        
+        # For each spot in this frame, check if it was marked as colocalized
+        # We do this by checking if the spot's coordinates match any in the colocalized set
+        threshold = results['threshold_distance_px']
+        
+        def is_colocalized(x, y, z, df_coloc):
+            """Check if a spot at (x,y,z) is in the colocalized set (within 1px tolerance)."""
+            if df_coloc.empty:
+                return False
+            # Use a small tolerance for matching
+            matches = df_coloc[
+                (np.abs(df_coloc['x'] - x) < 1.5) & 
+                (np.abs(df_coloc['y'] - y) < 1.5) &
+                (np.abs(df_coloc['z'] - z) < 1.5)
+            ]
+            return len(matches) > 0
+        
+        # Classify spots in this frame
+        spots_ch0_only = []  # (x, y) for ch0 only
+        spots_ch1_only = []  # (x, y) for ch1 only  
+        spots_colocalized = []  # (x, y) for colocalized
+        
+        for _, row in df_ch0_frame.iterrows():
+            x, y, z = row['x'], row['y'], row.get('z', 0)
+            if is_colocalized(x, y, z, df_coloc_all):
+                spots_colocalized.append((x, y))
+            else:
+                spots_ch0_only.append((x, y))
+        
+        for _, row in df_ch1_frame.iterrows():
+            x, y, z = row['x'], row['y'], row.get('z', 0)
+            if not is_colocalized(x, y, z, df_coloc_all):
+                spots_ch1_only.append((x, y))
+            # Note: colocalized spots already added from ch0
+        
+        # Calculate dynamic marker size based on zoom level (V-curve pattern from Tracking tab)
+        # This makes markers smaller at full view, larger when zoomed in
+        zoom_scale = 1.0
+        if self.dist_coloc_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.dist_coloc_zoom_roi
+            full_width = W
+            visible_width = x_max - x_min
+            if full_width > 0 and visible_width > 0:
+                zoom_ratio = visible_width / full_width
+                # Invert scale: full view (ratio=1) gets smaller markers, zoomed (ratio=0.1) gets larger
+                zoom_scale = max(0.4, min(1.0, 1.0 - (zoom_ratio ** 0.5) * 0.6))
+        else:
+            # Full view: scale based on image size (smaller images get smaller markers)
+            image_scale = min(1.0, max(0.3, (W / 2048.0) ** 0.5))
+            zoom_scale = image_scale
+        
+        # Plot markers - dynamic size like tracking tab (unfilled circles/squares)
+        dpi = fig.get_dpi()
+        marker_scale = dpi / 100.0
+        base_marker_size = 20  # Base size in points^2
+        marker_size = base_marker_size * marker_scale * zoom_scale
+        linewidth = max(0.3, 1.0 * zoom_scale)  # Thinner at full view, thicker when zoomed
+        
+        if spots_ch0_only:
+            xs, ys = zip(*spots_ch0_only)
+            ax.scatter(xs, ys, facecolors='none', edgecolors=color_ch0, 
+                       s=marker_size, alpha=0.9, marker='s', linewidths=linewidth)
+        if spots_ch1_only:
+            xs, ys = zip(*spots_ch1_only)
+            ax.scatter(xs, ys, facecolors='none', edgecolors=color_ch1,
+                       s=marker_size, alpha=0.9, marker='s', linewidths=linewidth)
+        if spots_colocalized:
+            xs, ys = zip(*spots_colocalized)
+            ax.scatter(xs, ys, facecolors='none', edgecolors='yellow',
+                       s=marker_size * 1.2, alpha=1.0, marker='o', linewidths=linewidth * 1.5)
+        
+        ax.axis('off')
+        
+        # Add compact legend in upper right corner
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], marker='s', color='w', markerfacecolor='none', markeredgecolor=color_ch0,
+                   markersize=6, label=f'Ch{ch0} only ({len(spots_ch0_only)})', linestyle='None', markeredgewidth=1),
+            Line2D([0], [0], marker='s', color='w', markerfacecolor='none', markeredgecolor=color_ch1,
+                   markersize=6, label=f'Ch{ch1} only ({len(spots_ch1_only)})', linestyle='None', markeredgewidth=1),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='none',
+                   markeredgecolor='yellow', markersize=7, label=f'Colocalized ({len(spots_colocalized)})', linestyle='None', markeredgewidth=1.5)
+        ]
+        ax.legend(handles=legend_elements, loc='upper right', facecolor='#333333', 
+                  edgecolor='none', labelcolor='white', fontsize=8)
+        
+        # Update frame label
+        total_frames = getattr(self, 'total_frames', 1)
+        self.dist_frame_label.setText(f"{frame_idx}/{total_frames - 1}")
+        
+        fig.tight_layout(pad=0)
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        
+        # Re-apply zoom limits AFTER tight_layout (which can reset them)
+        if self.dist_coloc_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.dist_coloc_zoom_roi
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_max, y_min)  # Inverted for image coordinates
+        
+        self.canvas_dist_coloc.draw()
+    
+    def _get_channel_color_for_scatter(self, channel_idx):
+        """Get a color for a given channel index for scatter plots."""
+        # Use the same channel colors as tracking visualization
+        channel_colors = [
+            (0.2, 1.0, 0.2),   # Ch0: Green
+            (1.0, 0.2, 0.2),   # Ch1: Red
+            (0.2, 0.6, 1.0),   # Ch2: Blue
+            (1.0, 1.0, 0.2),   # Ch3: Yellow
+            (1.0, 0.2, 1.0),   # Ch4: Magenta
+            (0.2, 1.0, 1.0),   # Ch5: Cyan
+        ]
+        if channel_idx < len(channel_colors):
+            return channel_colors[channel_idx]
+        return (0.7, 0.7, 0.7)  # Default gray
+    
+    def toggle_distance_playback(self):
+        """Toggle play/pause for distance colocalization time-lapse."""
+        if self.dist_play_button.isChecked():
+            self.dist_play_button.setText("⏸")
+            self.dist_play_timer.start(200)  # 5 fps
+        else:
+            self.dist_play_button.setText("▶")
+            self.dist_play_timer.stop()
+    
+    def advance_distance_frame(self):
+        """Advance to next frame during playback."""
+        if hasattr(self, 'dist_frame_slider'):
+            current = self.dist_frame_slider.value()
+            max_val = self.dist_frame_slider.maximum()
+            if current < max_val:
+                self.dist_frame_slider.setValue(current + 1)
+            else:
+                self.dist_frame_slider.setValue(0)  # Loop
+    
+    def on_distance_frame_changed(self, value):
+        """Handle frame slider change for distance visualization."""
+        if hasattr(self, 'dist_frame_label') and hasattr(self, 'dist_frame_slider'):
+            max_val = self.dist_frame_slider.maximum()
+            self.dist_frame_label.setText(f"Frame: {value}/{max_val}")
+        
+        # Re-run analysis for this frame if overlay mode
+        if self.dist_view_overlay_radio.isChecked() and hasattr(self, 'distance_coloc_results'):
+            self._draw_distance_overlay()
+    
+    # === Verify Visual Subtab Methods ===
+    
+    def populate_verify_visual(self):
+        """Populate the Verify Visual subtab with Visual (ML/Intensity) colocalization results."""
+        if not hasattr(self, 'colocalization_results') or not self.colocalization_results:
+            QMessageBox.warning(self, "No Results", 
+                "Please run Visual (ML/Intensity) colocalization first.")
+            return
+        
+        # Get results
+        results = self.colocalization_results
+        flag_vector = results.get('flag_vector')
+        mean_crop = results.get('mean_crop_filtered')
+        crop_size = results.get('crop_size', 15)
+        ch1 = results.get('ch1_index', 0)
+        ch2 = results.get('ch2_index', 1)
+        
+        if flag_vector is None or mean_crop is None:
+            QMessageBox.warning(self, "No Data", "Visual colocalization results are incomplete.")
+            return
+        
+        # Create spot crops with checkboxes
+        self._create_verification_crops(
+            scroll_area=self.verify_visual_scroll_area,
+            checkboxes_list_attr='verify_visual_checkboxes',
+            mean_crop=mean_crop,
+            crop_size=crop_size,
+            flag_vector=flag_vector,
+            stats_label=self.verify_visual_stats_label,
+            num_channels=2,
+            channels=(ch1, ch2)
+        )
+        
+        # Update stats label
+        self._update_verify_visual_stats()
+    
+    def _update_verify_visual_stats(self):
+        """Update the stats label for Verify Visual subtab."""
+        if not hasattr(self, 'verify_visual_checkboxes'):
+            return
+        total = len(self.verify_visual_checkboxes)
+        marked = sum(1 for chk in self.verify_visual_checkboxes if chk.isChecked())
+        pct = 100 * marked / total if total > 0 else 0
+        
+        method = "ML" if hasattr(self, 'method_ml_radio') and self.method_ml_radio.isChecked() else "Intensity"
+        self.verify_visual_stats_label.setText(
+            f"[{method}] Total: {total} | Colocalized: {marked} ({pct:.1f}%)"
+        )
+    
+    def sort_verify_visual(self):
+        """Sort Verify Visual results by prediction value (lowest to highest)."""
+        if not hasattr(self, 'verify_visual_checkboxes') or len(self.verify_visual_checkboxes) == 0:
+            return
+        
+        values = self.colocalization_results.get('prediction_values_vector') if hasattr(self, 'colocalization_results') else None
+        if values is None or len(values) == 0:
+            QMessageBox.information(self, "Cannot Sort", "No prediction values available for sorting.")
+            return
+        
+        # Re-populate with sorted order would require rebuilding crops
+        # For now, show a message that sorting is based on visual arrangement
+        QMessageBox.information(self, "Sort", 
+            "Spots are already displayed in their original detection order. "
+            "Lower prediction values indicate uncertain colocalization.")
+    
+    def cleanup_verify_visual(self):
+        """Clear all checkboxes in Verify Visual subtab."""
+        if not hasattr(self, 'verify_visual_checkboxes'):
+            return
+        for checkbox in self.verify_visual_checkboxes:
+            checkbox.setChecked(False)
+        self._update_verify_visual_stats()
+    
+    def export_verify_visual_data(self):
+        """Export Verify Visual results to CSV."""
+        if not hasattr(self, 'verify_visual_checkboxes') or len(self.verify_visual_checkboxes) == 0:
+            QMessageBox.warning(self, "No Data", "No verification data to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Visual Verification Data", "", "CSV Files (*.csv)")
+        
+        if not file_path:
+            return
+        
+        try:
+            total = len(self.verify_visual_checkboxes)
+            flags = [chk.isChecked() for chk in self.verify_visual_checkboxes]
+            marked = sum(flags)
+            
+            results = self.colocalization_results if hasattr(self, 'colocalization_results') else {}
+            
+            df = pd.DataFrame({
+                'spot_index': range(total),
+                'colocalized_manual': flags,
+                'colocalized_auto': results.get('flag_vector', [False] * total)[:total]
+            })
+            df['method'] = 'visual'
+            df['threshold'] = results.get('threshold_value', 'N/A')
+            df['image_name'] = getattr(self, 'selected_image_name', '')
+            
+            df.to_csv(file_path, index=False)
+            QMessageBox.information(self, "Export Complete", 
+                f"Exported {total} spots ({marked} colocalized) to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Error exporting data:\n{str(e)}")
+    
+    # === Verify Distance Subtab Methods ===
+    
+    def populate_verify_distance(self):
+        """Populate the Verify Distance subtab with Distance colocalization results."""
+        if not hasattr(self, 'distance_coloc_results') or not self.distance_coloc_results:
+            QMessageBox.warning(self, "No Results", 
+                "Please run Distance colocalization first.")
+            return
+        
+        # Get results
+        results = self.distance_coloc_results
+        ch0 = results.get('channel_0', 0)
+        ch1 = results.get('channel_1', 1)
+        df_coloc = results.get('df_colocalized', pd.DataFrame())
+        threshold_px = results.get('threshold_distance_px', 2.0)
+        threshold_nm = results.get('threshold_distance_nm', 130.0)
+        
+        # We need to create crops from tracking data
+        if not hasattr(self, 'df_tracking') or self.df_tracking.empty:
+            QMessageBox.warning(self, "No Data", "No tracking data available.")
+            return
+        
+        # Get image for cropping
+        image = self.corrected_image if self.corrected_image is not None else self.image_stack
+        if image is None:
+            QMessageBox.warning(self, "No Image", "No image loaded.")
+            return
+        
+        # Filter to reference channel (ch0)
+        df_ch0 = self.df_tracking[self.df_tracking['spot_type'] == ch0]
+        if df_ch0.empty:
+            QMessageBox.warning(self, "No Data", f"No spots found for channel {ch0}.")
+            return
+        
+        # Create crops and determine colocalization status
+        crop_size = int(getattr(self, 'yx_spot_size_in_px', 5)) + 5
+        if crop_size % 2 == 0:
+            crop_size += 1
+        
+        try:
+            _, mean_crop, _, crop_size = mi.CropArray(
+                image=image,
+                df_crops=df_ch0,
+                crop_size=crop_size,
+                remove_outliers=False,
+                max_percentile=99.95
+            ).run()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to create crops:\n{str(e)}")
+            return
+        
+        if mean_crop is None or mean_crop.size == 0:
+            QMessageBox.information(self, "No Spots", "No detected spots to display.")
+            return
+        
+        num_spots = mean_crop.shape[0] // crop_size
+        
+        # Create flag vector based on distance colocalization
+        # Mark spots as colocalized if their coordinates match
+        coloc_coords = set()
+        if not df_coloc.empty:
+            for _, row in df_coloc.iterrows():
+                coord = (round(row.get('x', 0), 1), round(row.get('y', 0), 1))
+                coloc_coords.add(coord)
+        
+        flag_vector = []
+        for i, (_, row) in enumerate(df_ch0.drop_duplicates(subset=['particle']).iterrows()):
+            if i >= num_spots:
+                break
+            coord = (round(row.get('x', 0), 1), round(row.get('y', 0), 1))
+            flag_vector.append(coord in coloc_coords)
+        
+        # Pad flag_vector if needed
+        while len(flag_vector) < num_spots:
+            flag_vector.append(False)
+        
+        # Store for later use
+        self.verify_distance_mean_crop = mean_crop
+        self.verify_distance_crop_size = crop_size
+        
+        # Create spot crops with checkboxes
+        self._create_verification_crops(
+            scroll_area=self.verify_distance_scroll_area,
+            checkboxes_list_attr='verify_distance_checkboxes',
+            mean_crop=mean_crop,
+            crop_size=crop_size,
+            flag_vector=flag_vector,
+            stats_label=self.verify_distance_stats_label,
+            num_channels=image.shape[-1] if image.ndim == 5 else 1,
+            channels=(ch0, ch1)
+        )
+        
+        # Update stats label
+        self._update_verify_distance_stats()
+    
+    def _update_verify_distance_stats(self):
+        """Update the stats label for Verify Distance subtab."""
+        if not hasattr(self, 'verify_distance_checkboxes'):
+            return
+        total = len(self.verify_distance_checkboxes)
+        marked = sum(1 for chk in self.verify_distance_checkboxes if chk.isChecked())
+        pct = 100 * marked / total if total > 0 else 0
+        
+        if hasattr(self, 'distance_coloc_results') and self.distance_coloc_results:
+            threshold_px = self.distance_coloc_results.get('threshold_distance_px', 0)
+            threshold_nm = self.distance_coloc_results.get('threshold_distance_nm', 0)
+            self.verify_distance_stats_label.setText(
+                f"[Distance: {threshold_px:.1f}px / {threshold_nm:.0f}nm] "
+                f"Total: {total} | Colocalized: {marked} ({pct:.1f}%)"
+            )
+        else:
+            self.verify_distance_stats_label.setText(
+                f"Total: {total} | Colocalized: {marked} ({pct:.1f}%)"
+            )
+    
+    def sort_verify_distance(self):
+        """Sort Verify Distance results (by cell ID or coordinate)."""
+        QMessageBox.information(self, "Sort", 
+            "Distance colocalization spots are displayed in detection order.")
+    
+    def cleanup_verify_distance(self):
+        """Clear all checkboxes in Verify Distance subtab."""
+        if not hasattr(self, 'verify_distance_checkboxes'):
+            return
+        for checkbox in self.verify_distance_checkboxes:
+            checkbox.setChecked(False)
+        self._update_verify_distance_stats()
+    
+    def export_verify_distance_data(self):
+        """Export Verify Distance results to CSV."""
+        if not hasattr(self, 'verify_distance_checkboxes') or len(self.verify_distance_checkboxes) == 0:
+            QMessageBox.warning(self, "No Data", "No verification data to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Distance Verification Data", "", "CSV Files (*.csv)")
+        
+        if not file_path:
+            return
+        
+        try:
+            total = len(self.verify_distance_checkboxes)
+            flags = [chk.isChecked() for chk in self.verify_distance_checkboxes]
+            marked = sum(flags)
+            
+            results = self.distance_coloc_results if hasattr(self, 'distance_coloc_results') else {}
+            
+            df = pd.DataFrame({
+                'spot_index': range(total),
+                'colocalized_manual': flags,
+            })
+            df['method'] = 'distance'
+            df['threshold_px'] = results.get('threshold_distance_px', 'N/A')
+            df['threshold_nm'] = results.get('threshold_distance_nm', 'N/A')
+            df['use_3d'] = results.get('use_3d', False)
+            df['image_name'] = getattr(self, 'selected_image_name', '')
+            
+            df.to_csv(file_path, index=False)
+            QMessageBox.information(self, "Export Complete", 
+                f"Exported {total} spots ({marked} colocalized) to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Error exporting data:\n{str(e)}")
+    
+    # === Shared Verification Helper ===
+    
+    def _create_verification_crops(self, scroll_area, checkboxes_list_attr, mean_crop, 
+                                     crop_size, flag_vector, stats_label, num_channels, channels):
+        """Create spot crop thumbnails with checkboxes for verification subtabs."""
+        scale_factor = getattr(self, 'coloc_thumbnail_scale', 4)
+        num_spots = mean_crop.shape[0] // crop_size
+        
+        # Clear existing
+        scroll_area.takeWidget()
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setSpacing(3)
         container_layout.setContentsMargins(0, 0, 0, 0)
-        new_checkboxes = []
-        scale_factor = getattr(self, 'coloc_thumbnail_scale', 4)
-
-        for rank, orig_idx in enumerate(sorted_idx.tolist()):
+        
+        checkboxes = []
+        
+        for i in range(num_spots):
             spot_layout = QHBoxLayout()
             spot_layout.setSpacing(1)
             spot_layout.setContentsMargins(0, 0, 0, 0)
-            crop_block = mean_crop[orig_idx * crop_size : (orig_idx + 1) * crop_size, :, :]
-            channels = crop_block.shape[-1]
-            for ch in range(channels):
-                channel_crop = crop_block[:, :, ch]
-                cmin, cmax = np.nanmin(channel_crop), np.nanmax(channel_crop)
-                if cmax > cmin:
-                    norm = ((channel_crop - cmin) / (cmax - cmin) * 255).astype(np.uint8)
-                else:
-                    norm = np.zeros_like(channel_crop, np.uint8)
-                h, w = norm.shape
-                qimg = QImage(norm.data, w, h, w, QImage.Format_Grayscale8).copy()
-                pix = QPixmap.fromImage(qimg)
-                pix = pix.scaled(w * scale_factor, h * scale_factor, Qt.IgnoreAspectRatio, Qt.FastTransformation)
-                lbl = QLabel()
-                lbl.setPixmap(pix)
-                spot_layout.addWidget(lbl)
-            chk = QCheckBox(f"Spot {rank+1}")
+            
+            crop_block = mean_crop[i*crop_size:(i+1)*crop_size, :, :]
+            
+            # Display channels (up to 2)
+            for ch_idx, ch in enumerate(channels[:2]):
+                if ch < crop_block.shape[-1]:
+                    channel_crop = crop_block[:, :, ch]
+                    cmin, cmax = np.nanmin(channel_crop), np.nanmax(channel_crop)
+                    if cmax > cmin:
+                        norm = ((channel_crop - cmin) / (cmax - cmin) * 255).astype(np.uint8)
+                    else:
+                        norm = np.zeros_like(channel_crop, np.uint8)
+                    h, w = norm.shape
+                    qimg = QImage(norm.data, w, h, w, QImage.Format_Grayscale8).copy()
+                    pix = QPixmap.fromImage(qimg)
+                    pix = pix.scaled(w*scale_factor, h*scale_factor, Qt.IgnoreAspectRatio, Qt.FastTransformation)
+                    lbl = QLabel()
+                    lbl.setPixmap(pix)
+                    spot_layout.addWidget(lbl)
+            
+            # Checkbox
+            chk = QCheckBox(f"Spot {i+1}")
+            chk.setChecked(bool(flag_vector[i]) if i < len(flag_vector) else False)
             chk.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            chk.setChecked(bool(sorted_flags[rank]))
-            chk.toggled.connect(self.update_manual_stats_label)
+            
+            # Connect to stats update
+            if checkboxes_list_attr == 'verify_visual_checkboxes':
+                chk.toggled.connect(self._update_verify_visual_stats)
+            else:
+                chk.toggled.connect(self._update_verify_distance_stats)
+            
             spot_layout.addWidget(chk)
-            new_checkboxes.append(chk)
+            checkboxes.append(chk)
             container_layout.addLayout(spot_layout)
-            if rank < num_spots - 1:
+            
+            # Separator
+            if i < num_spots - 1:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.HLine)
                 sep.setFrameShadow(QFrame.Sunken)
                 container_layout.addWidget(sep)
-
-        self.manual_checkboxes = new_checkboxes
-        self.manual_scroll_area.setWidget(container)
-        self.update_manual_stats_label()
-
-
-    def setup_colocalization_manual_tab(self):
-        manual_layout = QVBoxLayout()
-        manual_layout.setContentsMargins(100, 0, 50, 0)
-        self.colocalization_manual_tab.setLayout(manual_layout)
-        top_bar = QHBoxLayout()
-        self.manual_stats_label = QLabel("Total Spots: 0 | Colocalized: 0 | 0.00%")
-        top_bar.addWidget(self.manual_stats_label)
-        top_bar.addStretch()
-        self.populate_manual_coloc_button = QPushButton("Populate")
-        self.populate_manual_coloc_button.clicked.connect(self.populate_manual_checkboxes)
-        top_bar.addWidget(self.populate_manual_coloc_button)
         
-        self.sort_manual_coloc_button = QPushButton("Sort")
-        self.sort_manual_coloc_button.clicked.connect(self.sort_manual_colocalization)
-        top_bar.addWidget(self.sort_manual_coloc_button)
-        
-        self.cleanup_manual_coloc_button = QPushButton("Cleanup")
-        self.cleanup_manual_coloc_button.clicked.connect(self.cleanup_manual_colocalization)
-        top_bar.addWidget(self.cleanup_manual_coloc_button)
-        self.export_manual_coloc_button = QPushButton("Export Data")
-        self.export_manual_coloc_button.clicked.connect(lambda: self.extract_manual_colocalization_data(save_df=True))
-        top_bar.addWidget(self.export_manual_coloc_button)
-        manual_layout.addLayout(top_bar)
-        # Scroll area for spot listings (fixed max width)
-        self.manual_scroll_area = QScrollArea()
-        self.manual_scroll_area.setMaximumWidth(350)
-        self.coloc_thumbnail_scale = 4  # thumbnails at 4× size
-        self.manual_scroll_area.setWidgetResizable(True)
-        self.manual_scroll_area.setContentsMargins(0, 0, 0, 0)
-        placeholder = QWidget()
-        self.manual_scroll_area.setWidget(placeholder)
-        # Center scroll area with horizontal stretches
-        hcenter = QHBoxLayout()
-        hcenter.addStretch()
-        hcenter.addWidget(self.manual_scroll_area)
-        hcenter.addStretch()
-        manual_layout.addLayout(hcenter)
+        scroll_area.setWidget(container)
+        setattr(self, checkboxes_list_attr, checkboxes)
+
+    # Note: sort_manual_colocalization() removed - replaced by sort_verify_visual() 
+    # and sort_verify_distance() in the separate verification subtabs
+
 
 # =============================================================================
 # =============================================================================
@@ -11213,6 +12605,16 @@ class GUI(QMainWindow):
                     out_path = results_folder / default_filename
                     self._export_colocalization_data_to_csv(out_path)
 
+                elif label_text == "Export Distance Coloc Image":
+                    default_filename = self.get_default_export_filename(prefix="distance_colocalization", extension="png")
+                    out_path = results_folder / default_filename
+                    self._export_distance_coloc_image(out_path)
+
+                elif label_text == "Export Distance Coloc Data":
+                    default_filename = self.get_default_export_filename(prefix="distance_colocalization_data", extension="csv")
+                    out_path = results_folder / default_filename
+                    self._export_distance_coloc_data_to_csv(out_path)
+
                 elif label_text == "Export Manual Colocalization Image":
                     default_filename = self.get_default_export_filename(prefix="colocalization_manual", extension="png")
                     out_path = results_folder / default_filename
@@ -11382,12 +12784,30 @@ class GUI(QMainWindow):
             print(f"Failed to export colocalization data: {e}")
 
     def _export_manual_colocalization_image(self, file_path):
-        if not hasattr(self, 'manual_checkboxes') or len(self.manual_checkboxes) == 0:
+        # Check both verification subtabs for checkbox data
+        has_visual = hasattr(self, 'verify_visual_checkboxes') and len(self.verify_visual_checkboxes) > 0
+        has_distance = hasattr(self, 'verify_distance_checkboxes') and len(self.verify_distance_checkboxes) > 0
+        
+        if not has_visual and not has_distance:
             return  # No manual selections to export
+        
         try:
+            # Use visual checkboxes if available, otherwise distance
+            if has_visual:
+                checkboxes = self.verify_visual_checkboxes
+                mean_crop = getattr(self, 'colocalization_results', {}).get('mean_crop_filtered')
+                crop_size = getattr(self, 'colocalization_results', {}).get('crop_size', 15)
+            else:
+                checkboxes = self.verify_distance_checkboxes
+                mean_crop = getattr(self, 'verify_distance_mean_crop', None)
+                crop_size = getattr(self, 'verify_distance_crop_size', 15)
+            
+            if mean_crop is None:
+                return
+            
             # Prepare flag vector from checkboxes
-            total = len(self.manual_checkboxes)
-            flags = [chk.isChecked() for chk in self.manual_checkboxes]
+            total = len(checkboxes)
+            flags = [chk.isChecked() for chk in checkboxes]
             percent_marked = (sum(flags) / total * 100.0) if total > 0 else 0.0
             # Determine channels to include (use same channels as selected in UI)
             ch1 = self.channel_combo_box_1.currentIndex() if hasattr(self, 'channel_combo_box_1') else 0
@@ -11397,8 +12817,8 @@ class GUI(QMainWindow):
             fig = Figure()
             title_text = f"Manual Colocalization: {percent_marked:.2f}%"
             # Use the utility to plot all crops, marking selected spots in light blue
-            self.plots.plot_matrix_pair_crops(mean_crop=self.manual_mean_crop,
-                                    crop_size=self.manual_crop_size,
+            self.plots.plot_matrix_pair_crops(mean_crop=mean_crop,
+                                    crop_size=crop_size,
                                     flag_vector=flags,
                                     selected_channels=selected_channels,
                                     number_columns=self.columns_spinbox.value() if hasattr(self, 'columns_spinbox') else 20,
@@ -11415,6 +12835,28 @@ class GUI(QMainWindow):
             self.df_manual_colocalization.to_csv(out_path, index=False)
         except Exception as e:
             print(f"Failed to export manual colocalization data: {e}")
+
+    def _export_distance_coloc_image(self, file_path):
+        """Export Distance Colocalization image (overlay view) from Export tab."""
+        if not hasattr(self, 'distance_coloc_results') or not self.distance_coloc_results:
+            return
+        try:
+            self.figure_dist_coloc.savefig(file_path, dpi=150, bbox_inches='tight', 
+                                           facecolor='black', edgecolor='none')
+        except Exception as e:
+            print(f"Failed to export distance colocalization image: {e}")
+
+    def _export_distance_coloc_data_to_csv(self, out_path: Path):
+        """Export Distance Colocalization data as CSV from Export tab."""
+        if not hasattr(self, 'distance_coloc_results') or not self.distance_coloc_results:
+            return
+        try:
+            results = self.distance_coloc_results
+            df_classification = results.get('df_classification')
+            if df_classification is not None and not df_classification.empty:
+                df_classification.to_csv(out_path, index=False)
+        except Exception as e:
+            print(f"Failed to export distance colocalization data: {e}")
 
     def _export_tracking_image(self, file_path):
         try:
@@ -11588,35 +13030,15 @@ class GUI(QMainWindow):
             tracked_channels=getattr(self, 'tracked_channels', []),
             tracking_thresholds=getattr(self, 'tracking_thresholds', {}),
             tracking_parameters_per_channel=getattr(self, 'tracking_parameters_per_channel', {}),
-            primary_tracking_channel=getattr(self, 'primary_tracking_channel', None)
+            primary_tracking_channel=getattr(self, 'primary_tracking_channel', None),
+            
+            # Distance Colocalization Parameters
+            distance_coloc_results=getattr(self, 'distance_coloc_results', None)
         )
         try:
             meta.write_metadata()
         except Exception as e:
             print(f"Failed to export metadata file: {e}")
-
-    def export_metadata(self):
-        if self.data_folder_path is None:
-            QMessageBox.warning(self, "No Folder Selected", "Please load or select an image/folder first.")
-            return
-        default_filename = self.get_default_export_filename(prefix="Metadata", extension="txt")
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Metadata File",
-            default_filename,
-            "Text Files (*.txt);;All Files (*)",
-            options=options
-        )
-        if not file_path:
-            return
-            
-        # Re-use the logic from _export_metadata to avoid code duplication
-        self._export_metadata(file_path)
-        QMessageBox.information(self, "Export Success", f"Metadata saved to:\n{file_path}")
-
-
-
 
     def export_displayed_image_as_png(self):
         """Export the currently displayed image in high quality (300 dpi PNG)."""
@@ -11885,84 +13307,6 @@ class GUI(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")
 
-    def export_cellpose_masks_as_tiff(self):
-        """
-        Export Cellpose masks (cytosol and nucleus) as separate labeled TIFF files.
-        Supports both 2D YX masks and 3D TYX time-varying masks.
-        """
-        # Check for TYX masks first, then YX masks
-        has_cyto_tyx = self.cellpose_masks_cyto_tyx is not None
-        has_nuc_tyx = self.cellpose_masks_nuc_tyx is not None
-        has_cyto = self.cellpose_masks_cyto is not None
-        has_nuc = self.cellpose_masks_nuc is not None
-        
-        if not has_cyto and not has_nuc and not has_cyto_tyx and not has_nuc_tyx:
-            QMessageBox.warning(self, "No Cellpose Masks", 
-                                "No Cellpose masks available to export.\nRun Cellpose segmentation first.")
-            return
-        
-        # Ask user for base filename
-        default_filename = self.get_default_export_filename(prefix="cellpose_masks", extension="tif")
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Cellpose Masks (base filename)",
-            default_filename,
-            "TIFF Files (*.tif);;All Files (*)",
-            options=options
-        )
-        
-        if not file_path:
-            return
-        
-        # Remove extension to create base path
-        base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
-        
-        exported_files = []
-        try:
-            # Export TYX cytosol mask if available (priority over YX)
-            if has_cyto_tyx:
-                cyto_path = f"{base_path}_cytosol_TYX.tif"
-                # Save as uint16 for TYX (supports larger cell counts over time)
-                mask_cyto = np.asarray(self.cellpose_masks_cyto_tyx).astype(np.uint16)
-                tifffile.imwrite(cyto_path, mask_cyto, photometric='minisblack', 
-                                metadata={'axes': 'TYX'})
-                exported_files.append(f"Cytosol TYX: {cyto_path} (shape: {mask_cyto.shape})")
-            elif has_cyto:
-                cyto_path = f"{base_path}_cytosol.tif"
-                mask_cyto = self.cellpose_masks_cyto.astype(np.uint8)
-                tifffile.imwrite(cyto_path, mask_cyto, photometric='minisblack')
-                exported_files.append(f"Cytosol: {cyto_path}")
-            
-            # Export TYX nucleus mask if available (priority over YX)
-            if has_nuc_tyx:
-                nuc_path = f"{base_path}_nucleus_TYX.tif"
-                mask_nuc = np.asarray(self.cellpose_masks_nuc_tyx).astype(np.uint16)
-                tifffile.imwrite(nuc_path, mask_nuc, photometric='minisblack',
-                                metadata={'axes': 'TYX'})
-                exported_files.append(f"Nucleus TYX: {nuc_path} (shape: {mask_nuc.shape})")
-            elif has_nuc:
-                nuc_path = f"{base_path}_nucleus.tif"
-                mask_nuc = self.cellpose_masks_nuc.astype(np.uint8)
-                tifffile.imwrite(nuc_path, mask_nuc, photometric='minisblack')
-                exported_files.append(f"Nucleus: {nuc_path}")
-            
-            # Show success message
-            n_cyto = int(self.cellpose_masks_cyto.max()) if has_cyto else 0
-            n_nuc = int(self.cellpose_masks_nuc.max()) if has_nuc else 0
-            
-            msg = f"Cellpose masks exported successfully!\n\n"
-            if has_cyto_tyx or has_nuc_tyx:
-                msg += f"Format: 3D Time-Varying [T, Y, X]\n"
-            else:
-                msg += f"Format: 2D [Y, X]\n"
-            msg += f"Max cells per frame: {max(n_cyto, n_nuc)}\n\n"
-            msg += "Files:\n" + "\n".join(exported_files)
-            QMessageBox.information(self, "Export Success", msg)
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")
-
 
     def export_intensity_image(self):
         """
@@ -12190,6 +13534,8 @@ class GUI(QMainWindow):
             ("Export Correlation Image", "correlation"),
             ("Export Colocalization Image", "colocalization"),
             ("Export Colocalization Data", "colocalization_data"),
+            ("Export Distance Coloc Image", "distance_coloc_image"),
+            ("Export Distance Coloc Data", "distance_coloc_data"),
             ("Export Manual Colocalization Image", "colocalization_manual"),
             ("Export Manual Colocalization Data", "colocalization_manual_data"),
             ("Export Metadata File", "metadata"),
@@ -12506,6 +13852,14 @@ class GUI(QMainWindow):
 
     def calculate_msd_from_gui(self):
         """Calculate MSD using tracked particle data from the Tracking tab."""
+        
+        # Check for single-frame images (MSD requires at least 2 time points)
+        if getattr(self, 'total_frames', 0) < 2:
+            QMessageBox.warning(self, "Insufficient Data", 
+                "MSD analysis requires at least 2 time points.\n\n"
+                "Current image has only 1 frame. MSD measures how particles "
+                "move over time, which requires multiple frames.")
+            return
         
         # Check if tracking data exists
         if not hasattr(self, 'df_tracking') or self.df_tracking is None or len(self.df_tracking) == 0:
@@ -12976,18 +14330,22 @@ class GUI(QMainWindow):
     # Note: reset_crops_tab removed - Crops tab has been deprecated
 
     def reset_manual_colocalization(self):
-        """Reset manual colocalization state and UI elements."""
-        if hasattr(self, 'manual_scroll_area'):
-            self.manual_scroll_area.setWidget(QWidget())
-        if hasattr(self, 'manual_checkboxes'):
-            self.manual_checkboxes = []
-        if hasattr(self, 'manual_mean_crop'):
-            self.manual_mean_crop = None
-        if hasattr(self, 'df_manual_colocalization'):
-            self.df_manual_colocalization = pd.DataFrame()
-        if hasattr(self, 'manual_stats_label'):
-            self.manual_stats_label.setText("Total Spots: 0 | Colocalized: 0 | 0.00%")
-        self.manual_current_image_name = None
+        """Reset manual colocalization verification subtabs."""
+        # Reset Verify Visual
+        if hasattr(self, 'verify_visual_scroll_area'):
+            self.verify_visual_scroll_area.setWidget(QWidget())
+        if hasattr(self, 'verify_visual_checkboxes'):
+            self.verify_visual_checkboxes = []
+        if hasattr(self, 'verify_visual_stats_label'):
+            self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
+        
+        # Reset Verify Distance
+        if hasattr(self, 'verify_distance_scroll_area'):
+            self.verify_distance_scroll_area.setWidget(QWidget())
+        if hasattr(self, 'verify_distance_checkboxes'):
+            self.verify_distance_checkboxes = []
+        if hasattr(self, 'verify_distance_stats_label'):
+            self.verify_distance_stats_label.setText("Run Distance colocalization first, then click Populate")
 
     def reset_cellpose_tab(self):
         """Reset Cellpose tab state, masks, and UI controls to defaults."""
@@ -12999,27 +14357,27 @@ class GUI(QMainWindow):
         self.cellpose_masks_nuc_tyx = None
         self.use_tyx_masks = False
         
-        # Clear original masks (for expansion slider)
+        # Clear original masks (for size sliders)
         self._original_cellpose_masks_cyto = None
         self._original_cellpose_masks_nuc = None
         self._original_cellpose_masks_cyto_tyx = None
         self._original_cellpose_masks_nuc_tyx = None
         
-        # Reset expansion slider to 0
-        if hasattr(self, 'cell_expansion_slider'):
-            self.cell_expansion_slider.blockSignals(True)
-            self.cell_expansion_slider.setValue(0)
-            self.cell_expansion_slider.blockSignals(False)
-        if hasattr(self, 'expansion_value_label'):
-            self.expansion_value_label.setText("0")
+        # Reset cytosol size slider to 0
+        if hasattr(self, 'cyto_size_slider'):
+            self.cyto_size_slider.blockSignals(True)
+            self.cyto_size_slider.setValue(0)
+            self.cyto_size_slider.blockSignals(False)
+        if hasattr(self, 'cyto_size_label'):
+            self.cyto_size_label.setText("0")
         
-        # Reset shrink slider to 0
-        if hasattr(self, 'cell_shrink_slider'):
-            self.cell_shrink_slider.blockSignals(True)
-            self.cell_shrink_slider.setValue(0)
-            self.cell_shrink_slider.blockSignals(False)
-        if hasattr(self, 'shrink_value_label'):
-            self.shrink_value_label.setText("0")
+        # Reset nucleus size slider to 0
+        if hasattr(self, 'nuc_size_slider'):
+            self.nuc_size_slider.blockSignals(True)
+            self.nuc_size_slider.setValue(0)
+            self.nuc_size_slider.blockSignals(False)
+        if hasattr(self, 'nuc_size_label'):
+            self.nuc_size_label.setText("0")
         
 
         # Reset frame/channel indices
@@ -13070,11 +14428,10 @@ class GUI(QMainWindow):
         self.reset_distribution_tab()
         self.reset_time_course_tab()
         self.reset_correlation_tab()
-        self.reset_colocalization_tab()
+        self.reset_colocalization_tab()  # Includes Visual, Distance, and Manual sub-tabs
         # Note: Crops tab has been removed - reset_crops_tab() is deprecated
         self.reset_tracking_visualization_tab()
         self.reset_export_comment()
-        self.reset_manual_colocalization()
         self.reset_cellpose_tab()
         
         # Reset shared state variables
@@ -13121,12 +14478,12 @@ class GUI(QMainWindow):
             if self.tracked_channels:
                 # Multi-channel tracking: show each tracked channel
                 for ch in sorted(self.tracked_channels):
-                    self.distribution_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                    self.distribution_tracking_channel_combo.addItem(f"Ch {ch}", ch)
             elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
                 # Get unique spot_type values from data
                 unique_channels = sorted(self.df_tracking['spot_type'].unique())
                 for ch in unique_channels:
-                    self.distribution_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                    self.distribution_tracking_channel_combo.addItem(f"Ch {ch}", ch)
             else:
                 # No tracking data at all
                 self.distribution_tracking_channel_combo.addItem("No tracked channels", -1)
@@ -13599,11 +14956,11 @@ class GUI(QMainWindow):
         self.stop_all_playback()
         
         # Tab index mapping (must match order in initUI):
-        # Cellpose is now a sub-tab within Segmentation, not a separate tab
-        # 0=Import, 1=Registration, 2=Segmentation (includes Cellpose sub-tab), 
-        # 3=Photobleaching, 4=Tracking, 5=MSD, 6=Distribution, 7=Time Course, 
-        # 8=Correlation, 9=Colocalization, 10=Colocalization Manual, 
-        # 11=Tracking Visualization, 12=Crops, 13=Export
+        # Cellpose is now a sub-tab within Segmentation
+        # Coloc Manual is now a sub-tab within Colocalization (Phase 1 consolidation)
+        # 0=Import, 1=Registration, 2=Segmentation, 3=Photobleaching, 4=Tracking, 
+        # 5=MSD, 6=Distribution, 7=Time Course, 8=Correlation, 9=Colocalization,
+        # 10=Tracking Visualization, 11=Export
         if index == 0:  # Import
             self.plot_image()
         elif index == 1:  # Registration
@@ -13618,14 +14975,14 @@ class GUI(QMainWindow):
                     self.plot_segmentation()
             else:
                 self.plot_segmentation()
-        elif index == 3:  # Photobleaching (was 4)
+        elif index == 3:  # Photobleaching
             self.plot_photobleaching()
-        elif index == 4:  # Tracking (was 5)
+        elif index == 4:  # Tracking
             # Reset MSD results when returning to tracking tab (user may add new channels)
             self.reset_msd_tab()
             self.plot_tracking()
             self.update_threshold_histogram()
-        elif index == 5:  # MSD (was 6)
+        elif index == 5:  # MSD
             # Update tracking channel combo with tracked channels (single channel only)
             if hasattr(self, 'msd_tracking_channel_combo'):
                 self.msd_tracking_channel_combo.clear()
@@ -13633,18 +14990,18 @@ class GUI(QMainWindow):
                 if self.tracked_channels:
                     # Multi-channel tracking: show each tracked channel
                     for ch in sorted(self.tracked_channels):
-                        self.msd_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.msd_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
                     # Get unique spot_type values from data
                     unique_channels = sorted(self.df_tracking['spot_type'].unique())
                     for ch in unique_channels:
-                        self.msd_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.msd_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 else:
                     # No tracking data at all
                     self.msd_tracking_channel_combo.addItem("No tracked channels", -1)
-        elif index == 6:  # Distribution (was 7)
+        elif index == 6:  # Distribution
             self.plot_distribution()
-        elif index == 7:  # Time Course (was 8)
+        elif index == 7:  # Time Course
             # Update tracking channel combo with tracked channels (single channel only)
             if hasattr(self, 'time_course_tracking_channel_combo'):
                 self.time_course_tracking_channel_combo.clear()
@@ -13652,16 +15009,16 @@ class GUI(QMainWindow):
                 if self.tracked_channels:
                     # Multi-channel tracking: show each tracked channel
                     for ch in sorted(self.tracked_channels):
-                        self.time_course_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.time_course_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
                     # Get unique spot_type values from data
                     unique_channels = sorted(self.df_tracking['spot_type'].unique())
                     for ch in unique_channels:
-                        self.time_course_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.time_course_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 else:
                     # No tracking data at all
                     self.time_course_tracking_channel_combo.addItem("No tracked channels", -1)
-        elif index == 8:  # Correlation (was 9)
+        elif index == 8:  # Correlation
             # Update tracking channel combo with tracked channels (single channel only)
             if hasattr(self, 'correlation_tracking_channel_combo'):
                 self.correlation_tracking_channel_combo.clear()
@@ -13669,39 +15026,39 @@ class GUI(QMainWindow):
                 if self.tracked_channels:
                     # Multi-channel tracking: show each tracked channel
                     for ch in sorted(self.tracked_channels):
-                        self.correlation_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.correlation_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
                     # Get unique spot_type values from data
                     unique_channels = sorted(self.df_tracking['spot_type'].unique())
                     for ch in unique_channels:
-                        self.correlation_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.correlation_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 else:
                     # No tracking data at all
                     self.correlation_tracking_channel_combo.addItem("No tracked channels", -1)
             self.display_correlation_plot()
-        elif index == 9:  # Colocalization (was 10)
-            # Update tracking channel combo with tracked channels (single channel only)
+        elif index == 9:  # Colocalization (includes Visual, Distance, Manual sub-tabs)
+            # Update Visual (ML/Intensity) sub-tab tracking channel combo
             if hasattr(self, 'colocalization_tracking_channel_combo'):
                 self.colocalization_tracking_channel_combo.clear()
                 
                 if self.tracked_channels:
-                    # Multi-channel tracking: show each tracked channel
                     for ch in sorted(self.tracked_channels):
-                        self.colocalization_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.colocalization_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
-                    # Get unique spot_type values from data
                     unique_channels = sorted(self.df_tracking['spot_type'].unique())
                     for ch in unique_channels:
-                        self.colocalization_tracking_channel_combo.addItem(f"Channel {ch}", ch)
+                        self.colocalization_tracking_channel_combo.addItem(f"Ch {ch}", ch)
                 else:
-                    # No tracking data at all
                     self.colocalization_tracking_channel_combo.addItem("No tracked channels", -1)
                 
                 # Auto-sync Reference channel to match tracking channel
                 self.on_colocalization_tracking_channel_changed(0)
             
-            # Populate cell selector with available cells
+            # Populate cell selector with available cells (Visual sub-tab)
             self._populate_coloc_cell_selector()
+            
+            # Populate Distance sub-tab channel combos
+            self.populate_distance_channel_combos()
             
             self.display_colocalization_plot()
             if hasattr(self, 'canvas_colocalization'):
@@ -13711,9 +15068,7 @@ class GUI(QMainWindow):
                     except Exception:
                         pass
                 self.cid_zoom_coloc = self.canvas_colocalization.mpl_connect('motion_notify_event', self.on_colocalization_hover)
-        elif index == 10:  # Colocalization Manual (was 11)
-            self.display_colocalization_manual()
-        elif index == 11:  # Tracking Visualization (was 12)
+        elif index == 10:  # Tracking Visualization
             if not (getattr(self, 'has_tracked', False)) or self.df_tracking.empty:
                 # Silently reset the visualization tab without warning
                 self.reset_tracking_visualization_tab()
@@ -13736,10 +15091,11 @@ class GUI(QMainWindow):
             if self.tracked_particles_list.count() > 0 and self.tracked_particles_list.currentRow() < 0:
                 self.tracked_particles_list.setCurrentRow(0)
             self.display_tracking_visualization()
-        elif index == 12:  # Crops (was 13)
-            pass
-        elif index == 13:  # Export (was 14)
-            if hasattr(self, 'manual_checkboxes'):
+        elif index == 11:  # Export
+            # Check if any verification subtab has data
+            has_verify_data = (hasattr(self, 'verify_visual_checkboxes') and len(self.verify_visual_checkboxes) > 0) or \
+                              (hasattr(self, 'verify_distance_checkboxes') and len(self.verify_distance_checkboxes) > 0)
+            if has_verify_data:
                 self.extract_manual_colocalization_data(save_df=False)
 
 # =============================================================================

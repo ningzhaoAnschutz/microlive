@@ -208,6 +208,44 @@ The watershed algorithm automatically identifies cell boundaries based on intens
 - **Status Indicator**: Visual feedback shows current projection state
 - **Frame Selection**: Choose specific time points for segmentation
 
+### Cellpose Segmentation
+
+Cellpose provides deep learning-based cell segmentation that can automatically identify both cytosol and nucleus regions.
+
+#### Workflow
+
+1. **Select Model**: Choose the appropriate Cellpose model:
+   - **cyto3** (default): Best for cytoplasm segmentation
+   - **nuclei**: Optimized for nuclear segmentation
+2. **Set Diameter**: Enter the expected cell/nucleus diameter in pixels
+3. **Run Segmentation**: Click "Segment Cytosol" or "Segment Nucleus"
+4. **Adjust Size**: Use the Size Adjust slider to expand or shrink masks as needed
+
+#### Cellpose Parameters Reference
+
+| Parameter            | Component | Range              | Default | Description                         |
+|----------------------|-----------|--------------------| --------|-------------------------------------|
+| **Model**            | Cytosol   | cyto3, cyto2, cyto | cyto3   | Cytoplasm segmentation model        |
+| **Model**            | Nucleus   | nuclei, cyto3, etc.| nuclei  | Nuclear segmentation model          |
+| **Diameter**         | Both      | 0-1000 px          | 150/60  | Expected cell/nucleus diameter      |
+| **Optimize Parameters** | Both   | Boolean            | False   | Auto-optimize diameter              |
+| **Size Adjust**      | Both      | -20 to +20 px      | 0       | Expand (+) or shrink (-) masks      |
+
+#### Size Adjustment Slider
+
+Each segmentation component (Cytosol and Nucleus) has an independent **Size Adjust** slider:
+
+- **Center (0)**: Original mask size as detected by Cellpose
+- **Positive values (+1 to +20)**: Expand the mask using Voronoi-like growth
+- **Negative values (-1 to -20)**: Shrink the mask using morphological erosion
+
+This allows you to independently adjust cytosol and nucleus masks. For example, you can expand the cytosol mask by 5 pixels to capture peripheral signals while keeping the nucleus mask at its original size.
+
+#### Improve Segmentation Options
+
+- **Remove cells touching border**: Filter out partial cells at image edges
+- **Remove unpaired cells**: When both cytosol and nucleus are segmented, remove cells without matching nucleus (or vice versa)
+
 ## Photobleaching Correction
 
 Photobleaching correction compensates for the gradual loss of fluorescence intensity over time during imaging. The analysis fits decay models to intensity time courses and generates corrected image stacks.
@@ -218,7 +256,7 @@ The photobleaching correction implements a single exponential decay model:
 
 #### 1. Single Exponential Decay
 
-```
+```text
 I(t) = I₀ × exp(-τ t) + C
 ```
 
@@ -529,31 +567,31 @@ For algorithm implementation details, see [API Reference](api_reference.md#track
 
 - **Spot Intensity (Background Subtracted)**: Uses the disk and doughnut method where mean background intensity is subtracted from mean spot intensity:
 
-  ```
+```text
   I_spot = (1/s_spot²) × Σ I(x,y) in D - (1/(s_bg² - s_spot²)) × Σ I(x,y) in R
-  ```
+```
 
   Where D is the spot region (s_spot × s_spot) and R is the background annulus region.
 
 - **Total Spot Intensity**: Sum of all pixel intensities within the spot region D:
 
-  ```
+```text
   I_total = Σ I(x,y) for all (x,y) in D
-  ```
+```
 
 - **PSF Amplitude**: The peak intensity (I₀) obtained from 2D Gaussian fitting:
 
-  ```
+```text
   I_spot(x,y) = I_bg + I₀ × exp[-1/2 × ((x-x₀)²/σₓ² + (y-y₀)²/σᵧ²)]
-  ```
+```
 
 - **PSF Sigma**: The standard deviation (σₓ, σᵧ) from the 2D Gaussian fit, representing the spot width in pixels.
 
 - **Signal-to-Noise Ratio (SNR)**: Calculated as the difference between mean spot and background intensities divided by background standard deviation:
 
-  ```
+```text
   SNR = (mean_intensity_spot - mean_intensity_background) / std_background
-  ```
+```
 
 - **Spot Size (FWHM-based)**: Physical size measurements of detected particles calculated using Full Width at Half Maximum principles:
 
@@ -565,7 +603,7 @@ The spot size measurement combines two complementary approaches to accurately de
 
 When a 2D Gaussian PSF fit is successful, the spot size is derived from the fitted standard deviations:
 
-```
+```text
 FWHM = 2√(2ln2) × σₓᵧ ≈ 2.355 × σₓᵧ
 ```
 
@@ -602,7 +640,7 @@ The FWHM measurement provides the **effective diameter** of the fluorescent sign
 
 Spot sizes are automatically converted to nanometers using the pixel calibration:
 
-```
+```text
 spot_size_nm = spot_size_pixels × voxel_yx_nm
 ```
 
@@ -641,7 +679,7 @@ The autocorrelation analysis follows established protocols for extracting kineti
 
 The autocorrelation function is calculated as:
 
-```
+```text
 G(τ) = ⟨δI(t)·δI(t+τ)⟩ / ⟨I(t)⟩²
 ```
 
@@ -730,7 +768,7 @@ From the autocorrelation analysis, kinetic parameters can be estimated using the
 
 **Elongation Rate (k_e):**
 
-```
+```text
 k_e ≈ L / τ_c
 ```
 
@@ -738,7 +776,7 @@ Where L is the gene length (in amino acids or codons) and τ_c is the decorrelat
 
 **Initiation Rate (k_i):**
 
-```
+```text
 k_i ≈ 1 / (G(0) × τ_c)
 ```
 
@@ -784,7 +822,7 @@ MSD analysis quantifies particle mobility by measuring how far particles move ov
 
 The Mean Squared Displacement is defined as:
 
-```
+```text
 MSD(τ) = ⟨|r(t + τ) - r(t)|²⟩
 ```
 
@@ -798,13 +836,13 @@ For Brownian diffusion, MSD relates to the diffusion coefficient D:
 
 **2D Diffusion:**
 
-```
+```text
 MSD(τ) = 4Dτ
 ```
 
 **3D Diffusion:**
 
-```
+```text
 MSD(τ) = 6Dτ
 ```
 
@@ -1015,7 +1053,7 @@ Colocalization analysis determines whether particles detected in one channel (re
 
 #### 1. Data Population
 
-```
+```text
 Colocalization → Run Automated Analysis → Colocalization Manual → Populate
 ```
 

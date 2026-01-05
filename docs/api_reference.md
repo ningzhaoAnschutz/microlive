@@ -268,25 +268,6 @@ def compute_merged_image(self) -> np.ndarray:
         RGB image array [Y, X, 3] with values in [0, 1]
     """
 
-def colorize_single_channel(self, gray_img: np.ndarray, channel_index: int) -> np.ndarray:
-    """
-    Apply predefined colormap to single-channel image.
-    
-    Channel 0: Green, Channel 1: Magenta, Channel 2: Yellow
-    
-    Parameters
-    ----------
-    gray_img : np.ndarray
-        Grayscale input image (uint8)
-    channel_index : int
-        Channel index for color assignment
-        
-    Returns
-    -------
-    np.ndarray
-        3-channel colorized image
-    """
-
 def merge_color_channels(self) -> None:
     """Switch display to merged multi-channel mode."""
 
@@ -540,7 +521,7 @@ def get_default_export_filename(self, prefix: str = None, extension: str = None)
 def export_selected_items(self) -> None:
     """Batch export selected items from Export tab."""
 
-def export_metadata(self) -> None:
+def _export_metadata(self, file_path: str) -> None:
     """Export complete analysis parameters to text file."""
 ```
 

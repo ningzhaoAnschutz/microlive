@@ -10327,92 +10327,82 @@ class Plots():
     
 
 
-    def plot_matrix_pair_crops(self, mean_crop, crop_size=11, plot_name=None, save_plots=False,
-                            max_crops_to_display=None, flag_vector=None, selected_channels=(0, 1),
-                            spacer_size=2, figure=None, show_text_ds=False):
+    def plot_matrix_pair_crops(self, mean_crop, crop_size=11, plot_name=None, save_plots=False, plot_title=None,
+                            max_crops_to_display=None, flag_vector=None, selected_channels=(0, 1), number_columns=20,
+                            spacer_size=2, figure=None, show_text_ds=False, crop_spacing=5, flag_color="red"):
         """
-        Plot the cropped images with the option to select specific color channels.
-
-        Parameters:
-        - mean_crop: np.ndarray
-            The array containing the mean crops of particles.
-        - crop_size: int
-            The size of each crop (assumed square).
-        - plot_name: str
-            The name of the plot file to save (if saving).
-        - save_plots: bool
+        Plot pairs of image crops from different channels side by side in a grid layout.
+        
+        Creates a visualization where each crop shows two selected channels concatenated 
+        horizontally with a spacer between them. Crops are arranged in a grid format
+        and can be flagged with colored borders.
+        
+        Parameters
+        ----------
+        mean_crop : numpy.ndarray
+            3D array of shape (height, width, channels) containing the crop data.
+            Height should be divisible by crop_size to determine number of particles.
+        crop_size : int, default=11
+            Size of each individual crop in pixels (assumes square crops).
+        plot_name : str, optional
+            Filename for saving the plot (if save_plots=True).
+        save_plots : bool, default=False
             Whether to save the plot to a file.
-        - max_crops_to_display: int
-            Maximum number of crops to display.
-        - flag_vector: np.ndarray
-            A boolean vector indicating which crops to highlight.
-        - selected_channels: tuple
-            The indices of the channels to display side by side.
-        - spacer_size: int
-            The size of the spacer between images.
-        - figure: matplotlib.figure.Figure
-            The figure object to use for plotting.
-        - show_text_ds: bool
-            Whether to show text descriptions.
+        plot_title : str, optional
+            Title for the plot (not currently displayed).
+        max_crops_to_display : int, optional
+            Maximum number of crops to display. If None, displays all available crops.
+        flag_vector : array-like, optional
+            Boolean array indicating which crops to flag with colored borders.
+            Must have same length as number of crops.
+        selected_channels : tuple, default=(0, 1)
+            Tuple of two channel indices to display side by side.
+        number_columns : int, default=20
+            Number of columns in the grid layout. Higher = wider image.
+        spacer_size : int, default=2
+            Width of the white spacer between the two channels in each crop pair.
+        figure : matplotlib.figure.Figure, optional
+            Existing figure to use for plotting. If None, creates a new Figure.
+        show_text_ds : bool, default=False
+            Whether to show text (not currently used).
+        crop_spacing : int, default=5
+            Spacing between crops in the grid layout.
+        flag_color : str, default="red"
+            Color for flagging crops.
+        
+        Returns
+        -------
+        None
+            Modifies the provided figure or creates a new one with the crop visualization.
         """
-
         def resize_image_to_target(image, target_size):
-            """
-            Resize the image to the target size without changing its aspect ratio.
-            """
             image_pil = Image.fromarray(image)
             image_pil = image_pil.resize(target_size, Image.LANCZOS)
             return np.array(image_pil)
 
         number_color_channels = mean_crop.shape[-1]
         num_particles = mean_crop.shape[0] // crop_size
-
         if max_crops_to_display is None:
             max_crops_to_display = num_particles
         num_crops = min(num_particles, max_crops_to_display)
-
-        # Fixed grid size
-        fixed_num_cols = 10
-        fixed_num_rows = 6
-        fixed_total_plots = fixed_num_cols * fixed_num_rows  # 60
-
-        if num_crops > fixed_total_plots:
-            # Calculate additional rows needed
-            additional_crops = num_crops - fixed_total_plots
-            additional_rows = int(np.ceil(additional_crops / fixed_num_cols))
-            num_rows = fixed_num_rows + additional_rows
-            num_cols = fixed_num_cols
-        else:
-            num_rows = fixed_num_rows
-            num_cols = fixed_num_cols
-
-        # Adjust figure size
-        figsize = (num_cols, num_rows * 0.75)
-
-        if figure is None:
-            fig = Figure(figsize=figsize)
-        else:
-            fig = figure
-            fig.clear()  # Clear the figure before reusing it
-            fig.set_size_inches(figsize)
-
-        # Create a gridspec for subplots
-        #canvas = FigureCanvas(fig)  # Needed to render the figure in memory
-        axs = fig.subplots(num_rows, num_cols, squeeze=False)
-
+        num_rows = int(np.ceil(num_crops / number_columns))
+        single_crop_width = crop_size * 2 + spacer_size
+        single_crop_height = crop_size
+        total_crop_width = single_crop_width + crop_spacing * 2
+        total_crop_height = single_crop_height + crop_spacing * 2
+        canvas_width = number_columns * total_crop_width
+        canvas_height = num_rows * total_crop_height
+        background_color = 0
+        big_image = np.full((canvas_height, canvas_width, 3), background_color, dtype=np.uint8)
         idx = 0
-        total_subplots = num_rows * num_cols
         for row in range(num_rows):
-            for col in range(num_cols):
-                ax = axs[row, col]
+            for col in range(number_columns):
                 if idx < num_crops:
                     crop_img = mean_crop[idx * crop_size: (idx + 1) * crop_size, :, :]
-                    # Create a combined image with the two selected channels
                     combined_img_list = []
                     for ch in selected_channels:
                         if ch < number_color_channels:
                             channel_img = crop_img[:, :, ch]
-                            # Normalize the channel image
                             ch_min = np.nanmin(channel_img)
                             ch_max = np.nanmax(channel_img)
                             ch_range = ch_max - ch_min
@@ -10422,50 +10412,53 @@ class Plots():
                                 norm_channel_img = np.zeros_like(channel_img, dtype=np.uint8)
                             combined_img_list.append(norm_channel_img)
                         else:
-                            #print(f"Warning: Channel {ch} not found in crop ID {idx}.")
                             combined_img_list.append(np.zeros_like(crop_img[:, :, 0], dtype=np.uint8))
-                    # Create spacer image (white)
-                    spacer_value = 255  # White color for spacer
+                    spacer_value = 255
                     spacer_shape = (crop_size, spacer_size)
                     spacer = np.full(spacer_shape, spacer_value, dtype=np.uint8)
-                    # Concatenate images with spacer
-                    combined_img = np.concatenate([combined_img_list[0], spacer, combined_img_list[1]], axis=1)
-                    # Resize combined image
-                    target_size = (crop_size * 2 + spacer_size, crop_size)
-                    combined_img = resize_image_to_target(combined_img, target_size)
-                    # Convert combined_img to RGB
-                    combined_img_rgb = np.stack([combined_img, combined_img, combined_img], axis=-1)
-                    # Add red line at the top if flag_vector[idx] is True
-                    if flag_vector is not None and flag_vector[idx]:
-                        start_col = crop_size + spacer_size
-                        end_col = start_col + crop_size
-                        combined_img_rgb[0:2, start_col:end_col, 0] = 255  # Red channel
-                        combined_img_rgb[0:2, start_col:end_col, 1] = 0    # Green channel
-                        combined_img_rgb[0:2, start_col:end_col, 2] = 0    # Blue channel
-
-                    # Display the combined image
-                    ax.imshow(combined_img_rgb)
-                    if show_text_ds:
-                        ax.set_title(f'ID {idx}', fontsize=8)
-                else:
-                    if num_crops < fixed_total_plots:
-                        # Fill empty plots if total subplots are fixed
-                        empty_image = np.zeros((crop_size, crop_size * 2 + spacer_size, 3), dtype=np.uint8)
-                        ax.imshow(empty_image)
-                        ax.set_title('Empty', fontsize=8)
+                    # Dynamically concatenate images with spacers
+                    if len(combined_img_list) > 1:
+                        combined_parts = []
+                        for i, img in enumerate(combined_img_list):
+                            combined_parts.append(img)
+                            if i < len(combined_img_list) - 1:
+                                combined_parts.append(spacer)
+                        combined_img = np.concatenate(combined_parts, axis=1)
+                    elif len(combined_img_list) == 1:
+                        combined_img = combined_img_list[0]
                     else:
-                        # Hide unused subplots
-                        ax.axis('off')
-                ax.set_xticks([])
-                ax.set_yticks([])
-                ax.set_aspect('equal')
+                        # Should not happen given logic above, but safe fallback
+                        combined_img = np.zeros((crop_size, crop_size), dtype=np.uint8)
+                    target_size = (single_crop_width, single_crop_height)
+                    combined_img = resize_image_to_target(combined_img, target_size)
+                    combined_img_rgb = np.stack([combined_img, combined_img, combined_img], axis=-1)
+                    if flag_vector is not None and flag_vector[idx]:
+                        combined_img_rgb[0:2, :, 0] = 255
+                        combined_img_rgb[0:2, :, 1] = 0
+                        combined_img_rgb[0:2, :, 2] = 0
+                    start_y = row * total_crop_height + crop_spacing
+                    end_y = start_y + single_crop_height
+                    start_x = col * total_crop_width + crop_spacing
+                    end_x = start_x + single_crop_width
+                    big_image[start_y:end_y, start_x:end_x, :] = combined_img_rgb
                 idx += 1
-
-        # Adjust layout
-        fig.tight_layout()
+        if figure is None:
+            fig = Figure()
+        else:
+            fig = figure
+            fig.clear()
+        
+        # Add subplot with no padding to maximize image display area
+        ax = fig.add_subplot(111)
+        ax.imshow(big_image)
+        ax.axis('off')
+        
+        # Full-bleed layout - remove all padding to fill available space
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        fig.patch.set_facecolor('black')
 
         if save_plots and plot_name:
-            fig.savefig(plot_name, bbox_inches='tight')
+            fig.savefig(plot_name, bbox_inches='tight', dpi=300)
 
 
     def plot_single_particle(self, croparray, crop_size, selected_particle_idx, plot_name=None, suptitle=None,
