@@ -711,6 +711,362 @@ class Photobleaching:
         return corrected_image, photobleaching_data
 
 
+class AutoThreshold:
+    """Automatically determine optimal spot detection threshold.
+    
+    Implements a hybrid approach combining:
+    1. BigFISH L-curve breaking point (primary) - gradient-based elbow detection
+    2. TrueSpot-inspired Fano Factor fallback (for curves without clear elbow)
+    
+    Uses the same LoG filter and local maximum detection as BigFISH/TrackPy
+    to ensure consistency with the spot detection pipeline.
+    
+    Args:
+        image: 2D (Y,X) or 3D (Z,Y,X) fluorescence image.
+        voxel_size_yx: Pixel size in nm for XY dimensions. Defaults to 130.
+        voxel_size_z: Pixel size in nm for Z dimension (3D only). Defaults to 300.
+        yx_spot_size_in_px: Expected spot size in XY pixels. Defaults to 5.
+        z_spot_size_in_px: Expected spot size in Z pixels. Defaults to 2.
+        use_3d: Force 3D processing. Defaults to None (auto-detect from image).
+        
+    Attributes:
+        thresholds: Array of tested threshold values.
+        spot_counts: Log-scale spot counts at each threshold.
+        optimal_threshold: Automatically determined threshold.
+        method_used: Which algorithm was used ('bigfish' or 'fano').
+    
+    Example:
+        >>> auto = AutoThreshold(image_channel, voxel_size_yx=130, yx_spot_size_in_px=5)
+        >>> threshold = auto.calculate()
+        >>> print(f"Optimal threshold: {threshold} (method: {auto.method_used})")
+    """
+    
+    def __init__(self, image, voxel_size_yx=130, voxel_size_z=300, 
+                 yx_spot_size_in_px=5, z_spot_size_in_px=2, use_3d=None):
+        # Store original image
+        self.image = np.asarray(image, dtype=np.float32)
+        self.voxel_size_yx = voxel_size_yx
+        self.voxel_size_z = voxel_size_z
+        self.yx_spot_size_in_px = yx_spot_size_in_px
+        self.z_spot_size_in_px = z_spot_size_in_px
+        
+        # Determine dimensionality
+        if use_3d is not None:
+            self.is_3d = use_3d
+        else:
+            # Auto-detect: 3D if image has 3+ dimensions with Z > 1
+            self.is_3d = (self.image.ndim >= 3 and self.image.shape[0] > 1)
+        
+        # Initialize outputs
+        self.thresholds = None
+        self.spot_counts = None
+        self.optimal_threshold = None
+        self.method_used = None
+        self.filtered_image = None
+        self.local_max_mask = None
+    
+    def _calculate_sigma(self):
+        """Calculate sigma for LoG filter using same formula as BigFISH/TrackPy."""
+        if self.is_3d:
+            # 3D sigma calculation (matches BigFISH)
+            sigma = detection.get_object_radius_pixel(
+                voxel_size_nm=(self.voxel_size_z, self.voxel_size_yx, self.voxel_size_yx),
+                object_radius_nm=(
+                    self.voxel_size_z * (self.z_spot_size_in_px // 2),
+                    self.voxel_size_yx * (self.yx_spot_size_in_px // 2),
+                    self.voxel_size_yx * (self.yx_spot_size_in_px // 2)
+                ),
+                ndim=3
+            )
+        else:
+            # 2D sigma calculation (matches TrackPy)
+            sigma = detection.get_object_radius_pixel(
+                voxel_size_nm=(self.voxel_size_yx, self.voxel_size_yx),
+                object_radius_nm=(
+                    self.voxel_size_yx * (self.yx_spot_size_in_px // 2),
+                    self.voxel_size_yx * (self.yx_spot_size_in_px // 2)
+                ),
+                ndim=2
+            )
+        return sigma
+    
+    def _apply_log_filter(self):
+        """Apply LoG filter using same method as BigFISH/TrackPy."""
+        sigma = self._calculate_sigma()
+        
+        # Handle image shape
+        if self.is_3d:
+            img = self.image
+            if img.ndim == 2:
+                img = img[np.newaxis, :, :]  # Add Z dimension
+        else:
+            # For 2D, take max projection if 3D
+            if self.image.ndim >= 3:
+                img = np.max(self.image, axis=0)
+            else:
+                img = self.image
+        
+        # Apply LoG filter (same as BigFISH)
+        try:
+            self.filtered_image = stack.log_filter(img, sigma)
+        except ValueError:
+            # Fallback to Gaussian background removal
+            self.filtered_image = stack.remove_background_gaussian(img, sigma)
+        
+        return sigma
+    
+    def _find_local_maxima(self, sigma):
+        """Find local maxima using same method as BigFISH."""
+        self.local_max_mask = detection.local_maximum_detection(
+            self.filtered_image, 
+            min_distance=sigma
+        )
+    
+    def _get_candidate_thresholds(self):
+        """Generate candidate threshold values matching BigFISH's approach."""
+        # Get pixel values from filtered image (for threshold range)
+        pixel_values = self.filtered_image.ravel()
+        
+        # Use 0 to 99.99th percentile (matches BigFISH)
+        start_range = 0
+        end_range = int(np.percentile(pixel_values, 99.9999))
+        
+        if end_range < 100:
+            self.thresholds = np.linspace(start_range, end_range, num=100)
+        else:
+            self.thresholds = np.arange(start_range, end_range + 1, dtype=float)
+        
+        return self.thresholds
+    
+    def _count_spots_at_thresholds(self):
+        """Count spots at each threshold (log scale) matching BigFISH."""
+        # Get intensity values at local maxima
+        spots_initial, _ = detection.spots_thresholding(
+            self.filtered_image, 
+            self.local_max_mask, 
+            float(self.thresholds[0]), 
+            remove_duplicate=False
+        )
+        
+        if len(spots_initial) == 0:
+            self.spot_counts = np.zeros(len(self.thresholds))
+            return self.spot_counts
+        
+        # Get intensity values at spot locations
+        if self.is_3d:
+            value_spots = self.filtered_image[
+                spots_initial[:, 0], 
+                spots_initial[:, 1], 
+                spots_initial[:, 2]
+            ]
+        else:
+            value_spots = self.filtered_image[
+                spots_initial[:, 0], 
+                spots_initial[:, 1]
+            ]
+        
+        # Count spots above each threshold (log scale)
+        count_spots = np.array([
+            np.log(max(1, np.count_nonzero(value_spots > t)))  # log(1) = 0 for empty
+            for t in self.thresholds
+        ])
+        
+        # Apply centered moving average (n=5) for smoothing
+        kernel_size = 5
+        if len(count_spots) >= kernel_size:
+            kernel = np.ones(kernel_size) / kernel_size
+            count_spots = np.convolve(count_spots, kernel, mode='same')
+        
+        # Trim tail where log count < 2 (matches BigFISH)
+        valid_mask = count_spots > 2
+        if np.any(valid_mask):
+            last_valid = np.where(valid_mask)[0][-1] + 1
+            self.spot_counts = count_spots[:last_valid]
+            self.thresholds = self.thresholds[:last_valid]
+        else:
+            self.spot_counts = count_spots
+        
+        return self.spot_counts
+    
+    def _bigfish_breaking_point(self):
+        """Find breaking point using BigFISH's gradient-based method."""
+        if len(self.spot_counts) < 3:
+            return float(self.thresholds[len(self.thresholds) // 2])
+        
+        y = self.spot_counts
+        x = self.thresholds[:len(y)]
+        
+        # Overall slope
+        slope = (y[-1] - y[0]) / len(y)
+        
+        # Gradient at each point
+        y_grad = np.gradient(y)
+        
+        # Find transition: gradient goes from < slope to >= slope
+        above_slope = (y_grad >= slope)
+        
+        # Skip initial steep region (find first point below slope)
+        below_slope_indices = np.where(~above_slope)[0]
+        if len(below_slope_indices) == 0:
+            return float(x[len(x) // 2])
+        
+        j = below_slope_indices[0]
+        
+        # Find where it becomes plateau again
+        remaining = above_slope[j:]
+        if np.any(remaining):
+            transition_idx = j + np.argmax(remaining)
+        else:
+            transition_idx = len(x) - 1
+        
+        return float(x[min(transition_idx, len(x) - 1)])
+    
+    def _fano_factor_method(self, window_sizes=None):
+        """Calculate threshold using Fano Factor sliding window (TrueSpot-inspired)."""
+        if window_sizes is None:
+            window_sizes = [5, 10, 15]
+        
+        if len(self.spot_counts) < max(window_sizes) + 1:
+            return float(self.thresholds[len(self.thresholds) // 2])
+        
+        # First derivative of spot count curve (absolute value)
+        diff = np.abs(np.diff(self.spot_counts))
+        
+        suggestions = []
+        for window_size in window_sizes:
+            if len(diff) <= window_size:
+                continue
+                
+            fano = []
+            for i in range(len(diff) - window_size):
+                window = diff[i:i + window_size]
+                mean_val = np.mean(window)
+                if mean_val > 1e-10:
+                    fano.append(np.var(window) / mean_val)
+                else:
+                    fano.append(0)
+            
+            if len(fano) > 0:
+                # Find peak Fano factor (transition point)
+                peak_idx = np.argmax(fano)
+                if peak_idx < len(self.thresholds):
+                    suggestions.append(self.thresholds[peak_idx])
+        
+        if suggestions:
+            return float(np.median(suggestions))
+        else:
+            return float(self.thresholds[len(self.thresholds) // 2])
+    
+    def _has_valid_elbow(self):
+        """Check if the spot count curve has a distinct elbow shape."""
+        if len(self.spot_counts) < 5:
+            return False
+        
+        y = self.spot_counts
+        
+        # Check if there's sufficient dynamic range
+        y_range = np.max(y) - np.min(y)
+        if y_range < 1.0:  # Less than e^1 fold change
+            return False
+        
+        # Check if gradient has clear transition
+        gradient = np.gradient(y)
+        grad_range = np.max(gradient) - np.min(gradient)
+        
+        # A good elbow should have significant gradient variation
+        return grad_range > 0.1
+    
+    def _map_to_raw_threshold(self):
+        """Map filtered image threshold back to raw image threshold."""
+        # The filtered threshold is in the LoG-filtered space
+        # We need to map it back to raw intensity space for the histogram
+        
+        if self.optimal_threshold is None:
+            return 0
+        
+        # Get the percentile of our threshold in the filtered image
+        filtered_positive = self.filtered_image[self.filtered_image > 0]
+        if len(filtered_positive) == 0:
+            return self.optimal_threshold
+        
+        filtered_min = np.percentile(filtered_positive, 1)
+        filtered_max = np.percentile(filtered_positive, 99.9)
+        
+        if filtered_max <= filtered_min:
+            return self.optimal_threshold
+        
+        # Calculate what percentile our threshold is
+        threshold_percentile = (self.optimal_threshold - filtered_min) / (filtered_max - filtered_min)
+        threshold_percentile = np.clip(threshold_percentile, 0.01, 0.99)
+        
+        # Map to raw image space
+        raw_positive = self.image[self.image > 0]
+        if len(raw_positive) == 0:
+            return self.optimal_threshold
+        
+        raw_min = np.percentile(raw_positive, 1)
+        raw_max = np.percentile(raw_positive, 99.9)
+        
+        raw_threshold = raw_min + threshold_percentile * (raw_max - raw_min)
+        
+        return float(raw_threshold)
+    
+    def calculate(self):
+        """Calculate optimal threshold using hybrid approach.
+        
+        Returns:
+            float: Optimal threshold value in RAW image intensity space.
+        """
+        # Step 1: Apply LoG filter
+        sigma = self._apply_log_filter()
+        
+        # Step 2: Find local maxima
+        self._find_local_maxima(sigma)
+        
+        # Step 3: Generate candidate thresholds
+        self._get_candidate_thresholds()
+        
+        # Step 4: Count spots at each threshold
+        self._count_spots_at_thresholds()
+        
+        if len(self.spot_counts) < 3:
+            # Not enough data, use median of raw image
+            self.optimal_threshold = float(np.percentile(self.image[self.image > 0], 75))
+            self.method_used = 'fallback'
+            return self.optimal_threshold
+        
+        # Step 5: Try BigFISH method first
+        threshold_bigfish = self._bigfish_breaking_point()
+        
+        # Step 6: Validate - does the curve have a clear elbow?
+        if self._has_valid_elbow():
+            self.optimal_threshold = threshold_bigfish
+            self.method_used = 'bigfish'
+        else:
+            # Fallback to Fano Factor method
+            threshold_fano = self._fano_factor_method()
+            self.optimal_threshold = threshold_fano
+            self.method_used = 'fano'
+        
+        # Step 7: Map back to raw image space
+        raw_threshold = self._map_to_raw_threshold()
+        
+        return raw_threshold
+    
+    def get_elbow_data(self):
+        """Get the elbow curve data for visualization.
+        
+        Returns:
+            dict: Contains 'thresholds', 'spot_counts', 'optimal_threshold', 'method'.
+        """
+        return {
+            'thresholds': self.thresholds,
+            'spot_counts': self.spot_counts,
+            'optimal_threshold': self.optimal_threshold,
+            'method': self.method_used
+        }
+
+
 class ReadLif:
     """Read Leica .lif files and extract images with metadata.
     

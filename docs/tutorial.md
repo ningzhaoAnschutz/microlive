@@ -290,6 +290,7 @@ Detect particles and link them into trajectories for dynamic analysis.
    - Red line shows current threshold on histogram
    - Aim for 3-5× background level
    - Balance sensitivity vs. false detections
+   - **Alternatively**: Click the **"Auto"** button for automated threshold detection using a hybrid approach that combines methods from Big-FISH and TrueSpot
 
 ### Step 3: Detection Parameters
 

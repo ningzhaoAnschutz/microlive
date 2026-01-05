@@ -958,6 +958,7 @@ class GUI(QMainWindow):
         self.index_max_lag_for_fit = None
         self.threshold_spot_detection = 0
         self.user_selected_threshold = 0.0
+        self.auto_threshold_per_channel = {}  # {channel: threshold} - auto-detected thresholds
         self.image_source_combo_value = "Original Image"
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
@@ -6528,6 +6529,87 @@ class GUI(QMainWindow):
         # Redraw histogram without threshold line
         self.update_threshold_histogram()
 
+    def on_auto_threshold_clicked(self):
+        """Handle auto-threshold button click - calculate optimal threshold automatically."""
+        if self.image_stack is None:
+            self.statusBar().showMessage("No image loaded")
+            return
+        
+        channel = self.current_channel
+        
+        # Get current image source (follows pipeline: corrected > registered > original)
+        image_to_use = self.get_current_image_source()
+        if image_to_use is None:
+            self.statusBar().showMessage("No image available")
+            return
+        
+        # Show progress
+        self.statusBar().showMessage("Calculating optimal threshold...")
+        QApplication.processEvents()
+        
+        try:
+            # Get current frame's image for this channel
+            # Shape: [Z, Y, X]
+            image_channel = image_to_use[self.current_frame, :, :, :, channel]
+            
+            # Determine if using 3D or 2D mode
+            use_3d = not self.use_maximum_projection
+            
+            # Get voxel sizes
+            voxel_yx = getattr(self, 'voxel_yx_nm', 130.0)
+            voxel_z = getattr(self, 'voxel_z_nm', 300.0)
+            
+            # Get spot sizes
+            yx_spot_size = getattr(self, 'yx_spot_size_in_px', 5)
+            z_spot_size = getattr(self, 'z_spot_size_in_px', 2)
+            
+            # Calculate threshold using AutoThreshold class
+            auto_thresh = mi.AutoThreshold(
+                image=image_channel,
+                voxel_size_yx=voxel_yx,
+                voxel_size_z=voxel_z,
+                yx_spot_size_in_px=yx_spot_size,
+                z_spot_size_in_px=z_spot_size,
+                use_3d=use_3d
+            )
+            threshold = auto_thresh.calculate()
+            method_used = auto_thresh.method_used
+            
+            # Store per-channel
+            self.auto_threshold_per_channel[channel] = threshold
+            
+            # Update user_selected_threshold
+            self.user_selected_threshold = threshold
+            
+            # Update slider range if needed (ensure threshold fits)
+            current_max = self.threshold_slider.maximum()
+            if threshold > current_max:
+                self.threshold_slider.setMaximum(int(threshold * 1.2))
+            
+            # Update slider (block signals to prevent recursion)
+            self.threshold_slider.blockSignals(True)
+            self.threshold_slider.setValue(int(threshold))
+            self.threshold_slider.blockSignals(False)
+            
+            # Update value label
+            if hasattr(self, 'threshold_value_label'):
+                self.threshold_value_label.setText(f"Value: {int(threshold)}")
+            
+            # Update histogram with threshold line
+            self.update_threshold_histogram()
+            
+            # Auto-run single frame detection
+            self.detect_spots_in_current_frame()
+            
+            # Show result
+            self.statusBar().showMessage(
+                f"Auto-threshold Ch{channel}: {int(threshold)} (method: {method_used})"
+            )
+            
+        except Exception as e:
+            traceback.print_exc()
+            self.statusBar().showMessage(f"Auto-threshold failed: {str(e)}")
+
     def on_image_source_changed(self):
         self.image_source_combo_value = self.image_source_combo.currentText()
         self.plot_tracking()
@@ -6658,10 +6740,28 @@ class GUI(QMainWindow):
         if hasattr(self, 'tracking_max_proj_status_label'):
             self.tracking_max_proj_status_label.setText("2D Projection is ON" if is_2d else "2D Projection is OFF")
         
-        # Re-run spot detection if a threshold has been selected to update the display
-        if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None and self.user_selected_threshold > 0:
-            if self.image_stack is not None:
-                self.detect_spots_in_current_frame()
+        # Reset threshold when switching modes (2D/3D use different algorithms)
+        # The threshold calculated for 2D is not valid for 3D and vice versa
+        if hasattr(self, 'auto_threshold_per_channel'):
+            self.auto_threshold_per_channel.clear()  # Clear all auto-thresholds
+        
+        # Reset user threshold and slider
+        self.user_selected_threshold = None
+        if hasattr(self, 'threshold_slider'):
+            self.threshold_slider.blockSignals(True)
+            self.threshold_slider.setValue(0)
+            self.threshold_slider.blockSignals(False)
+        if hasattr(self, 'threshold_value_label'):
+            self.threshold_value_label.setText("Value: --")
+        
+        # Clear any detected spots
+        self.detected_spots_frame = None
+        
+        # Update histogram (without threshold line)
+        self.update_threshold_histogram()
+        
+        # Redraw tracking plot (will show no spots)
+        self.plot_tracking()
 
     def _update_tracking_mode_buttons(self):
         """Update the visual state of 2D/3D toggle buttons."""
@@ -8160,6 +8260,7 @@ class GUI(QMainWindow):
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
+        self.auto_threshold_per_channel = {}
         self.tracking_parameters_per_channel = {}
         self.primary_tracking_channel = None
         self.df_tracking = pd.DataFrame()
@@ -8173,6 +8274,7 @@ class GUI(QMainWindow):
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
+        self.auto_threshold_per_channel = {}
         self.tracking_parameters_per_channel = {}
         self.primary_tracking_channel = None
         self.df_tracking = pd.DataFrame()
@@ -8497,6 +8599,31 @@ class GUI(QMainWindow):
         slider_instruction_layout.addWidget(instruction_label)
         
         slider_instruction_layout.addStretch()
+        
+        # Auto-threshold button (compact, matching slider color)
+        self.auto_threshold_btn = QPushButton("Auto")
+        self.auto_threshold_btn.setFixedWidth(45)
+        self.auto_threshold_btn.setFixedHeight(20)
+        self.auto_threshold_btn.setToolTip("Auto-detect optimal threshold")
+        self.auto_threshold_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00d4aa;
+                color: #1a1a1a;
+                border: none;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background-color: #00e5bb;
+            }
+            QPushButton:pressed {
+                background-color: #00b894;
+            }
+        """)
+        self.auto_threshold_btn.clicked.connect(self.on_auto_threshold_clicked)
+        slider_instruction_layout.addWidget(self.auto_threshold_btn)
         
         self.threshold_value_label = QLabel("Value: --")
         self.threshold_value_label.setStyleSheet("color: #00d4aa; font-size: 11px; font-weight: bold;")
@@ -13755,6 +13882,7 @@ class GUI(QMainWindow):
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
+        self.auto_threshold_per_channel = {}
         self.tracking_parameters_per_channel = {}
         self.primary_tracking_channel = None
         self.has_tracked = False
@@ -14460,6 +14588,7 @@ class GUI(QMainWindow):
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
+        self.auto_threshold_per_channel = {}
         self.tracking_parameters_per_channel = {}
         self.primary_tracking_channel = None
         

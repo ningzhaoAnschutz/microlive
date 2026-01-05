@@ -499,6 +499,10 @@ When using 3D tracking with cluster detection, you get:
 - **Maximum Projection**: Use 2D projection for detection
 - **Random Spots**: Generate control spots for validation
 
+### Automated Threshold Detection
+
+MicroLive provides automated threshold detection using a hybrid approach that combines methods from Big-FISH and TrueSpot. The primary method generates a curve of spot counts versus threshold values and identifies the transition point where the curve changes from a steep decrease to a plateau. For images lacking a distinct transition, a fallback method analyzes the variability in the derivative of the spot count curve. Users can click the **"Auto"** button to calculate and apply the optimal threshold, with independent storage per channel for multi-channel experiments.
+
 ### Linking Parameters
 
 - **Search Range**: Maximum distance for linking particles between frames
