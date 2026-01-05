@@ -132,7 +132,8 @@ This project is licensed under the GNU General Public License v3 (GPLv3). See [L
 
 If you use MicroLive in your research, please cite:
 
-> **Aguilera LU, Raymond WS, Sears RM, Nowling NL, Munsky B, Zhao N.** *MicroLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* bioRxiv, 2025.
+> **Aguilera LU, Raymond WS, Sears RM, Nowling NL, Munsky B, Zhao N.** *MicroLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* bioRxiv, 2025.  
+> DOI: [10.1101/2025.09.25.678587](https://doi.org/10.1101/2025.09.25.678587)
 
 ```bibtex
 @article{aguilera2025microlive,
@@ -141,7 +142,8 @@ If you use MicroLive in your research, please cite:
   journal={bioRxiv},
   pages={2025--09},
   year={2025},
-  publisher={Cold Spring Harbor Laboratory}
+  publisher={Cold Spring Harbor Laboratory},
+  doi={10.1101/2025.09.25.678587}
 }
 ```
 
