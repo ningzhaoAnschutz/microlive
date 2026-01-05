@@ -1,14 +1,8 @@
-# MicroLive `<img src="docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />`
+# MicroLive <img src="docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />
 
 **Authors:** Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao
 
-[![Documentation](https://img.shields.io/badge/docs-available-brightgreen.svg)](docs/user_guide.md)
-[![Tutorial](https://img.shields.io/badge/tutorial-step--by--step-orange.svg)](docs/tutorial.md)
-[![API Reference](https://img.shields.io/badge/API-reference-blue.svg)](docs/api_reference.md)
-
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-312/)
-[![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)](https://pypi.org/project/PyQt5/)
+[![Documentation](https://img.shields.io/badge/docs-available-brightgreen.svg)](docs/user_guide.md) [![Tutorial](https://img.shields.io/badge/tutorial-step--by--step-orange.svg)](docs/tutorial.md) [![API Reference](https://img.shields.io/badge/API-reference-blue.svg)](docs/api_reference.md) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-312/) [![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)](https://pypi.org/project/PyQt5/)
 
 ## About
 
