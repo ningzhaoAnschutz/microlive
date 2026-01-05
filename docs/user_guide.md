@@ -625,12 +625,12 @@ The clustering analysis follows this workflow:
    - **Individual spots** (`cluster_size = 1`): Isolated spots not part of any cluster
    - **Clustered spots** (`cluster_size > 1`): The number indicates how many individual spots were detected within the cluster
 
-**3. Hybrid Size Calculation:**
+**3. PSF Size Calculation:**
 
-The final `spot_size` value reported in the tracking DataFrame uses a context-dependent approach:
+The `psf_sigma_ch_N` column in the tracking DataFrame contains the spot size from PSF fitting:
 
-- **Individual spots** (`cluster_size = 1`): Uses PSF-based FWHM if fitting succeeded, otherwise uses default detection aperture size
-- **Failed fits**: Falls back `np.NAN`
+- **Individual spots** (`cluster_size = 1`): Uses PSF-based sigma (σ) if fitting succeeded
+- **Failed fits**: Contains `NaN` values
 
 #### Physical Interpretation
 
@@ -652,7 +652,7 @@ This approach ensures accurate size measurements across different imaging condit
 
 **Usage:**
 
-1. Select "spot_size" from the field dropdown menu
+1. Select "psf_sigma" from the field dropdown menu (this provides the PSF width used to calculate spot size)
 2. Choose the channel for analysis
 3. Set percentile ranges to filter outliers (default: 0-99.5%)
 4. Click "Plot Histogram" to generate the distribution
