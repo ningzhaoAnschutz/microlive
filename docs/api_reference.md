@@ -96,6 +96,9 @@ link_using_3d_coordinates: bool  # Use Z coordinates for linking (default: True)
 cluster_radius_nm: int           # Cluster radius in nm (range: 100-2000, default: 500)
 maximum_spots_cluster: int       # Max spots per cluster (range: 0-1000, default: None)
 separate_clusters_and_spots: bool # Separate cluster/spot analysis (default: False)
+
+# Automatic Threshold Detection
+auto_threshold_per_channel: dict  # {channel: threshold} - automatically detected thresholds per channel
 ```
 
 **Segmentation Parameters:**
@@ -705,6 +708,73 @@ class DataProcessing:
         -------
         pd.DataFrame
             Processed results with cellular localization and intensity data
+        """
+```
+
+### AutoThreshold Class
+
+```python
+class AutoThreshold:
+    """
+    Automatically determine optimal spot detection threshold.
+    
+    Implements a hybrid approach combining methods from Big-FISH and TrueSpot
+    for robust threshold selection across diverse imaging conditions:
+    
+    1. Primary method (Big-FISH): Generates a curve of spot counts versus 
+       threshold values and identifies the transition point where the curve 
+       changes from a steep decrease to a plateau.
+    
+    2. Fallback method (TrueSpot-inspired): For images lacking a distinct 
+       transition point, analyzes the variability in the derivative of the 
+       spot count curve to find the optimal threshold.
+    
+    Uses the same LoG filter and local maximum detection as BigFISH/TrackPy
+    to ensure consistency with the spot detection pipeline.
+    
+    This class corresponds to the "Auto" button in the Tracking tab GUI.
+    
+    Attributes
+    ----------
+    thresholds : ndarray
+        Array of tested threshold values.
+    spot_counts : ndarray
+        Log-scale spot counts at each threshold.
+    optimal_threshold : float
+        Automatically determined threshold.
+    method_used : str
+        Which algorithm was used ('bigfish' or 'fano').
+    """
+    
+    def __init__(self, image, voxel_size_yx=130, voxel_size_z=300,
+                 yx_spot_size_in_px=5, z_spot_size_in_px=2, use_3d=None):
+        """
+        Initialize automatic threshold detection.
+        
+        Parameters
+        ----------
+        image : ndarray
+            2D (Y,X) or 3D (Z,Y,X) fluorescence image
+        voxel_size_yx : float, default=130
+            Pixel size in nm for XY dimensions
+        voxel_size_z : float, default=300
+            Pixel size in nm for Z dimension (3D only)
+        yx_spot_size_in_px : int, default=5
+            Expected spot size in XY pixels
+        z_spot_size_in_px : int, default=2
+            Expected spot size in Z pixels
+        use_3d : bool, optional
+            Force 3D processing. Defaults to None (auto-detect from image)
+        """
+    
+    def calculate(self) -> float:
+        """
+        Calculate and return the optimal threshold.
+        
+        Returns
+        -------
+        float
+            Optimal threshold value for spot detection
         """
 ```
 

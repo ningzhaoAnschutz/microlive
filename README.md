@@ -19,34 +19,18 @@
 
 ## Features
 
-- **Multi-format image loading** (.lif, .tif, .ome.tif) with automatic metadata extraction
-- **Image registration** for drift correction across time-lapse acquisitions
-- **Cell segmentation** via Cellpose (GPU-accelerated), watershed, or manual drawing
-- **Particle tracking** with customizable spot detection, trajectory linking, and clustering
-- **Diffusion analysis** (MSD) with per-cell diffusion coefficient calculation
-- **Colocalization** using ML-based or intensity-based methods with manual verification
-- **Statistical analysis** including distributions, time courses, and correlation (auto/cross)
-- **Photobleaching correction** with exponential decay modeling
-- **Export** to PNG, TIFF, CSV, MP4/GIF with comprehensive metadata logging
-
----
-
-## GUI Tabs
-
-| Tab | Description |
-|-----|-------------|
-| Import | Load images, manage files, adjust display settings |
-| Registration | Correct drift and align time-lapse images |
-| Segmentation | Cell segmentation (Watershed, Cellpose, Manual, Import) |
-| Photobleaching | Correct for fluorescence decay over time |
-| Tracking | Detect spots, link trajectories, analyze clusters |
-| MSD | Calculate diffusion coefficients from trajectories |
-| Distribution | Histogram analysis of particle properties |
-| Time Course | Temporal analysis of spot intensities |
-| Correlation | Auto- and cross-correlation analysis |
-| Coloc / Coloc Edit | Colocalization analysis and manual verification |
-| Visualization | Trajectory display and video export |
-| Export | Batch export of all analysis results |
+- **Image I/O**: Load .lif, .tif, .ome.tif with metadata extraction and dimension mapping
+- **Registration**: Drift correction via phase correlation
+- **Segmentation**: Cellpose (GPU), watershed, manual ROI, or external mask import
+- **Photobleaching correction**: Exponential decay modeling
+- **Particle tracking**: 2D (TrackPy) and 3D (Big-FISH) detection with multi-channel support
+- **Automated threshold detection**: Hybrid Big-FISH/TrueSpot method
+- **Trajectory linking**: Nearest-neighbor with memory and cluster analysis
+- **Intensity quantification**: Background subtraction, PSF fitting, SNR calculation
+- **Colocalization**: CNN-based, distance-based, and manual verification
+- **MSD analysis**: Per-cell diffusion coefficient calculation
+- **Correlation**: Auto- and cross-correlation with exponential/linear fitting
+- **Export**: PNG, TIFF, CSV, MP4/GIF with full metadata logging
 
 ---
 
@@ -74,14 +58,14 @@ cd microlive
 **macOS (Apple Silicon):**
 
 ```bash
-conda env create -f micro_mac.yml
+conda env create -f installation/micro_mac.yml
 conda activate micro_mac
 ```
 
 **Windows (NVIDIA GPU):**
 
 ```bash
-conda env create -f micro_windows.yml
+conda env create -f installation/micro_windows.yml
 conda activate micro_windows
 ```
 
@@ -89,10 +73,10 @@ conda activate micro_windows
 
 ```bash
 # macOS
-pip install -r requirements_mac.txt
+pip install -r installation/requirements_mac.txt
 
 # Windows (with CUDA GPU support)
-pip install -r requirements_windows.txt
+pip install -r installation/requirements_windows.txt
 ```
 
 ---
@@ -133,17 +117,13 @@ microlive/
 │   └── api_reference.md          # API documentation
 ├── modeling/                     # Machine learning models
 ├── notebooks/                    # Example Jupyter notebooks
-├── micro_mac.yml                 # Conda environment (macOS)
-├── micro_windows.yml             # Conda environment (Windows GPU)
-├── requirements_mac.txt          # Pip dependencies (macOS)
-└── requirements_windows.txt      # Pip dependencies (Windows GPU)
+├── installation/                 # Environment and dependency files
+│   ├── micro_mac.yml             # Conda environment (macOS)
+│   ├── micro_windows.yml         # Conda environment (Windows GPU)
+│   ├── requirements_mac.txt      # Pip dependencies (macOS)
+│   └── requirements_windows.txt  # Pip dependencies (Windows GPU)
+└── LICENSE                       # GPL v3 License
 ```
-
----
-
-## Contributing
-
-We welcome contributions! Please submit issues and pull requests via [GitHub](https://github.com/ningzhaoAnschutz/microlive).
 
 ---
 
@@ -176,4 +156,4 @@ If you use MicroLive in your research, please cite:
 ## Support
 
 - **Documentation**: [User Guide](docs/user_guide.md) | [Tutorial](docs/tutorial.md) | [API Reference](docs/api_reference.md)
-- **Issues**: [GitHub Issues](https://github.com/ningzhaoAnschutz/microlive/issues)
+- **Issues & Contributions**: [GitHub](https://github.com/ningzhaoAnschutz/microlive/issues)
