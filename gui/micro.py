@@ -9595,17 +9595,18 @@ class GUI(QMainWindow):
         decorr_top_label.setStyleSheet("font-size: 10px;")
         decorr_layout.addWidget(decorr_top_label)
         
-        # Slider range: -50 to 100 maps to -0.50 to 1.00
+        # Slider range: -500 to 1000 maps to -0.500 to 1.000 (0.001 resolution)
         # This allows threshold to go into negative ACF values
         self.decorr_threshold_slider = QSlider(Qt.Vertical)
-        self.decorr_threshold_slider.setRange(-50, 100)  # Maps to -0.50 to 1.00
-        self.decorr_threshold_slider.setValue(1)  # Default 0.01
+        self.decorr_threshold_slider.setRange(-500, 1000)  # Maps to -0.500 to 1.000
+        self.decorr_threshold_slider.setValue(10)  # Default 0.010
         self.decorr_threshold_slider.setInvertedAppearance(True)  # Higher values at top
-        self.decorr_threshold_slider.valueChanged.connect(self._on_decorr_slider_changed)
+        self.decorr_threshold_slider.valueChanged.connect(self._on_decorr_slider_label_update)  # Update label only
+        self.decorr_threshold_slider.sliderReleased.connect(self._on_decorr_slider_released)  # Recompute on release
         self.decorr_threshold_slider.setToolTip("Decorrelation threshold for dwell time calculation\n(Can be negative to match ACF minimum)")
         decorr_layout.addWidget(self.decorr_threshold_slider, stretch=1)
         
-        self.decorr_value_label = QLabel("0.01")
+        self.decorr_value_label = QLabel("0.010")
         self.decorr_value_label.setAlignment(Qt.AlignCenter)
         self.decorr_value_label.setStyleSheet("font-size: 10px; font-weight: bold;")
         decorr_layout.addWidget(self.decorr_value_label)
@@ -9829,6 +9830,13 @@ class GUI(QMainWindow):
         self.multiTauCheck.stateChanged.connect(self.update_multi_tau)
         quality_layout.addWidget(self.multiTauCheck)
         
+        # Show Individual Traces
+        self.show_individual_traces_checkbox = QCheckBox("Show Individual Traces")
+        self.show_individual_traces_checkbox.setChecked(False)
+        self.show_individual_traces_checkbox.setToolTip("Plot individual trajectory ACFs behind the mean (can slow down rendering)")
+        self.show_individual_traces_checkbox.stateChanged.connect(self._on_show_traces_changed)
+        quality_layout.addWidget(self.show_individual_traces_checkbox)
+        
         # SNR Threshold
         snr_row = QHBoxLayout()
         snr_row.addWidget(QLabel("SNR Threshold:"))
@@ -9856,14 +9864,18 @@ class GUI(QMainWindow):
         
         right_layout.addStretch()
     
+    def _on_show_traces_changed(self, state):
+        """Handle Show Individual Traces checkbox change - refresh plot."""
+        self.display_correlation_plot()
+    
     # =========================================================================
     # Correlation Tab Slider Handlers
     # =========================================================================
     
     def _on_decorr_slider_changed(self, value):
-        """Handle decorrelation threshold slider change."""
-        threshold = value / 100.0
-        self.decorr_value_label.setText(f"{threshold:.2f}")
+        """Handle decorrelation threshold slider change (legacy, full update)."""
+        threshold = value / 1000.0
+        self.decorr_value_label.setText(f"{threshold:.3f}")
         self.de_correlation_threshold = threshold
         # Sync with spinbox
         self.de_correlation_threshold_input.blockSignals(True)
@@ -9872,6 +9884,22 @@ class GUI(QMainWindow):
         # Update plot line in real-time
         self._update_decorr_line_on_plot(threshold)
         # Auto-recompute to update dwell time calculation
+        self._trigger_correlation_recompute()
+    
+    def _on_decorr_slider_label_update(self, value):
+        """Update label and plot line only while dragging (no recompute)."""
+        threshold = value / 1000.0
+        self.decorr_value_label.setText(f"{threshold:.3f}")
+        self.de_correlation_threshold = threshold
+        # Sync with spinbox
+        self.de_correlation_threshold_input.blockSignals(True)
+        self.de_correlation_threshold_input.setValue(threshold)
+        self.de_correlation_threshold_input.blockSignals(False)
+        # Update plot line in real-time
+        self._update_decorr_line_on_plot(threshold)
+    
+    def _on_decorr_slider_released(self):
+        """Recompute correlation when user releases slider."""
         self._trigger_correlation_recompute()
     
     def _update_decorr_line_on_plot(self, threshold):
@@ -15125,6 +15153,40 @@ class GUI(QMainWindow):
         )
         if is_multi_auto:
             ax = fig.add_subplot(111)
+            
+            # Check if we should show individual traces
+            show_traces = getattr(self, 'show_individual_traces_checkbox', None)
+            show_traces = show_traces.isChecked() if show_traces else False
+            
+            # Plot individual traces FIRST (behind mean) if enabled
+            if show_traces:
+                for r in results:
+                    corr_array = r.get('correlations_array')
+                    if corr_array is None or len(corr_array) == 0:
+                        continue
+                    lags = np.array(r['lags'])
+                    step_size = r['step_size_in_sec']
+                    normalize = r.get('normalize_plot_with_g0', False)
+                    start_lag = r.get('start_lag', 0)
+                    color = list_colors_default[r['channel'] % len(list_colors_default)]
+                    
+                    # Subsample if too many traces (performance guard)
+                    n_traces = corr_array.shape[0]
+                    max_traces_to_plot = 100
+                    if n_traces > max_traces_to_plot:
+                        indices = np.linspace(0, n_traces - 1, max_traces_to_plot, dtype=int)
+                    else:
+                        indices = np.arange(n_traces)
+                    
+                    for trace_idx in indices:
+                        trace = corr_array[trace_idx]
+                        if normalize and len(trace) > start_lag and trace[start_lag] != 0:
+                            trace = trace / trace[start_lag]
+                        # Convert lags to time
+                        time_lags = lags * step_size
+                        ax.plot(time_lags, trace, color=color, alpha=0.15, linewidth=0.5)
+            
+            # Now plot the mean curves on top
             for idx, r in enumerate(results):
                 # Use actual channel number for color, not loop index
                 color = list_colors_default[r['channel'] % len(list_colors_default)]
@@ -15195,6 +15257,34 @@ class GUI(QMainWindow):
                 else:
                     color = list_colors_default[r['channel'] % len(list_colors_default)]
                     title = f'Autocorrelation Channel {r["channel"]}'
+                
+                # Plot individual traces FIRST if enabled
+                show_traces = getattr(self, 'show_individual_traces_checkbox', None)
+                show_traces = show_traces.isChecked() if show_traces else False
+                if show_traces:
+                    corr_array = r.get('correlations_array')
+                    if corr_array is not None and len(corr_array) > 0:
+                        lags = np.array(r['lags'])
+                        step_size = r['step_size_in_sec']
+                        normalize = r.get('normalize_plot_with_g0', False)
+                        start_lag = r.get('start_lag', 0)
+                        
+                        # Subsample if too many traces
+                        n_traces = corr_array.shape[0]
+                        max_traces_to_plot = 100
+                        if n_traces > max_traces_to_plot:
+                            indices = np.linspace(0, n_traces - 1, max_traces_to_plot, dtype=int)
+                        else:
+                            indices = np.arange(n_traces)
+                        
+                        for trace_idx in indices:
+                            trace = corr_array[trace_idx]
+                            if normalize and len(trace) > start_lag and trace[start_lag] != 0:
+                                trace = trace / trace[start_lag]
+                            time_lags = lags * step_size
+                            ax.plot(time_lags, trace, color=color, alpha=0.15, linewidth=0.5)
+                
+                # Plot mean on top
                 self.plots.plot_autocorrelation(
                     mean_correlation                   = r['mean_corr'],
                     error_correlation                  = r['std_corr'],
@@ -15281,11 +15371,12 @@ class GUI(QMainWindow):
 
         # Helper to get color for channel
         def get_channel_color(ch_idx):
-            # 0=Magenta, 1=Green, 2=Yellow
-            if ch_idx == 0: return 'magenta'
-            if ch_idx == 1: return 'green'
+            # Match list_colors_default: 0=Green, 1=Magenta, 2=Yellow, 3=Red
+            if ch_idx == 0: return 'green'
+            if ch_idx == 1: return 'magenta'
             if ch_idx == 2: return 'yellow'
-            # fallback
+            if ch_idx == 3: return 'red'
+            # fallback for additional channels
             return 'cyan'
         
         # Color palette for cells (bright colors for dark background)
