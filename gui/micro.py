@@ -9646,7 +9646,7 @@ class GUI(QMainWindow):
         
         y_slider_layout.addWidget(QLabel("Min%"))
         self.y_min_percentile_slider = QSlider(Qt.Horizontal)
-        self.y_min_percentile_slider.setRange(0, 50)
+        self.y_min_percentile_slider.setRange(-5, 50)  # Allow negative for padding below min data
         self.y_min_percentile_slider.setValue(0)
         self.y_min_percentile_slider.valueChanged.connect(self._on_y_percentile_changed)
         self.y_min_percentile_slider.setFixedWidth(80)
@@ -9658,7 +9658,7 @@ class GUI(QMainWindow):
         
         y_slider_layout.addWidget(QLabel("Max%"))
         self.y_max_percentile_slider = QSlider(Qt.Horizontal)
-        self.y_max_percentile_slider.setRange(50, 100)
+        self.y_max_percentile_slider.setRange(80, 100)  # Finer resolution for top 20%
         self.y_max_percentile_slider.setValue(100)
         self.y_max_percentile_slider.valueChanged.connect(self._on_y_percentile_changed)
         self.y_max_percentile_slider.setFixedWidth(80)
@@ -9719,7 +9719,8 @@ class GUI(QMainWindow):
         self.min_pct_data_slider = QSlider(Qt.Horizontal)
         self.min_pct_data_slider.setRange(1, 50)  # 1% to 50%
         self.min_pct_data_slider.setValue(int(self.min_percentage_data_in_trajectory * 100))
-        self.min_pct_data_slider.valueChanged.connect(self._on_min_pct_slider_changed)
+        self.min_pct_data_slider.valueChanged.connect(self._on_min_pct_slider_label_update)  # Update label only
+        self.min_pct_data_slider.sliderReleased.connect(self._on_min_pct_slider_released)  # Recompute on release
         self.min_pct_data_slider.setToolTip("Minimum percentage of frames with valid data per trajectory")
         min_pct_row.addWidget(self.min_pct_data_slider, stretch=1)
         data_layout.addLayout(min_pct_row)
@@ -9944,7 +9945,7 @@ class GUI(QMainWindow):
         self.canvas_correlation.draw_idle()
     
     def _on_min_pct_slider_changed(self, value):
-        """Handle Min % Data slider change."""
+        """Handle Min % Data slider change (legacy, called by both new methods)."""
         pct = value / 100.0
         total_frames = getattr(self, 'total_frames', 0) or 0
         min_frames = int(pct * total_frames) if total_frames > 0 else 0
@@ -9955,6 +9956,22 @@ class GUI(QMainWindow):
         self.max_percentage_spin.setValue(pct)
         self.max_percentage_spin.blockSignals(False)
         # Auto-recompute if we have tracking data
+        self._trigger_correlation_recompute()
+    
+    def _on_min_pct_slider_label_update(self, value):
+        """Update label only while dragging (no recompute)."""
+        pct = value / 100.0
+        total_frames = getattr(self, 'total_frames', 0) or 0
+        min_frames = int(pct * total_frames) if total_frames > 0 else 0
+        self.min_pct_label.setText(f"{value}% ({min_frames} / {total_frames} frames)")
+        self.min_percentage_data_in_trajectory = pct
+        # Sync with hidden spinbox
+        self.max_percentage_spin.blockSignals(True)
+        self.max_percentage_spin.setValue(pct)
+        self.max_percentage_spin.blockSignals(False)
+    
+    def _on_min_pct_slider_released(self):
+        """Recompute correlation when user releases slider."""
         self._trigger_correlation_recompute()
     
     def _update_correlation_sliders_for_data(self):
