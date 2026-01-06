@@ -1473,8 +1473,10 @@ class Intensity():
         sigma_x_guess = np.sqrt(np.sum(((np.arange(x_size) - x_center) ** 2) * data.sum(axis=0)) / total_intensity)
         sigma_y_guess = np.sqrt(np.sum(((np.arange(y_size) - y_center) ** 2) * data.sum(axis=1)) / total_intensity)
         initial_guess = (amplitude_guess, x_center, y_center, sigma_x_guess, sigma_y_guess, offset_guess)
+        # Lower bound for sigma set to 0.8 pixels to match fast moment-based path
+        # and prevent unrealistically small sub-pixel PSF estimates
         bounds = (
-            [0, 0, 0, 0.1, 0.1, data.min()-abs(data.min())],
+            [0, 0, 0, 0.8, 0.8, data.min()-abs(data.min())],
             [amplitude_guess*5, x_size-1, y_size-1, max(x_size,y_size), max(x_size,y_size), data.max()+abs(data.max())]
         )
         try:
@@ -1618,7 +1620,7 @@ class Intensity():
                         best_size = self.spot_size[sp]
                 else:
                     # Fast Path: Use 2D Moments for fast Sigma/Amplitude estimation
-                    best_size = self.spot_size[sp]
+                    best_size = self.spot_size[sp] + 2  # Add 2 pixels to ensure full spot coverage
                     half = best_size // 2
                     y_min = max(orig_y - half, 0)
                     y_max = min(orig_y + half + 1, frame_data.shape[0])
@@ -7930,9 +7932,10 @@ class Utilities():
         offset_guess = float(data.min())
         sigma_guess = min(x_size, y_size) / 4.0
         initial_guess = (amplitude_guess, x_center, y_center, sigma_guess, sigma_guess, offset_guess)
-        # Set parameter bounds
+        # Lower bound for sigma set to 0.8 pixels to match moment-based estimation
+        # and prevent unrealistically small sub-pixel PSF estimates
         bounds = (
-            [0,             0,         0,          0.1,       0.1,        data.min()-abs(data.min())],
+            [0,             0,         0,          0.8,       0.8,        data.min()-abs(data.min())],
             [amplitude_guess*5, x_size-1, y_size-1, max(x_size,y_size), max(x_size,y_size), data.max()+abs(data.max())]
         )
         try:

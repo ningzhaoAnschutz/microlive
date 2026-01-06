@@ -9225,13 +9225,19 @@ class GUI(QMainWindow):
 
     def update_correct_baseline(self, state):
         self.correct_baseline = (state == Qt.Checked)
+        # Auto-recompute
+        self._trigger_correlation_recompute()
 
     def update_remove_outliers(self, state):
         self.remove_outliers = (state == Qt.Checked)
+        # Auto-recompute
+        self._trigger_correlation_recompute()
 
     def update_field_name(self, text):
         # Used in compute_correlations
         self.selected_field_name_for_correlation = text
+        # Auto-recompute
+        self._trigger_correlation_recompute()
 
     def update_min_percentage_data_in_trajectory(self, value):
         self.min_percentage_data_in_trajectory = value
@@ -9248,6 +9254,8 @@ class GUI(QMainWindow):
         self.multiTauCheck.setChecked(state)
         self.use_multi = state
         self.display_correlation_plot()
+        # Auto-recompute
+        self._trigger_correlation_recompute()
 
     def create_correlation_channel_checkboxes(self):
         for cb in self.channel_checkboxes:
@@ -9279,6 +9287,9 @@ class GUI(QMainWindow):
 
 
     def compute_correlations(self):
+        # Update slider ranges based on current data
+        self._update_correlation_sliders_for_data()
+        
         # 1) sanity checks
         
         # Check for insufficient time points (correlation needs multiple frames)
@@ -9515,16 +9526,19 @@ class GUI(QMainWindow):
 
 
     def setup_correlation_tab(self):
+        """Setup Correlation tab with interactive sliders and reorganized layout."""
         correlation_layout = QHBoxLayout(self.correlation_tab)
-        # Left side: main controls and figure
+        
+        # =====================================================================
+        # LEFT SIDE: Plot area with sliders
+        # =====================================================================
         left_layout = QVBoxLayout()
         correlation_layout.addLayout(left_layout, stretch=4)
-        # Right side: new panel
-        right_layout = QVBoxLayout()
-        correlation_layout.addLayout(right_layout, stretch=1)
-        # Top controls layout (correlation type, select channels, fit type)
+        
+        # Top controls (correlation type, channels, fit type)
         controls_layout = QHBoxLayout()
         left_layout.addLayout(controls_layout)
+        
         # Correlation Type
         correlation_type_group = QGroupBox("Correlation Type")
         correlation_type_layout = QHBoxLayout()
@@ -9535,12 +9549,14 @@ class GUI(QMainWindow):
         correlation_type_layout.addWidget(self.auto_corr_radio)
         correlation_type_layout.addWidget(self.cross_corr_radio)
         controls_layout.addWidget(correlation_type_group)
+        
         # Channel selection
         channel_selection_group = QGroupBox("Select Channels")
         self.channel_selection_layout = QHBoxLayout()
         channel_selection_group.setLayout(self.channel_selection_layout)
         self.channel_checkboxes = []
         controls_layout.addWidget(channel_selection_group)
+        
         # Fit Type Selection
         correlation_fit_group = QGroupBox("Fit Type")
         correlation_fit_layout = QHBoxLayout()
@@ -9553,12 +9569,111 @@ class GUI(QMainWindow):
         self.linear_radio.toggled.connect(self.update_fit_type)
         self.exponential_radio.toggled.connect(self.update_fit_type)
         controls_layout.addWidget(correlation_fit_group)
-        # Figure for correlation
+        
+        controls_layout.addStretch()
+        
+        # ---------------------------------------------------------------------
+        # Plot area with decorrelation slider on the right
+        # ---------------------------------------------------------------------
+        plot_row = QHBoxLayout()
+        
+        # Main figure
         self.figure_correlation = Figure(figsize=(20, 20))
         self.canvas_correlation = FigureCanvas(self.figure_correlation)
         self.canvas_correlation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_layout.addWidget(self.canvas_correlation)
+        plot_row.addWidget(self.canvas_correlation, stretch=1)
+        
+        # Decorrelation threshold vertical slider (right of plot)
+        decorr_container = QWidget()
+        decorr_container.setFixedWidth(50)
+        decorr_layout = QVBoxLayout(decorr_container)
+        decorr_layout.setContentsMargins(2, 5, 2, 5)
+        decorr_layout.setSpacing(2)
+        
+        decorr_top_label = QLabel("Decorr")
+        decorr_top_label.setAlignment(Qt.AlignCenter)
+        decorr_top_label.setStyleSheet("font-size: 10px;")
+        decorr_layout.addWidget(decorr_top_label)
+        
+        # Slider range: -50 to 100 maps to -0.50 to 1.00
+        # This allows threshold to go into negative ACF values
+        self.decorr_threshold_slider = QSlider(Qt.Vertical)
+        self.decorr_threshold_slider.setRange(-50, 100)  # Maps to -0.50 to 1.00
+        self.decorr_threshold_slider.setValue(1)  # Default 0.01
+        self.decorr_threshold_slider.setInvertedAppearance(True)  # Higher values at top
+        self.decorr_threshold_slider.valueChanged.connect(self._on_decorr_slider_changed)
+        self.decorr_threshold_slider.setToolTip("Decorrelation threshold for dwell time calculation\n(Can be negative to match ACF minimum)")
+        decorr_layout.addWidget(self.decorr_threshold_slider, stretch=1)
+        
+        self.decorr_value_label = QLabel("0.01")
+        self.decorr_value_label.setAlignment(Qt.AlignCenter)
+        self.decorr_value_label.setStyleSheet("font-size: 10px; font-weight: bold;")
+        decorr_layout.addWidget(self.decorr_value_label)
+        
+        plot_row.addWidget(decorr_container)
+        left_layout.addLayout(plot_row, stretch=1)
+        
+        # ---------------------------------------------------------------------
+        # X-axis (max lag) horizontal slider below plot
+        # ---------------------------------------------------------------------
+        x_slider_container = QWidget()
+        x_slider_layout = QHBoxLayout(x_slider_container)
+        x_slider_layout.setContentsMargins(5, 0, 5, 0)
+        
+        x_slider_layout.addWidget(QLabel("τ max:"))
+        
+        self.x_max_lag_slider = QSlider(Qt.Horizontal)
+        self.x_max_lag_slider.setRange(10, 1000)  # Will be updated when data loads
+        self.x_max_lag_slider.setValue(200)
+        self.x_max_lag_slider.valueChanged.connect(self._on_x_lag_slider_changed)
+        self.x_max_lag_slider.setToolTip("Maximum lag time to display on X-axis")
+        x_slider_layout.addWidget(self.x_max_lag_slider, stretch=1)
+        
+        self.x_lag_label = QLabel("200 frames")
+        self.x_lag_label.setMinimumWidth(120)
+        x_slider_layout.addWidget(self.x_lag_label)
+        
+        left_layout.addWidget(x_slider_container)
+        
+        # ---------------------------------------------------------------------
+        # Y-axis percentile sliders (horizontal, for simplicity)
+        # ---------------------------------------------------------------------
+        y_slider_container = QWidget()
+        y_slider_layout = QHBoxLayout(y_slider_container)
+        y_slider_layout.setContentsMargins(5, 0, 5, 0)
+        
+        y_slider_layout.addWidget(QLabel("Y-axis:"))
+        
+        y_slider_layout.addWidget(QLabel("Min%"))
+        self.y_min_percentile_slider = QSlider(Qt.Horizontal)
+        self.y_min_percentile_slider.setRange(0, 50)
+        self.y_min_percentile_slider.setValue(0)
+        self.y_min_percentile_slider.valueChanged.connect(self._on_y_percentile_changed)
+        self.y_min_percentile_slider.setFixedWidth(80)
+        y_slider_layout.addWidget(self.y_min_percentile_slider)
+        
+        self.y_min_label = QLabel("0%")
+        self.y_min_label.setFixedWidth(30)
+        y_slider_layout.addWidget(self.y_min_label)
+        
+        y_slider_layout.addWidget(QLabel("Max%"))
+        self.y_max_percentile_slider = QSlider(Qt.Horizontal)
+        self.y_max_percentile_slider.setRange(50, 100)
+        self.y_max_percentile_slider.setValue(100)
+        self.y_max_percentile_slider.valueChanged.connect(self._on_y_percentile_changed)
+        self.y_max_percentile_slider.setFixedWidth(80)
+        y_slider_layout.addWidget(self.y_max_percentile_slider)
+        
+        self.y_max_label = QLabel("100%")
+        self.y_max_label.setFixedWidth(35)
+        y_slider_layout.addWidget(self.y_max_label)
+        
+        y_slider_layout.addStretch()
+        left_layout.addWidget(y_slider_container)
+        
+        # ---------------------------------------------------------------------
         # Navigation Toolbar + Export button
+        # ---------------------------------------------------------------------
         correlation_toolbar_layout = QHBoxLayout()
         self.toolbar_correlation = NavigationToolbar(self.canvas_correlation, self)
         correlation_toolbar_layout.addWidget(self.toolbar_correlation)
@@ -9567,124 +9682,369 @@ class GUI(QMainWindow):
         correlation_toolbar_layout.addWidget(export_correlation_image_button)
         left_layout.addLayout(correlation_toolbar_layout)
         
-        # Tracking Channel group (first/prominent)
+        # =====================================================================
+        # RIGHT SIDE: Settings panel
+        # =====================================================================
+        right_layout = QVBoxLayout()
+        correlation_layout.addLayout(right_layout, stretch=1)
+        
+        # Tracking Channel group
         tracking_group = QGroupBox("Tracking Channel")
         tracking_layout = QHBoxLayout()
         self.correlation_tracking_channel_combo = QComboBox()
-        # Will be populated on tab switch with tracked channels
         tracking_layout.addWidget(self.correlation_tracking_channel_combo)
         tracking_group.setLayout(tracking_layout)
         right_layout.addWidget(tracking_group)
         
-        # Right panel group for correlation settings
-        right_panel_group = QGroupBox("Correlation Settings")
-        right_panel_layout = QFormLayout()
-        right_panel_group.setLayout(right_panel_layout)
-        right_layout.addWidget(right_panel_group)
+        # ---------------------------------------------------------------------
+        # Data Selection group
+        # ---------------------------------------------------------------------
+        data_group = QGroupBox("Data Selection")
+        data_layout = QVBoxLayout()
+        data_group.setLayout(data_layout)
+        
         # Field selection
-        field_label = QLabel("Field:")
+        field_row = QHBoxLayout()
+        field_row.addWidget(QLabel("Field:"))
         self.field_name_combo = QComboBox()
         self.field_name_combo.addItems(["spot_int", "psf_amplitude", "total_spot_int", "snr"])
         self.field_name_combo.currentTextChanged.connect(self.update_field_name)
-        right_panel_layout.addRow(field_label, self.field_name_combo)
-        # Max % Empty Data
-        max_percentage_label = QLabel("Min % Data:")
+        field_row.addWidget(self.field_name_combo, stretch=1)
+        data_layout.addLayout(field_row)
+        
+        # Min % Data slider with frame display
+        min_pct_row = QHBoxLayout()
+        min_pct_row.addWidget(QLabel("Min % Data:"))
+        
+        self.min_pct_data_slider = QSlider(Qt.Horizontal)
+        self.min_pct_data_slider.setRange(1, 50)  # 1% to 50%
+        self.min_pct_data_slider.setValue(int(self.min_percentage_data_in_trajectory * 100))
+        self.min_pct_data_slider.valueChanged.connect(self._on_min_pct_slider_changed)
+        self.min_pct_data_slider.setToolTip("Minimum percentage of frames with valid data per trajectory")
+        min_pct_row.addWidget(self.min_pct_data_slider, stretch=1)
+        data_layout.addLayout(min_pct_row)
+        
+        # Frame count label
+        self.min_pct_label = QLabel(f"{int(self.min_percentage_data_in_trajectory * 100)}% (-- / -- frames)")
+        self.min_pct_label.setStyleSheet("font-size: 10px; color: #aaa;")
+        data_layout.addWidget(self.min_pct_label)
+        
+        # Hidden spinbox for backward compatibility
         self.max_percentage_spin = QDoubleSpinBox()
         self.max_percentage_spin.setDecimals(3)
         self.max_percentage_spin.setMinimum(0.0)
         self.max_percentage_spin.setMaximum(1.0)
-        self.max_percentage_spin.setSingleStep(0.01)
         self.max_percentage_spin.setValue(self.min_percentage_data_in_trajectory)
+        self.max_percentage_spin.setVisible(False)
         self.max_percentage_spin.valueChanged.connect(self.update_min_percentage_data_in_trajectory)
-        right_panel_layout.addRow(max_percentage_label, self.max_percentage_spin)
-        # Threshold
-        threshold_label = QLabel("Decorrelation Threshold:")
+        
+        # Start Lag (keep as spinbox for precision)
+        start_lag_row = QHBoxLayout()
+        start_lag_row.addWidget(QLabel("Start Lag:"))
+        self.start_lag_input = QSpinBox()
+        self.start_lag_input.setMinimum(0)
+        self.start_lag_input.setValue(0)
+        self.start_lag_input.setFixedWidth(60)
+        start_lag_row.addWidget(self.start_lag_input)
+        start_lag_row.addStretch()
+        data_layout.addLayout(start_lag_row)
+        
+        # Fit Lag slider
+        fit_lag_row = QHBoxLayout()
+        fit_lag_row.addWidget(QLabel("Fit Lag:"))
+        
+        self.fit_lag_slider = QSlider(Qt.Horizontal)
+        self.fit_lag_slider.setRange(10, 500)  # Will be updated when data loads
+        self.fit_lag_slider.setValue(99)
+        self.fit_lag_slider.valueChanged.connect(self._on_fit_lag_slider_changed)
+        self.fit_lag_slider.setToolTip("Maximum lag index for fitting (determines dwell time calculation range)")
+        fit_lag_row.addWidget(self.fit_lag_slider, stretch=1)
+        data_layout.addLayout(fit_lag_row)
+        
+        self.fit_lag_label = QLabel("99 frames")
+        self.fit_lag_label.setStyleSheet("font-size: 10px; color: #aaa;")
+        data_layout.addWidget(self.fit_lag_label)
+        
+        # Hidden spinbox for backward compatibility
+        self.index_max_lag_for_fit_input = QSpinBox()
+        self.index_max_lag_for_fit_input.setMinimum(1)
+        self.index_max_lag_for_fit_input.setValue(99)
+        self.index_max_lag_for_fit_input.setMaximum(1000)
+        self.index_max_lag_for_fit_input.setVisible(False)
+        
+        right_layout.addWidget(data_group)
+        
+        # Keep hidden spinboxes for backward compatibility
+        self.max_lag_input = QSpinBox()
+        self.max_lag_input.setMinimum(1)
+        self.max_lag_input.setMaximum(10000)
+        self.max_lag_input.setValue(200)
+        self.max_lag_input.setVisible(False)
+        self.max_lag_input.valueChanged.connect(self.update_max_lag)
+        
         self.de_correlation_threshold_input = QDoubleSpinBox()
         self.de_correlation_threshold_input.setDecimals(3)
         self.de_correlation_threshold_input.setMinimum(0.0)
         self.de_correlation_threshold_input.setMaximum(1.0)
-        self.de_correlation_threshold_input.setSingleStep(0.01)
         self.de_correlation_threshold_input.setValue(self.de_correlation_threshold)
+        self.de_correlation_threshold_input.setVisible(False)
         self.de_correlation_threshold_input.valueChanged.connect(self.update_de_correlation_threshold)
-        right_panel_layout.addRow(threshold_label, self.de_correlation_threshold_input)
-        # Max Lag
-        max_lag_label = QLabel("Index Max Lag for Plot:")
-        self.max_lag_input = QSpinBox()
-        self.max_lag_input.setMinimum(1)
-        if hasattr(self, 'max_lag') and self.max_lag is not None:
-            self.max_lag_input.setMaximum(self.max_lag - 1)
-            self.max_lag_input.setValue(self.max_lag - 1)
-        else:
-            self.max_lag_input.setMaximum(1)
-            self.max_lag_input.setValue(1)
-        self.max_lag_input.valueChanged.connect(self.update_max_lag)
-        right_panel_layout.addRow(max_lag_label, self.max_lag_input)
-        # Index Max Lag for Fit
-        self.index_max_lag_for_fit_input = QSpinBox()
-        self.index_max_lag_for_fit_input.setMinimum(1)
-        self.index_max_lag_for_fit_input.setValue(1000)
-        if hasattr(self, 'max_lag') and self.max_lag is not None:
-            self.index_max_lag_for_fit_input.setMaximum(self.max_lag - 1)
-        else:
-            self.index_max_lag_for_fit_input.setMaximum(1000)
-        right_panel_layout.addRow(QLabel("Index Max Lag for Fit:"), self.index_max_lag_for_fit_input)
-        # Start Lag
-        self.start_lag_input = QSpinBox()
-        self.start_lag_input.setMinimum(0)
-        self.start_lag_input.setValue(0)
-        right_panel_layout.addRow(QLabel("Start Lag:"), self.start_lag_input)
-        # Min and max percentile for correlation
+        
+        # Hidden percentile spinboxes for backward compatibility
         self.correlation_min_percentile_input = QDoubleSpinBox()
-        self.correlation_min_percentile_input.setDecimals(1)
-        self.correlation_min_percentile_input.setMinimum(0)
-        self.correlation_min_percentile_input.setMaximum(50.0)
-        self.correlation_min_percentile_input.setSingleStep(0.5)
-        self.correlation_min_percentile_input.setValue(0.0)  # default
+        self.correlation_min_percentile_input.setValue(0.0)
+        self.correlation_min_percentile_input.setVisible(False)
         self.correlation_min_percentile_input.valueChanged.connect(self.on_correlation_percentile_changed)
-        right_panel_layout.addRow(QLabel("Min Percentile:"), self.correlation_min_percentile_input)
+        
         self.correlation_max_percentile_input = QDoubleSpinBox()
-        self.correlation_max_percentile_input.setDecimals(2)
-        self.correlation_max_percentile_input.setMinimum(90.0)
-        self.correlation_max_percentile_input.setMaximum(100.0)
-        self.correlation_max_percentile_input.setSingleStep(0.1)
-        self.correlation_max_percentile_input.setValue(100)  # default
+        self.correlation_max_percentile_input.setValue(100.0)
+        self.correlation_max_percentile_input.setVisible(False)
         self.correlation_max_percentile_input.valueChanged.connect(self.on_correlation_percentile_changed)
-        right_panel_layout.addRow(QLabel("Max Percentile:"), self.correlation_max_percentile_input)
-        # SNR Threshold for ACF
+        
+        # ---------------------------------------------------------------------
+        # Quality Controls group (collapsible)
+        # ---------------------------------------------------------------------
+        quality_group = QGroupBox("Quality Controls")
+        quality_group.setCheckable(True)
+        quality_group.setChecked(True)  # Start expanded
+        quality_layout = QVBoxLayout()
+        quality_group.setLayout(quality_layout)
+        
+        # Baseline correction
+        self.correct_baseline_checkbox = QCheckBox("Baseline Correction")
+        self.correct_baseline_checkbox.setChecked(True)
+        self.correct_baseline_checkbox.stateChanged.connect(self.update_correct_baseline)
+        quality_layout.addWidget(self.correct_baseline_checkbox)
+        
+        # Remove outliers
+        self.remove_outliers_checkbox = QCheckBox("Remove Outliers")
+        self.remove_outliers_checkbox.setChecked(True)
+        self.remove_outliers_checkbox.stateChanged.connect(self.update_remove_outliers)
+        quality_layout.addWidget(self.remove_outliers_checkbox)
+        
+        # Multi-Tau
+        self.multiTauCheck = QCheckBox("Multi-Tau")
+        self.multiTauCheck.setChecked(False)
+        self.multiTauCheck.stateChanged.connect(self.update_multi_tau)
+        quality_layout.addWidget(self.multiTauCheck)
+        
+        # SNR Threshold
+        snr_row = QHBoxLayout()
+        snr_row.addWidget(QLabel("SNR Threshold:"))
         self.snr_threshold_for_acf = QDoubleSpinBox()
         self.snr_threshold_for_acf.setRange(0.0, 5.0)
         self.snr_threshold_for_acf.setValue(0.1)
         self.snr_threshold_for_acf.setSingleStep(0.1)
         self.snr_threshold_for_acf.valueChanged.connect(self.update_snr_threshold_for_acf)
-        right_panel_layout.addRow(QLabel("SNR Threshold for ACF:"), self.snr_threshold_for_acf)
+        snr_row.addWidget(self.snr_threshold_for_acf)
+        snr_row.addStretch()
+        quality_layout.addLayout(snr_row)
+        
         self.snr_threshold_for_acf_value = self.snr_threshold_for_acf.value()
-        # add a checkbox to use multi-tau
-        # Normalize with G(0) checkbox
-        # self.normalize_g0_checkbox = QCheckBox("")
-        # self.normalize_g0_checkbox.setChecked(False)
-        # right_panel_layout.addRow(QLabel("Normalize:"), self.normalize_g0_checkbox)
-        # Correct Baseline checkbox
-        self.correct_baseline_checkbox = QCheckBox("")
-        self.correct_baseline_checkbox.setChecked(True)
-        self.correct_baseline_checkbox.stateChanged.connect(self.update_correct_baseline)
-        right_panel_layout.addRow(QLabel("Baseline correction:"), self.correct_baseline_checkbox)    
-        # Remove outliers from correlation plot checkbox
-        self.remove_outliers_checkbox = QCheckBox("")
-        self.remove_outliers_checkbox.setChecked(True)
-        self.remove_outliers_checkbox.stateChanged.connect(self.update_remove_outliers)
-        right_panel_layout.addRow(QLabel("Remove outliers:"), self.remove_outliers_checkbox)
-        # Multi-Tau checkbox
-        self.multiTauCheck = QCheckBox("")
-        self.multiTauCheck.setChecked(False)  # default unchecked (linear correlation)
-        self.multiTauCheck.stateChanged.connect(self.update_multi_tau)
-        right_panel_layout.addRow(QLabel("Multi-Tau:"), self.multiTauCheck)
-        # Compute Correlations Button
+        
+        right_layout.addWidget(quality_group)
+        
+        # ---------------------------------------------------------------------
+        # Run Button
+        # ---------------------------------------------------------------------
         self.compute_correlations_button = QPushButton("Run")
         self.compute_correlations_button.clicked.connect(self.compute_correlations)
+        self.compute_correlations_button.setMinimumHeight(40)
+        self.compute_correlations_button.setStyleSheet("font-weight: bold; font-size: 14px;")
         right_layout.addWidget(self.compute_correlations_button)
+        
         right_layout.addStretch()
+    
+    # =========================================================================
+    # Correlation Tab Slider Handlers
+    # =========================================================================
+    
+    def _on_decorr_slider_changed(self, value):
+        """Handle decorrelation threshold slider change."""
+        threshold = value / 100.0
+        self.decorr_value_label.setText(f"{threshold:.2f}")
+        self.de_correlation_threshold = threshold
+        # Sync with spinbox
+        self.de_correlation_threshold_input.blockSignals(True)
+        self.de_correlation_threshold_input.setValue(threshold)
+        self.de_correlation_threshold_input.blockSignals(False)
+        # Update plot line in real-time
+        self._update_decorr_line_on_plot(threshold)
+        # Auto-recompute to update dwell time calculation
+        self._trigger_correlation_recompute()
+    
+    def _update_decorr_line_on_plot(self, threshold):
+        """Update the decorrelation threshold line on the plot without re-running."""
+        if not hasattr(self, 'figure_correlation') or not self.figure_correlation.axes:
+            return
+        for ax in self.figure_correlation.axes:
+            # Find and update horizontal lines
+            for line in ax.get_lines():
+                if hasattr(line, '_is_decorr_line') and line._is_decorr_line:
+                    line.set_ydata([threshold, threshold])
+        self.canvas_correlation.draw_idle()
+    
+    def _on_x_lag_slider_changed(self, value):
+        """Handle X-axis max lag slider change."""
+        time_interval = getattr(self, 'time_interval_value', 1.0) or 1.0
+        try:
+            time_interval = float(time_interval)
+        except (TypeError, ValueError):
+            time_interval = 1.0
+        max_time = value * time_interval
+        self.x_lag_label.setText(f"{value} frames ({max_time:.1f} s)")
+        # Sync with hidden spinbox
+        self.max_lag_input.blockSignals(True)
+        self.max_lag_input.setValue(value)
+        self.max_lag_input.blockSignals(False)
+        # Update plot X-axis
+        self._update_x_axis_limit(max_time)
+    
+    def _update_x_axis_limit(self, max_time):
+        """Update X-axis limit on correlation plot."""
+        if not hasattr(self, 'figure_correlation') or not self.figure_correlation.axes:
+            return
+        for ax in self.figure_correlation.axes:
+            ax.set_xlim(0, max_time)
+        self.canvas_correlation.draw_idle()
+    
+    def _on_y_percentile_changed(self):
+        """Handle Y-axis percentile slider change."""
+        min_pct = self.y_min_percentile_slider.value()
+        max_pct = self.y_max_percentile_slider.value()
+        self.y_min_label.setText(f"{min_pct}%")
+        self.y_max_label.setText(f"{max_pct}%")
+        # Sync with hidden spinboxes
+        self.correlation_min_percentile_input.blockSignals(True)
+        self.correlation_min_percentile_input.setValue(float(min_pct))
+        self.correlation_min_percentile_input.blockSignals(False)
+        self.correlation_max_percentile_input.blockSignals(True)
+        self.correlation_max_percentile_input.setValue(float(max_pct))
+        self.correlation_max_percentile_input.blockSignals(False)
+        # Update plot Y-axis
+        self._update_y_axis_limits(min_pct, max_pct)
+    
+    def _update_y_axis_limits(self, min_pct, max_pct):
+        """Update Y-axis limits based on percentile values."""
+        if not hasattr(self, 'correlation_results') or not self.correlation_results:
+            return
+        # Collect all correlation values
+        all_values = []
+        for result in self.correlation_results:
+            if 'mean_corr' in result and result['mean_corr'] is not None:
+                all_values.extend(result['mean_corr'])
+        if not all_values:
+            return
+        y_min = np.nanpercentile(all_values, min_pct)
+        y_max = np.nanpercentile(all_values, max_pct)
+        if y_min >= y_max:
+            return
+        for ax in self.figure_correlation.axes:
+            ax.set_ylim(y_min, y_max)
+        self.canvas_correlation.draw_idle()
+    
+    def _on_min_pct_slider_changed(self, value):
+        """Handle Min % Data slider change."""
+        pct = value / 100.0
+        total_frames = getattr(self, 'total_frames', 0) or 0
+        min_frames = int(pct * total_frames) if total_frames > 0 else 0
+        self.min_pct_label.setText(f"{value}% ({min_frames} / {total_frames} frames)")
+        self.min_percentage_data_in_trajectory = pct
+        # Sync with hidden spinbox
+        self.max_percentage_spin.blockSignals(True)
+        self.max_percentage_spin.setValue(pct)
+        self.max_percentage_spin.blockSignals(False)
+        # Auto-recompute if we have tracking data
+        self._trigger_correlation_recompute()
+    
+    def _update_correlation_sliders_for_data(self):
+        """Update slider ranges based on loaded data."""
+        total_frames = getattr(self, 'total_frames', 0) or 100
+        time_interval = getattr(self, 'time_interval_value', 1.0) or 1.0
+        try:
+            time_interval = float(time_interval)
+        except (TypeError, ValueError):
+            time_interval = 1.0
+        
+        # Update X-axis slider range
+        if hasattr(self, 'x_max_lag_slider'):
+            self.x_max_lag_slider.setRange(10, max(total_frames - 1, 10))
+            current_val = min(self.x_max_lag_slider.value(), total_frames - 1)
+            self.x_max_lag_slider.setValue(current_val)
+            max_time = current_val * time_interval
+            self.x_lag_label.setText(f"{current_val} frames ({max_time:.1f} s)")
+        
+        # Update Min % Data label
+        if hasattr(self, 'min_pct_data_slider'):
+            pct = self.min_pct_data_slider.value()
+            min_frames = int((pct / 100.0) * total_frames)
+            self.min_pct_label.setText(f"{pct}% ({min_frames} / {total_frames} frames)")
+        
+        # Update max lag spinboxes
+        if hasattr(self, 'max_lag_input'):
+            self.max_lag_input.setMaximum(total_frames - 1)
+        if hasattr(self, 'index_max_lag_for_fit_input'):
+            self.index_max_lag_for_fit_input.setMaximum(total_frames - 1)
+        
+        # Update fit lag slider range
+        if hasattr(self, 'fit_lag_slider'):
+            self.fit_lag_slider.setRange(10, max(total_frames - 1, 10))
+            current_val = min(self.fit_lag_slider.value(), total_frames - 1)
+            self.fit_lag_slider.setValue(current_val)
+            fit_time = current_val * time_interval
+            self.fit_lag_label.setText(f"{current_val} frames ({fit_time:.1f} s)")
+    
+    def _on_fit_lag_slider_changed(self, value):
+        """Handle Fit Lag slider change."""
+        time_interval = getattr(self, 'time_interval_value', 1.0) or 1.0
+        try:
+            time_interval = float(time_interval)
+        except (TypeError, ValueError):
+            time_interval = 1.0
+        fit_time = value * time_interval
+        self.fit_lag_label.setText(f"{value} frames ({fit_time:.1f} s)")
+        # Sync with hidden spinbox
+        self.index_max_lag_for_fit_input.blockSignals(True)
+        self.index_max_lag_for_fit_input.setValue(value)
+        self.index_max_lag_for_fit_input.blockSignals(False)
+        self.index_max_lag_for_fit = value
+        # Auto-recompute
+        self._trigger_correlation_recompute()
+    
+    def _trigger_correlation_recompute(self):
+        """Trigger correlation recomputation with debouncing.
+        
+        This prevents excessive recomputation when sliders are being dragged.
+        Uses a timer to wait for user to stop adjusting before recomputing.
+        """
+        # Only recompute if we have tracking data and have already run once
+        if not getattr(self, 'has_tracked', False):
+            return
+        if not hasattr(self, 'correlation_results') or not self.correlation_results:
+            return  # Only auto-recompute if we've already run once
+        
+        # Cancel any pending recompute
+        if hasattr(self, '_correlation_recompute_timer') and self._correlation_recompute_timer is not None:
+            self._correlation_recompute_timer.stop()
+        
+        # Create timer if it doesn't exist
+        if not hasattr(self, '_correlation_recompute_timer') or self._correlation_recompute_timer is None:
+            from PyQt5.QtCore import QTimer
+            self._correlation_recompute_timer = QTimer()
+            self._correlation_recompute_timer.setSingleShot(True)
+            self._correlation_recompute_timer.timeout.connect(self._do_correlation_recompute)
+        
+        # Start timer (300ms debounce)
+        self._correlation_recompute_timer.start(300)
+    
+    def _do_correlation_recompute(self):
+        """Actually perform the correlation recomputation."""
+        try:
+            self.compute_correlations()
+        except Exception as e:
+            import logging
+            logging.debug(f"Auto-recompute failed: {e}")
 
-# =============================================================================
 # =============================================================================
 # COLOCALIZATION AND COLOCALIZATION MANUAL TABS
 # =============================================================================
@@ -14467,22 +14827,89 @@ class GUI(QMainWindow):
         self.canvas_time_course.draw()
 
     def reset_correlation_tab(self):
+        """Reset Correlation tab to default state (called when new image is loaded)."""
+        # Clear plot
         self.figure_correlation.clear()
         self.ax_correlation = self.figure_correlation.add_subplot(111)
         self.ax_correlation.set_facecolor('black')
         self.ax_correlation.axis('off')
         self.ax_correlation.text(
-            0.5, 0.5, 'No correlation data available.',
+            0.5, 0.5, 'Press "Run" to compute correlations.',
             horizontalalignment='center',
             verticalalignment='center',
             fontsize=12, color='white',
             transform=self.ax_correlation.transAxes
         )
         self.canvas_correlation.draw()
+        
+        # Clear results
         self.correlation_results = []
         self.current_total_plots = None
+        
+        # Reset channel checkboxes
         for checkbox in self.channel_checkboxes:
             checkbox.setChecked(False)
+        
+        # Reset decorrelation threshold slider
+        if hasattr(self, 'decorr_threshold_slider'):
+            self.decorr_threshold_slider.blockSignals(True)
+            self.decorr_threshold_slider.setValue(1)  # 0.01
+            self.decorr_threshold_slider.blockSignals(False)
+            self.decorr_value_label.setText("0.01")
+            self.de_correlation_threshold = 0.01
+        
+        # Reset X-axis (max lag) slider
+        if hasattr(self, 'x_max_lag_slider'):
+            self.x_max_lag_slider.blockSignals(True)
+            self.x_max_lag_slider.setValue(200)
+            self.x_max_lag_slider.blockSignals(False)
+            self.x_lag_label.setText("200 frames")
+        
+        # Reset Y-axis percentile sliders
+        if hasattr(self, 'y_min_percentile_slider'):
+            self.y_min_percentile_slider.blockSignals(True)
+            self.y_min_percentile_slider.setValue(0)
+            self.y_min_percentile_slider.blockSignals(False)
+            self.y_min_label.setText("0%")
+        if hasattr(self, 'y_max_percentile_slider'):
+            self.y_max_percentile_slider.blockSignals(True)
+            self.y_max_percentile_slider.setValue(100)
+            self.y_max_percentile_slider.blockSignals(False)
+            self.y_max_label.setText("100%")
+        
+        # Reset Min % Data slider
+        if hasattr(self, 'min_pct_data_slider'):
+            self.min_pct_data_slider.blockSignals(True)
+            self.min_pct_data_slider.setValue(30)  # 30% default
+            self.min_pct_data_slider.blockSignals(False)
+            self.min_pct_label.setText("30% (-- / -- frames)")
+            self.min_percentage_data_in_trajectory = 0.30
+        
+        # Reset Start Lag and Fit Lag
+        if hasattr(self, 'start_lag_input'):
+            self.start_lag_input.setValue(0)
+        if hasattr(self, 'fit_lag_slider'):
+            self.fit_lag_slider.blockSignals(True)
+            self.fit_lag_slider.setValue(99)
+            self.fit_lag_slider.blockSignals(False)
+            self.fit_lag_label.setText("99 frames")
+        if hasattr(self, 'index_max_lag_for_fit_input'):
+            self.index_max_lag_for_fit_input.setValue(99)
+        
+        # Reset Quality Controls
+        if hasattr(self, 'correct_baseline_checkbox'):
+            self.correct_baseline_checkbox.setChecked(True)
+        if hasattr(self, 'remove_outliers_checkbox'):
+            self.remove_outliers_checkbox.setChecked(True)
+        if hasattr(self, 'multiTauCheck'):
+            self.multiTauCheck.setChecked(False)
+        if hasattr(self, 'snr_threshold_for_acf'):
+            self.snr_threshold_for_acf.setValue(0.1)
+            self.snr_threshold_for_acf_value = 0.1
+        
+        # Reset fit type radio
+        if hasattr(self, 'linear_radio'):
+            self.linear_radio.setChecked(True)
 
     # Note: reset_crops_tab removed - Crops tab has been deprecated
 
