@@ -1644,7 +1644,9 @@ class Intensity():
                             
                             sigma_x_est = max(np.sqrt(var_x), 0.8)
                             sigma_y_est = max(np.sqrt(var_y), 0.8)
-                            amplitude_est = np.max(img_sub)
+                            # True Gaussian amplitude: A = Total / (2π × σ_x × σ_y)
+                            # This gives the peak height of the equivalent 2D Gaussian
+                            amplitude_est = total_mass / (2 * np.pi * sigma_x_est * sigma_y_est)
                             
                             best_fit = {
                                 'amplitude': amplitude_est,
@@ -1675,7 +1677,8 @@ class Intensity():
                                 
                                 sigma_x_est = max(np.sqrt(var_x), 0.8)
                                 sigma_y_est = max(np.sqrt(var_y), 0.8)
-                                amplitude_est = np.max(img_sub)
+                                # True Gaussian amplitude: A = Total / (2π × σ_x × σ_y)
+                                amplitude_est = total_mass / (2 * np.pi * sigma_x_est * sigma_y_est)
                                 
                                 best_fit = {
                                     'amplitude': amplitude_est,

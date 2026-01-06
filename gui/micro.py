@@ -14315,11 +14315,21 @@ class GUI(QMainWindow):
                     for em in msd_values_list:
                         if lag in em.index:
                             val = em.get(lag)
-                            # Ensure val is a scalar
-                            if hasattr(val, 'item'):
+                            # Handle case where val could be scalar, array, or Series
+                            if val is None:
+                                continue
+                            # If it's an array/series with multiple elements, take the mean
+                            if hasattr(val, '__len__') and not isinstance(val, str):
+                                if len(val) == 1:
+                                    val = float(val.iloc[0]) if hasattr(val, 'iloc') else float(val[0])
+                                else:
+                                    val = float(np.nanmean(val))
+                            elif hasattr(val, 'item'):
                                 val = val.item()
-                            if val is not None and not np.isnan(val):
-                                values_at_lag.append(float(val))
+                            else:
+                                val = float(val)
+                            if not np.isnan(val):
+                                values_at_lag.append(val)
                     if len(values_at_lag) >= MIN_TRAJECTORIES_PER_LAG:
                         mean_msd.append(np.mean(values_at_lag))
                         std_msd.append(np.std(values_at_lag))
