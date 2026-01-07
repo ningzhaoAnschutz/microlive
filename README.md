@@ -1,4 +1,4 @@
-# MicroLive <img src="docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />
+# MicroLive <img src="https://raw.githubusercontent.com/ningzhaoAnschutz/microlive/main/docs/icons/icon_micro.png" alt="Micro Logo" width="150" align="right" />
 
 **Authors:** Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao
 
@@ -8,7 +8,7 @@
 
 **MicroLive** is a Python-based GUI application for live-cell microscopy image analysis and single-molecule measurements. It provides an end-to-end workflow from image loading through particle tracking, colocalization analysis, and statistical analysis.
 
-<img src="docs/Microlive_video_720_fast.gif" alt="MicroLive Demo" width="900" />
+<img src="https://raw.githubusercontent.com/ningzhaoAnschutz/microlive/main/docs/Microlive_video_720_fast.gif" alt="MicroLive Demo" width="900" />
 
 ---
 
