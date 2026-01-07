@@ -1,0 +1,72 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pdoc
+
+      - name: Build API documentation
+        run: |
+          pdoc microlive --output-dir docs/api --no-show-source
+          
+      - name: Prepare docs directory
+        run: |
+          mkdir -p _site
+          cp -r docs/api/* _site/
+          cp docs/user_guide.md _site/ 2>/dev/null || true
+          cp docs/tutorial.md _site/ 2>/dev/null || true
+          echo '<!DOCTYPE html>
+          <html>
+          <head>
+            <meta http-equiv="refresh" content="0; url=microlive.html">
+            <title>MicroLive Documentation</title>
+          </head>
+          <body>
+            <p>Redirecting to <a href="microlive.html">MicroLive API Documentation</a>...</p>
+          </body>
+          </html>' > _site/index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
