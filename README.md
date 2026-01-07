@@ -2,7 +2,7 @@
 
 **Authors:** Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao
 
-[![Documentation](https://img.shields.io/badge/docs-available-brightgreen.svg)](docs/user_guide.md) [![Tutorial](https://img.shields.io/badge/tutorial-step--by--step-orange.svg)](docs/tutorial.md) [![API Reference](https://img.shields.io/badge/API-reference-blue.svg)](docs/api_reference.md) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-312/) [![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)](https://pypi.org/project/PyQt5/)
+[![PyPI version](https://img.shields.io/pypi/v/microlive.svg)](https://pypi.org/project/microlive/) [![Documentation](https://img.shields.io/badge/docs-available-brightgreen.svg)](docs/user_guide.md) [![Tutorial](https://img.shields.io/badge/tutorial-step--by--step-orange.svg)](docs/tutorial.md) [![API Reference](https://img.shields.io/badge/API-reference-blue.svg)](docs/api_reference.md) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/) [![PyQt5](https://img.shields.io/badge/GUI-PyQt5-green.svg)](https://pypi.org/project/PyQt5/)
 
 ## About
 
@@ -39,56 +39,139 @@
 
 ## Installation
 
-We recommend using [Anaconda](https://www.anaconda.com) for environment management.
-
-### 1. Clone the Repository
+### Quick Install (Recommended)
 
 ```bash
-git clone --depth 1 https://github.com/ningzhaoAnschutz/microlive.git  
-cd microlive 
+# Create and activate conda environment
+conda create -n microlive python=3.10 -y
+conda activate microlive
+
+# Install MicroLive
+pip install microlive
+
+# Launch the GUI
+microlive
 ```
 
-### 2. Create Environment
+That's it! MicroLive will launch with GPU acceleration automatically enabled:
 
-**macOS (Apple Silicon):**
+- **macOS (Apple Silicon)**: MPS GPU acceleration works automatically
+- **Linux/Windows (CPU)**: Works out of the box
+
+---
+
+### GPU Acceleration for NVIDIA (Windows/Linux)
+
+For NVIDIA GPU acceleration, install PyTorch with CUDA support **before** installing MicroLive:
 
 ```bash
-conda env create -f installation/micro_mac.yml
-conda activate micro_mac
+# Create environment
+conda create -n microlive python=3.10 -y
+conda activate microlive
+
+# Install PyTorch with CUDA 12.4 (adjust version as needed)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# Then install MicroLive
+pip install microlive
+
+# Launch
+microlive
 ```
 
-**Windows (NVIDIA GPU):**
+### Using Conda Environment Files
+
+Pre-configured environment files are available:
 
 ```bash
-conda env create -f installation/micro_windows.yml
-conda activate micro_windows
+# macOS / CPU
+conda env create -f installation/microlive.yml
+conda activate microlive
+
+# Windows/Linux with NVIDIA GPU
+conda env create -f installation/microlive_cuda.yml
+conda activate microlive
 ```
 
-### Alternative: Pip Installation
+### Verify GPU Support
 
-```bash
-# macOS
-pip install -r installation/requirements_mac.txt
+```python
+from microlive.utils.device import check_gpu_status
+check_gpu_status()
+```
 
-# Windows (with CUDA GPU support)
-pip install -r installation/requirements_windows.txt
+Expected output:
+
+```
+PyTorch version: 2.x.x
+✅ CUDA available: NVIDIA GeForce RTX ...
+   Memory: 8.0 GB
+```
+
+Or for Apple Silicon:
+
+```
+PyTorch version: 2.x.x
+✅ MPS available: Apple Silicon GPU (MPS)
 ```
 
 ---
 
-## Launching MicroLive
+### Development Installation
 
-**Platform launchers:**
-
-- macOS: Double-click `gui/micro_mac.command`
-- Windows: Double-click `gui/micro_windows.bat`
-
-**Manual launch:**
+For developers who want to modify the source code:
 
 ```bash
-conda activate micro_mac  # or micro_windows
-cd gui
-python micro.py
+# Clone the repository
+git clone --depth 1 https://github.com/ningzhaoAnschutz/microlive.git
+cd microlive
+
+# Create environment
+conda create -n microlive python=3.10 -y
+conda activate microlive
+
+# Install in editable mode
+pip install -e .
+
+# Launch
+microlive
+```
+
+---
+
+## Usage
+
+### GUI Application
+
+```bash
+conda activate microlive
+microlive
+```
+
+### Programmatic API
+
+```python
+import microlive.microscopy as mi
+
+# Load images from a Leica .lif file
+reader = mi.ReadLif("experiment.lif")
+images = reader.get_images()
+
+# Access image data
+image = reader.list_images[0]
+print(f"Image shape: {image.shape}")  # (T, Z, Y, X, C)
+
+# Run Cellpose segmentation
+cellpose = mi.Cellpose(image_for_segmentation=image[0, 0, :, :, 0])
+masks = cellpose.calculate_masks()
+
+# Spot detection
+spots = mi.SpotDetection(
+    image=image,
+    spot_size_yx=5,
+    threshold=100
+)
+detected = spots.detect_spots()
 ```
 
 ---
@@ -97,26 +180,28 @@ python micro.py
 
 ```text
 microlive/
-├── src/                          # Core analysis library
+├── microlive/                    # Core package (pip installable)
 │   ├── microscopy.py             # Main analysis classes
 │   ├── imports.py                # Central import management
-│   ├── ML_SpotDetection.py       # ML-based spot detection
+│   ├── ml_spot_detection.py      # ML-based spot detection
+│   ├── gui/                      # GUI application
+│   │   ├── app.py                # Main GUI window
+│   │   └── main.py               # CLI entry point
+│   ├── utils/                    # Utility modules
+│   │   ├── device.py             # GPU detection
+│   │   └── resources.py          # Resource paths
 │   └── pipelines/                # Analysis pipeline modules
-├── gui/                          # GUI application
-│   ├── micro.py                  # Main GUI application
-│   ├── micro_mac.command         # macOS launcher
-│   └── micro_windows.bat         # Windows launcher
 ├── docs/                         # Documentation
 │   ├── user_guide.md             # User manual
 │   ├── tutorial.md               # Step-by-step tutorials
 │   └── api_reference.md          # API documentation
-├── modeling/                     # Machine learning models
+├── modeling/                     # Research/development (not in pip package)
 ├── notebooks/                    # Example Jupyter notebooks
-├── installation/                 # Environment and dependency files
-│   ├── micro_mac.yml             # Conda environment (macOS)
-│   ├── micro_windows.yml         # Conda environment (Windows GPU)
-│   ├── requirements_mac.txt      # Pip dependencies (macOS)
-│   └── requirements_windows.txt  # Pip dependencies (Windows GPU)
+├── installation/                 # Environment files
+│   ├── microlive.yml             # Conda env (macOS / CPU)
+│   └── microlive_cuda.yml        # Conda env (NVIDIA GPU)
+├── tests/                        # Test suite
+├── pyproject.toml                # Package configuration
 └── LICENSE                       # GPL v3 License
 ```
 

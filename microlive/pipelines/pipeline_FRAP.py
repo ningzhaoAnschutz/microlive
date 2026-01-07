@@ -1,7 +1,9 @@
-import sys; from pathlib import Path
-src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
-sys.path.append(str(src_dir))
-from imports import *
+"""Pipeline module for MicroLive.
+
+This module is part of the microlive package.
+"""
+from microlive.imports import *
+
 from skimage.feature import canny
 from skimage.draw import circle_perimeter
 from scipy.ndimage import gaussian_filter
@@ -9,12 +11,6 @@ from skimage.filters import threshold_otsu
 from skimage.morphology import binary_opening, binary_closing
 from skimage.measure import label, regionprops
 from skimage.transform import hough_circle, hough_circle_peaks
-
-
-##################################################################################
-##################### General functions #########################################
-##################################################################################
-
 
 def read_lif_files_in_folder(folder_path):
     # create funtion that read all the .lif files in a folder and return the list of images

@@ -25,19 +25,14 @@ from PIL import Image
 import xml.etree.ElementTree as ET
 from joblib import Parallel, delayed, cpu_count
 NUMBER_OF_CORES = cpu_count()
-# importing paths
-gui_dir = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.abspath(os.path.join(gui_dir, ".."))
-sys.path.insert(0, os.path.join(repo_root, "src"))
-src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
-sys.path.append(str(src_dir))
 
 # Suppress macOS native warnings
 if sys.platform == 'darwin':
     os.environ['QT_MAC_WANTS_LAYER'] = '1'
     os.environ['QT_LOGGING_RULES'] = '*.debug=false;qt.qpa.*=false'
 
-from imports import *
+# Package-aware imports (pip packaging compatible)
+from microlive.imports import *
 # PyQt5 imports
 from PyQt5.QtCore import (
     Qt,
@@ -11816,7 +11811,7 @@ class GUI(QMainWindow):
         
         # Run ColocalizationDistance
         try:
-            from src.microscopy import ColocalizationDistance
+            from microlive.microscopy import ColocalizationDistance
             coloc = ColocalizationDistance(
                 df=df,
                 list_spot_type_to_compare=[ch0, ch1],

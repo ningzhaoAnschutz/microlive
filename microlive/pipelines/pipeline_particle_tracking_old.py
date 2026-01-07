@@ -1,10 +1,8 @@
-import sys; from pathlib import Path
-src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
-sys.path.append(str(src_dir))
-from imports import *
+"""Pipeline module for MicroLive.
 
-
-
+This module is part of the microlive package.
+"""
+from microlive.imports import *
 
 def metadata_decorator(metadata_folder_func=None, metadata_filename=None):
     def decorator(func):

@@ -1,0 +1,233 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "microlive"
+version = "1.0.0"
+description = "Live-cell microscopy image analysis and single-molecule measurements"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.10"
+authors = [
+    { name = "Luis U. Aguilera" },
+    { name = "William S. Raymond" },
+    { name = "Rhiannon M. Sears" },
+    { name = "Nathan L. Nowling" },
+    { name = "Brian Munsky" },
+    { name = "Ning Zhao" },
+]
+keywords = [
+    "microscopy",
+    "live-cell",
+    "single-molecule",
+    "tracking",
+    "PyQt5",
+    "cellpose",
+    "particle-tracking",
+    "image-analysis",
+    "bioimaging",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    # Core scientific stack
+    "numpy>=1.24,<2.0",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "scikit-image>=0.21",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+    "matplotlib-scalebar",
+    "seaborn>=0.12",
+    "statsmodels>=0.14",
+    
+    # Image I/O
+    "tifffile>=2023.7",
+    "imagecodecs",
+    "imageio>=2.31",
+    "Pillow>=10.0",
+    "bioio>=1.0",
+    "bioio-lif>=1.2",
+    "readlif>=0.6",
+    "opencv-python-headless>=4.8",
+    "roifile",
+    
+    # GUI
+    "PyQt5>=5.15",
+    
+    # ML/Analysis - Cellpose pulls PyTorch automatically
+    "cellpose>=3.0",
+    "trackpy>=0.6",
+    "big-fish>=0.6",
+    
+    # Acceleration
+    "numba>=0.58",
+    "joblib>=1.3",
+    "dask",
+    
+    # Utilities
+    "tqdm>=4.66",
+    "pystackreg>=0.2",
+    "openpyxl>=3.1",
+    "PyYAML>=6.0",
+    "pydantic>=2.0",
+    "natsort",
+    "psutil",
+    
+    # Bio utilities
+    "biopython>=1.81",
+    "dna-features-viewer>=3.1",
+    "snapgene-reader>=0.1",
+    "fpdf>=1.7",
+    
+    # Plotting extras
+    "brokenaxes",
+    "joypy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-qt>=4.0",
+    "black>=23.0",
+    "isort>=5.12",
+    "mypy>=1.5",
+    "ruff>=0.1",
+    "build",
+    "twine",
+]
+notebooks = [
+    "jupyter>=1.0",
+    "ipywidgets>=8.0",
+    "ipympl>=0.9",
+    "bqplot",
+]
+
+[project.scripts]
+microlive = "microlive.gui.main:main"
+
+[project.urls]
+Homepage = "https://github.com/ningzhaoAnschutz/microlive"
+Documentation = "https://github.com/ningzhaoAnschutz/microlive/blob/main/docs/user_guide.md"
+Repository = "https://github.com/ningzhaoAnschutz/microlive"
+Issues = "https://github.com/ningzhaoAnschutz/microlive/issues"
+Changelog = "https://github.com/ningzhaoAnschutz/microlive/releases"
+
+# =============================================================================
+# Build Configuration
+# =============================================================================
+
+[tool.hatch.build.targets.wheel]
+packages = ["microlive"]
+exclude = [
+    "*.log",
+    "**/micro_gui.log",
+    "**/__pycache__",
+    "**/*.pyc",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/microlive",
+    "/README.md",
+    "/LICENSE",
+]
+exclude = [
+    # Exclude development/research files from source distribution
+    "/modeling",
+    "/notebooks",
+    "/installation",
+    "/scripts",
+    "/tests",
+    "/temp",
+    "/test_gui",
+    "/writing",
+    "/.gemini",
+    "/.git",
+    "/.github",
+    "/.backup_before_pip_packaging",
+    "__pycache__",
+    "*.pyc",
+    "*.log",
+]
+
+# =============================================================================
+# Tool Configuration
+# =============================================================================
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+exclude = '''
+/(
+    \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

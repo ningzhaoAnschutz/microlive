@@ -1,8 +1,8 @@
-import sys; from pathlib import Path
-src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
-sys.path.append(str(src_dir))
-from imports import *
+"""Pipeline module for MicroLive.
 
+This module is part of the microlive package.
+"""
+from microlive.imports import *
 
 def metadata_folding_efficiency(filename,computer_user_name,original_lif_name, SNR_SELECTION_FOR_CHANNEL_1, SNR_SELECTION_FOR_CHANNEL_0, MIN_LEN_TRAJECTORY, MEMORY, 
                   SPOT_SIZE_PX, PLOT_FILTERED_IMAGES, MIN_INTENSITY_FOR_BACKGROUND, MIN_SPOTS_FOR_BACKGROUND,use_max_tem_projection_for_plotting,

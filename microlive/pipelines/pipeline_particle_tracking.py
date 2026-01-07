@@ -1,8 +1,8 @@
-# work on a code to count spots but not link trajectories.
-import sys; from pathlib import Path
-src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
-sys.path.append(str(src_dir))
-from imports import *
+"""Pipeline module for MicroLive.
+
+This module is part of the microlive package.
+"""
+from microlive.imports import *
 
 def pipeline_particle_tracking(data_folder_path, selected_image, channels_spots, max_spots_for_threshold=100000,
                                show_plot=True, channels_cytosol=None, channels_nucleus=None,memory=1,

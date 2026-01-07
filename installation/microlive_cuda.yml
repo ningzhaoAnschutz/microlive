@@ -1,0 +1,14 @@
+name: microlive
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    # PyTorch with CUDA 12.4 support for Windows/Linux GPU
+    - --extra-index-url https://download.pytorch.org/whl/cu124
+    - torch==2.4.1+cu124
+    - torchvision==0.19.1+cu124
+    # Install MicroLive package (which pulls remaining dependencies)
+    - microlive

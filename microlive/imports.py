@@ -106,42 +106,33 @@ import matplotlib.colors as mcolors
 # Get the username
 computer_user_name = getpass.getuser()
 
-# Set up paths
-src_dir = next(
-    (parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()),
-    None
-)
-docs_dir = next(
-    (parent / 'docs' for parent in Path(__file__).resolve().parents if (parent / 'docs').is_dir()),
-    None
-)
+# =============================================================================
+# Package-aware imports and paths (pip packaging compatible)
+# =============================================================================
 
-if docs_dir is None:
-    print("Error: 'docs' directory not found.")
-    sys.exit(1)
+# Import MicroLive modules using direct module imports (avoid circular import via __init__.py)
+from microlive.microscopy import *  # Direct module import, not through package __init__
+import microlive.microscopy as mi
+import microlive.ml_spot_detection as ML
+from microlive.utils.resources import get_icon_path, get_model_path
 
+# Get icon path (works both in development and installed modes)
+icon_file = get_icon_path()
+if icon_file is None:
+    warnings.warn("Icon file not found. Some GUI features may not display correctly.")
 
-icon_file = docs_dir / 'icons' / 'icon_micro.png'
-
-if not icon_file.is_file():
-    print(f"Error: Icon file not found at {icon_file}")
-    sys.exit(1)
-
-if src_dir is not None:
-    sys.path.append(str(src_dir.parent))
-    # Import custom modules
-    import src.microscopy as mi
-    try:
-        # Load machine learning model
-        import ML_SpotDetection as ML
-        ML_folder = src_dir.parents[0] /'modeling' / 'machine_learning'
+# Load machine learning model
+try:
+    model_path = get_model_path()
+    if model_path is not None and model_path.exists():
         model_ML = ML.ParticleDetectionCNN()
-        model_path = ML_folder / 'spot_detection_cnn.pth'
         ML.load_model(model_ML, model_path)
-    except Exception as e:
-        print(f"Error loading machine learning model: {e}")
-else:
-    print("Source directory not found. Please check the path to 'src' directory.")
+    else:
+        model_ML = None
+        warnings.warn("ML model not found. ML spot detection will not be available.")
+except Exception as e:
+    model_ML = None
+    warnings.warn(f"Error loading machine learning model: {e}")
 
 
 

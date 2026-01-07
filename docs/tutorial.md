@@ -25,7 +25,8 @@ Learn to load, visualize, and navigate through microscopy data with proper displ
 1. **Launch the Application**
 
    ```bash
-   python gui/micro.py
+   conda activate microlive
+   microlive
    ```
 
 2. **Open Image Files**

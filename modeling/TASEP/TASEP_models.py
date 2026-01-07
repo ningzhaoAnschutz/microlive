@@ -1,15 +1,14 @@
-import sys; from pathlib import Path
+"""TASEP modeling module for MicroLive.
+
+This module is for research/development and is NOT included in the pip package.
+To use, install MicroLive in development mode: pip install -e /path/to/microlive
+"""
+from microlive.imports import *
+
 from Bio.SeqRecord import SeqRecord
 from collections import Counter
 from Bio.Data import CodonTable
 import json
-src_dir = next((parent / 'src' for parent in Path().absolute().parents if (parent / 'src').is_dir()), None)
-sys.path.append(str(src_dir))
-from imports import *
-
-
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-human_genome_path = src_dir.parents[0].joinpath('modeling/TASEP/human_genome/Homo_sapiens.GRCh38.cds.all.fa')
 
 def download_human_genome_cds (human_genome_path):
     if human_genome_path.exists() == False:

@@ -1,53 +1,87 @@
+# === OS Files ===
 .DS_Store
-# Ignore folders
-Output/
-.ipynb_checkpoints
-__pycache__/
-.vscode
-temp/
-config.yml
-merged
-dataBases/
-config
-**/[C]onfig*
-dataframe.csv
-temp_*
+*~
 ~$*
-Figure_Distributions_*
-out.txt
-output.txt
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+*.pth
+
+# === Build / Distribution ===
+dist/
+build/
+*.whl
+
+# === Development ===
+.vscode/
+.idea/
+*.log
+.backup_before_pip_packaging/
+.gemini/
+scripts/
+modeling/TASEP/test_*.py
+*_executed.ipynb
+
+# === Jupyter Notebooks ===
+.ipynb_checkpoints/
+
+# === Local Config ===
+config.yml
+config/
+**/[C]onfig*
+
+# === Output / Results ===
+Output/
+temp/
+temp_*
+results*/
 analyses/
 analyses_*
+filtered_images_*/
+test_simulation/
+out.txt
+output.txt
 output__*
 slurm-*
 out-*
+
+# === Generated Files ===
+dataframe.csv
+*.csv
+df*
+Figure_Distributions_*
+*particle*.png
 masks_*
 mask_*
-tests/
-filtered_images_*/
-results*/
 kk*
-test_simulation/
-database*
-OneDrive*/
-src/__pycache__/
+
+# === Large Data Files ===
 *.tif
 *.lif
 *.jpg
 *.pdf
-df*
-spatio_temporal_models/
-gene_sequences/
-*.csv
-*particle*.png
-dev/
-human_genome/
-*.cds.all.fa
-*.dna
-circular_RNA/
 *.pptx
 *.ppt
+*.dna
+*.cds.all.fa
+
+# === Project-Specific Excludes ===
+dataBases/
+database*
+OneDrive*/
+spatio_temporal_models/
+gene_sequences/
+human_genome/
+circular_RNA/
+dev/
 revision/
-docs/paper_microlive_12112025/
-writing/
 revision_data/
+writing/
+docs/paper_microlive_12112025/
+merged
+tests/
