@@ -43,7 +43,7 @@ def main():
         app.setWindowIcon(QIcon(str(icon_path)))
     
     # Create and show main window
-    window = GUI()
+    window = GUI(icon_path=icon_path)
     window.show()
     
     # Run event loop
