@@ -115,6 +115,7 @@ dev = [
     "ruff>=0.1",
     "build",
     "twine",
+    "pdoc",
 ]
 notebooks = [
     "jupyter>=1.0",
