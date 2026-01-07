@@ -23,7 +23,9 @@ def main():
     
     # Import Qt after environment setup
     from PyQt5.QtWidgets import QApplication
-    from PyQt5.QtGui import QIcon
+    from PyQt5.QtGui import QIcon, QFont, QPalette, QColor
+    from PyQt5.QtCore import Qt
+    import matplotlib.pyplot as plt
     
     # Import the main application window
     from .app import GUI
@@ -33,8 +35,38 @@ def main():
     
     # Create application
     app = QApplication(sys.argv)
+    app.setStyle('Fusion')
+    
+    # Set modern font based on platform
+    if sys.platform == 'win32':
+        app.setFont(QFont("Segoe UI", 11))
+    elif sys.platform == 'darwin':
+        app.setFont(QFont("SF Pro", 11))
+    else:
+        app.setFont(QFont("Inter", 11))
+    
+    # Set dark matplotlib style
+    plt.style.use('dark_background')
+    
+    # Set dark palette for the application
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.Base, QColor(35, 35, 35))
+    palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ToolTipBase, Qt.white)
+    palette.setColor(QPalette.ToolTipText, Qt.white)
+    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ButtonText, Qt.white)
+    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.Highlight, QColor(142, 45, 197).lighter())
+    palette.setColor(QPalette.HighlightedText, Qt.black)
+    app.setPalette(palette)
+    
+    # Set application metadata
     app.setApplicationName("MicroLive")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationDisplayName("MicroLive")
     app.setOrganizationName("Zhao Lab")
     
     # Set application icon
