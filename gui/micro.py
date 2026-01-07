@@ -2626,6 +2626,9 @@ class GUI(QMainWindow):
                             if params['sigma'] > 0:
                                 norm = gaussian_filter(norm, sigma=params['sigma'])
                             combined_image += cmap_funcs[ch](norm)
+                        # Apply brightness scaling (60% default, matches compute_merged_image)
+                        brightness = 0.6
+                        combined_image = combined_image * brightness
                         img_to_show = np.clip(combined_image, 0, 1)
                     if self.display_remove_background_checkbox.isChecked() and self.active_mask is not None:
                         mask = (self.active_mask > 0).astype(float)
@@ -2849,10 +2852,10 @@ class GUI(QMainWindow):
         if hasattr(self, 'min_percentile_slider_tracking'):
             self.update_tracking_sliders()
 
-    def compute_merged_image(self):
+    def compute_merged_image(self, use_brightness_slider=False):
         if self.image_stack is None:
             return None
-        # Get current frame’s multi-channel image
+        # Get current frame's multi-channel image
         if self.image_stack.ndim == 5:
             # [T, Z, Y, X, C]
             current_frame_image = self.image_stack[self.current_frame]  # shape: [Z, Y, X, C]
@@ -2897,9 +2900,9 @@ class GUI(QMainWindow):
             combined_image += colored_channel
         
         # Apply brightness scaling (prevents oversaturation with multiple channels)
-        # Visualization tab uses slider; Import tab uses fixed 60%
-        brightness = 0.6  # Default 60% brightness
-        if hasattr(self, 'merge_brightness_slider'):
+        # Import tab uses fixed 60%; Tracking Visualization tab uses slider
+        brightness = 0.6  # Default 60% brightness for Import tab
+        if use_brightness_slider and hasattr(self, 'merge_brightness_slider'):
             brightness = self.merge_brightness_slider.value() / 100.0
             if hasattr(self, 'merge_brightness_label'):
                 self.merge_brightness_label.setText(f"{int(brightness * 100)}%")
@@ -4673,8 +4676,68 @@ class GUI(QMainWindow):
     def update_watershed_threshold_factor(self, value):
         # Convert slider value (int) to float factor (value/100)
         self.watershed_threshold_factor = value / 100.0
+        
+        # Update the value label
+        if hasattr(self, 'watershed_threshold_label'):
+            self.watershed_threshold_label.setText(f"{self.watershed_threshold_factor:.2f}")
+        
+        # Clear original mask storage since we're generating a new mask
+        self._original_watershed_mask = None
+        
+        # Reset size slider to 0 (no adjustment on new mask)
+        if hasattr(self, 'watershed_size_slider'):
+            self.watershed_size_slider.blockSignals(True)
+            self.watershed_size_slider.setValue(0)
+            self.watershed_size_slider.blockSignals(False)
+            if hasattr(self, 'watershed_size_label'):
+                self.watershed_size_label.setText("0")
+        
         if self.image_stack is not None:
             self.run_watershed_segmentation()
+
+    def _on_watershed_size_slider_changed(self, value):
+        """
+        Apply watershed mask size adjustment when slider value changes.
+        Positive = expand, Negative = shrink, 0 = original.
+        """
+        # Update label
+        if hasattr(self, 'watershed_size_label'):
+            self.watershed_size_label.setText(str(value))
+        
+        # Check if we have a watershed/segmentation mask
+        if self.segmentation_mask is None:
+            return
+        
+        # Store original if not yet stored
+        if self._original_watershed_mask is None:
+            self._original_watershed_mask = self.segmentation_mask.copy()
+        
+        # Apply transformation
+        if value == 0:
+            # Restore original
+            if self._original_watershed_mask is not None:
+                self.segmentation_mask = self._original_watershed_mask.copy()
+            msg = "Watershed mask restored to original size"
+        elif value > 0:
+            # Expand
+            self.segmentation_mask = self._expand_labeled_mask(
+                self._original_watershed_mask, value
+            )
+            msg = f"Watershed mask expanded by {value}px"
+        else:
+            # Shrink (value is negative, use abs)
+            self.segmentation_mask = self._shrink_labeled_mask(
+                self._original_watershed_mask, abs(value)
+            )
+            msg = f"Watershed mask shrunk by {abs(value)}px"
+        
+        # Update the active mask source
+        self._active_mask_source = 'segmentation'
+        
+        # Update display
+        self.plot_segmentation()
+        n_cells = int(self.segmentation_mask.max()) if self.segmentation_mask is not None else 0
+        self.statusBar().showMessage(f"{msg}. Cells: {n_cells}")
 
     def update_segmentation_source(self, state):
         if state == Qt.Checked:
@@ -5474,7 +5537,9 @@ class GUI(QMainWindow):
             segmentation_button (QPushButton)
             finish_segmentation_button (QPushButton)
             watershed_threshold_slider (QSlider)
-            run_watershed_button (QPushButton)
+            watershed_threshold_label (QLabel)
+            watershed_size_slider (QSlider)
+            watershed_size_label (QLabel)
             # Import Masks-specific attributes:
             btn_import_cyto_mask, btn_import_nuc_mask (QPushButton)
             label_cyto_mask_status, label_nuc_mask_status (QLabel)
@@ -5639,39 +5704,127 @@ class GUI(QMainWindow):
         
         # Manual tab will be added last (after Cellpose)
         
-        # --- Watershed Segmentation Tab ---
+        # --- Watershed Segmentation Tab (Cytosol Only) ---
         watershed_tab = QWidget()
         watershed_tab_layout = QVBoxLayout(watershed_tab)
         watershed_tab_layout.setContentsMargins(10, 10, 10, 10)
-        watershed_tab_layout.setSpacing(10)
+        watershed_tab_layout.setSpacing(6)
         
-        # Instructions label
+        # Instructions label - emphasize cytosol-only and slider-driven
         watershed_instructions = QLabel(
-            "Watershed segmentation automatically detects cell boundaries.\n"
-            "Adjust the threshold factor to control sensitivity.\n"
-            "Lower values = more regions, higher values = fewer regions."
+            "🔬 <b>Cytosol Segmentation</b> using watershed algorithm.<br>"
+            "Drag the slider below to detect cell boundaries.<br>"
+            "<i>Segmentation updates automatically.</i>"
         )
+        watershed_instructions.setTextFormat(Qt.RichText)
         watershed_instructions.setWordWrap(True)
-        watershed_instructions.setStyleSheet("color: gray; font-size: 11px;")
+        watershed_instructions.setStyleSheet("color: #cccccc; font-size: 10px; padding: 4px; background-color: #2a2a2a; border-radius: 4px;")
         watershed_tab_layout.addWidget(watershed_instructions)
         
-        # Threshold slider with label
-        threshold_layout = QHBoxLayout()
-        threshold_layout.addWidget(QLabel("Threshold Factor:"))
+        # === MAIN THRESHOLD SLIDER (Prominent, Green, Large) ===
+        threshold_group = QGroupBox("Detection Threshold")
+        threshold_group.setStyleSheet("""
+            QGroupBox { 
+                font-weight: bold; 
+                color: #00ff88; 
+                font-size: 12px;
+                border: 2px solid #00aa55;
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        threshold_group_layout = QVBoxLayout(threshold_group)
+        threshold_group_layout.setSpacing(6)
+        threshold_group_layout.setContentsMargins(10, 15, 10, 10)
+        
+        # Descriptive hints row
+        hints_layout = QHBoxLayout()
+        hint_decrease = QLabel("← Decrease area")
+        hint_decrease.setStyleSheet("color: #888888; font-size: 10px;")
+        hint_increase = QLabel("Increase area →")
+        hint_increase.setStyleSheet("color: #888888; font-size: 10px;")
+        hints_layout.addWidget(hint_decrease)
+        hints_layout.addStretch()
+        hints_layout.addWidget(hint_increase)
+        threshold_group_layout.addLayout(hints_layout)
+        
+        # Large slider with green styling (like tracking tab)
         self.watershed_threshold_slider = QSlider(Qt.Horizontal)
         self.watershed_threshold_slider.setMinimum(10)
         self.watershed_threshold_slider.setMaximum(200)
         self.watershed_threshold_slider.setValue(100)
-        self.watershed_threshold_slider.setTickPosition(QSlider.TicksBelow)
-        self.watershed_threshold_slider.setTickInterval(20)
+        self.watershed_threshold_slider.setMinimumHeight(30)  # Taller slider
+        self.watershed_threshold_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #444;
+                height: 10px;
+                background: #333;
+                border-radius: 5px;
+            }
+            QSlider::handle:horizontal {
+                background: #00ff88;
+                border: 2px solid #00aa55;
+                width: 20px;
+                height: 20px;
+                margin: -6px 0;
+                border-radius: 10px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #44ffaa;
+            }
+            QSlider::sub-page:horizontal {
+                background: linear-gradient(to right, #005533, #00aa55);
+                border-radius: 5px;
+            }
+        """)
+        self.watershed_threshold_slider.setToolTip("Drag to adjust detection threshold")
         self.watershed_threshold_slider.valueChanged.connect(self.update_watershed_threshold_factor)
-        threshold_layout.addWidget(self.watershed_threshold_slider)
-        watershed_tab_layout.addLayout(threshold_layout)
+        threshold_group_layout.addWidget(self.watershed_threshold_slider)
         
-        # Run Watershed button
-        self.run_watershed_button = QPushButton("Run Watershed Segmentation", self)
-        self.run_watershed_button.clicked.connect(self.run_watershed_segmentation)
-        watershed_tab_layout.addWidget(self.run_watershed_button)
+        # Value label showing current threshold factor (centered below slider)
+        value_layout = QHBoxLayout()
+        value_layout.addStretch()
+        self.watershed_threshold_label = QLabel("1.00")
+        self.watershed_threshold_label.setAlignment(Qt.AlignCenter)
+        self.watershed_threshold_label.setStyleSheet("color: #00ff88; font-weight: bold; font-size: 14px;")
+        value_layout.addWidget(self.watershed_threshold_label)
+        value_layout.addStretch()
+        threshold_group_layout.addLayout(value_layout)
+        
+        watershed_tab_layout.addWidget(threshold_group)
+        
+        # === MASK SIZE ADJUSTMENT (Modest, compact) ===
+        size_layout = QHBoxLayout()
+        size_layout.setSpacing(8)
+        
+        size_label = QLabel("Size Adjust:")
+        size_label.setStyleSheet("color: #888888; font-size: 10px;")
+        size_layout.addWidget(size_label)
+        
+        self.watershed_size_slider = QSlider(Qt.Horizontal)
+        self.watershed_size_slider.setMinimum(-20)
+        self.watershed_size_slider.setMaximum(20)
+        self.watershed_size_slider.setValue(0)
+        self.watershed_size_slider.setMaximumWidth(100)  # Compact slider
+        self.watershed_size_slider.setToolTip("Fine-tune mask size: - = shrink, + = expand")
+        self.watershed_size_slider.valueChanged.connect(self._on_watershed_size_slider_changed)
+        size_layout.addWidget(self.watershed_size_slider)
+        
+        self.watershed_size_label = QLabel("0")
+        self.watershed_size_label.setMinimumWidth(25)
+        self.watershed_size_label.setAlignment(Qt.AlignCenter)
+        self.watershed_size_label.setStyleSheet("color: #888888; font-size: 10px;")
+        size_layout.addWidget(self.watershed_size_label)
+        
+        size_layout.addStretch()
+        watershed_tab_layout.addLayout(size_layout)
+        
         watershed_tab_layout.addStretch()
         
         self.segmentation_method_tabs.addTab(watershed_tab, "Watershed")  # Index 0
@@ -5942,6 +6095,7 @@ class GUI(QMainWindow):
         self._original_cellpose_masks_nuc = None
         self._original_cellpose_masks_cyto_tyx = None
         self._original_cellpose_masks_nuc_tyx = None
+        self._original_watershed_mask = None  # Store original watershed mask for size adjustment
         self.masks_imported = False  # Track if masks were imported vs generated
         
         # Connect sub-tab change to refresh the display
@@ -12573,7 +12727,7 @@ class GUI(QMainWindow):
         y0 = max(0, min(row - crop_sz // 2, H - crop_sz))
         x1, y1 = x0 + crop_sz, y0 + crop_sz
         if getattr(self, 'tracking_vis_merged', False):
-            main_img = self.compute_merged_image()
+            main_img = self.compute_merged_image(use_brightness_slider=True)
             main_cmap = None
         else:
             main_img = norm_stack[selected_channelIndex]
@@ -14263,6 +14417,22 @@ class GUI(QMainWindow):
             self.segmentation_time_slider.setValue(0)
         # Reset Z-slider to max projection (default)
         self.reset_segmentation_z_slider()
+        
+        # Reset watershed controls to defaults
+        self._original_watershed_mask = None
+        self.watershed_threshold_factor = 1.0
+        if hasattr(self, 'watershed_threshold_slider'):
+            self.watershed_threshold_slider.blockSignals(True)
+            self.watershed_threshold_slider.setValue(100)  # 1.0 factor
+            self.watershed_threshold_slider.blockSignals(False)
+        if hasattr(self, 'watershed_threshold_label'):
+            self.watershed_threshold_label.setText("1.00")
+        if hasattr(self, 'watershed_size_slider'):
+            self.watershed_size_slider.blockSignals(True)
+            self.watershed_size_slider.setValue(0)
+            self.watershed_size_slider.blockSignals(False)
+        if hasattr(self, 'watershed_size_label'):
+            self.watershed_size_label.setText("0")
 
     def reset_photobleaching_tab(self):
         self.figure_photobleaching.clear()
