@@ -3914,41 +3914,86 @@ class BigFISH():
             clusters_and_spots = clusters_no_spots
         else:
             clusters_and_spots = np.zeros((0, 4), dtype=np.float64)
-        # We run this regardless of decompose_successful, because decompose_dense 
-        # might run without error but fail to actually split a large blob.
+        
+        # Sigma-based cluster classification:
+        # A spot should be classified as a cluster if it has a larger sigma (width)
+        # than expected for a single diffraction-limited spot, NOT based on intensity.
+        # Physical basis: multiple overlapping spots create a wider Gaussian profile.
+        #
+        # Strategy: Calculate sigma for all spots, use median as reference for "single spot",
+        # then classify spots with sigma > threshold * median_sigma as clusters.
         if len(clusters_and_spots) > 0:
-            # Calculate intensity for each spot/cluster
-            spot_intensities = []
-            for spot in clusters_and_spots:
-                z, y, x = int(spot[0]), int(spot[1]), int(spot[2])
-                # Get max intensity in a small region around the spot
-                z_min, z_max = max(0, z-1), min(rna.shape[0], z+2)
-                y_min, y_max = max(0, y-self.yx_spot_size_in_px), min(rna.shape[1], y+self.yx_spot_size_in_px+1)
-                x_min, x_max = max(0, x-self.yx_spot_size_in_px), min(rna.shape[2], x+self.yx_spot_size_in_px+1)
-                intensity = np.max(rna[z_min:z_max, y_min:y_max, x_min:x_max])
-                spot_intensities.append(intensity)
+            # Use consistent crop size: spot_size + 2 (same as Intensity class)
+            best_size = self.yx_spot_size_in_px + 2
+            half = best_size // 2
             
-            if len(spot_intensities) > 0:
-                # Use a robust estimate: median of lower 50% intensities as reference for single spot
-                sorted_intensities = np.sort(spot_intensities)
-                n_lower = max(1, len(sorted_intensities) // 2)
-                reference_intensity = np.median(sorted_intensities[:n_lower])
+            # First pass: calculate sigma for all isolated spots
+            spot_sigmas = []
+            for i, spot in enumerate(clusters_and_spots):
+                if spot[3] != 1:  # Skip spots Big-FISH already identified as clusters
+                    spot_sigmas.append((i, np.nan))
+                    continue
+                    
+                z, y, x = int(spot[0]), int(spot[1]), int(spot[2])
+                y_min, y_max = max(0, y - half), min(rna.shape[1], y + half + 1)
+                x_min, x_max = max(0, x - half), min(rna.shape[2], x + half + 1)
                 
-                if reference_intensity > 0:
-                    # Estimate cluster_size for spots with high intensity
-                    for i, intensity in enumerate(spot_intensities):
-                        current_size = clusters_and_spots[i, 3]
-                        # Use stricter threshold: require at least 1.75x reference to declare size 2
-                        intensity_ratio = intensity / reference_intensity
-                        estimated_size = max(1, int(np.floor(intensity_ratio + 0.25)))
-                        
-                        # --- MODIFICATION START ---
-                        # Only update isolated spots (cluster_size=1) that appear to be clusters.
-                        # We STRICTLY check if current_size == 1 to prioritize Big-FISH's geometric detection.
-                        # If Big-FISH says size > 1, we trust it and do NOT use intensity.
-                        if current_size == 1 and estimated_size > 1:
-                            clusters_and_spots[i, 3] = estimated_size
-                        # --- MODIFICATION END ---
+                # Use max projection in Z for 2D sigma estimation
+                spot_data = np.max(rna[max(0, z-1):min(rna.shape[0], z+2), y_min:y_max, x_min:x_max], axis=0).astype(float)
+                
+                if spot_data.size == 0:
+                    spot_sigmas.append((i, np.nan))
+                    continue
+                
+                try:
+                    # Fast moment-based sigma estimation (same as Intensity class fast path)
+                    bg_val = np.percentile(spot_data, 5)
+                    img_sub = spot_data - bg_val
+                    img_sub[img_sub < 0] = 0
+                    total_mass = np.sum(img_sub) + 1e-9
+                    
+                    h_crop, w_crop = img_sub.shape
+                    Y, X = np.indices((h_crop, w_crop))
+                    com_x = np.sum(X * img_sub) / total_mass
+                    com_y = np.sum(Y * img_sub) / total_mass
+                    
+                    var_x = np.sum((X - com_x)**2 * img_sub) / total_mass
+                    var_y = np.sum((Y - com_y)**2 * img_sub) / total_mass
+                    
+                    sigma_x = max(np.sqrt(var_x), 0.8)
+                    sigma_y = max(np.sqrt(var_y), 0.8)
+                    measured_sigma = (sigma_x + sigma_y) / 2
+                    spot_sigmas.append((i, measured_sigma))
+                except Exception:
+                    spot_sigmas.append((i, np.nan))
+            
+            # Get valid sigma values (non-NaN)
+            valid_sigmas = [s for _, s in spot_sigmas if not np.isnan(s)]
+            
+            if len(valid_sigmas) >= 3:  # Need enough samples for reliable median
+                # Use median of lower 50% as reference (single spots should have smaller sigma)
+                sorted_sigmas = np.sort(valid_sigmas)
+                n_lower = max(1, len(sorted_sigmas) // 2)
+                reference_sigma = np.median(sorted_sigmas[:n_lower])
+                
+                # Threshold: spots with sigma > 1.5x reference are likely clusters
+                sigma_threshold_ratio = 1.5
+                
+                # Second pass: classify spots based on sigma comparison
+                for idx, measured_sigma in spot_sigmas:
+                    if np.isnan(measured_sigma):
+                        continue
+                    
+                    current_size = clusters_and_spots[idx, 3]
+                    if current_size != 1:
+                        continue
+                    
+                    # If sigma is significantly larger than reference, classify as cluster
+                    if measured_sigma > sigma_threshold_ratio * reference_sigma:
+                        # Estimate cluster size from area ratio (sigma^2)
+                        area_ratio = (measured_sigma / reference_sigma) ** 2
+                        estimated_size = max(2, int(round(area_ratio)))
+                        clusters_and_spots[idx, 3] = estimated_size
         
         ## PLOTTING
         # OPTIMIZATION: Only plot if explicitly requested
