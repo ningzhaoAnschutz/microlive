@@ -21,39 +21,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pdoc
-          # Install microlive with all dependencies
-          pip install .
-
-      - name: Build API documentation
-        run: |
-          # Document only the main module (pdoc will find submodules automatically)
-          pdoc microlive --output-dir docs/api --no-show-source || true
-          
       - name: Prepare docs directory
         run: |
           mkdir -p _site
           cp -r docs/api/* _site/
           cp docs/user_guide.md _site/ 2>/dev/null || true
           cp docs/tutorial.md _site/ 2>/dev/null || true
-          echo '<!DOCTYPE html>
-          <html>
-          <head>
-            <meta http-equiv="refresh" content="0; url=microlive.html">
-            <title>MicroLive Documentation</title>
-          </head>
-          <body>
-            <p>Redirecting to <a href="microlive.html">MicroLive API Documentation</a>...</p>
-          </body>
-          </html>' > _site/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
