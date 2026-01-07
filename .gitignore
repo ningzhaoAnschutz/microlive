@@ -29,7 +29,6 @@ modeling/TASEP/test_*.py
 
 # === Jupyter Notebooks ===
 .ipynb_checkpoints/
-docs/api/
 
 # === Local Config ===
 config.yml
