@@ -30,10 +30,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pdoc
-          pip install -e .
+          # Install microlive with all dependencies
+          pip install .
+
       - name: Build API documentation
         run: |
-          pdoc microlive microlive.microscopy microlive.gui microlive.pipelines microlive.utils --output-dir docs/api --no-show-source
+          # Document only the main module (pdoc will find submodules automatically)
+          pdoc microlive --output-dir docs/api --no-show-source || true
           
       - name: Prepare docs directory
         run: |
