@@ -30,10 +30,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pdoc
-
+          pip install -e .
       - name: Build API documentation
         run: |
-          pdoc microlive --output-dir docs/api --no-show-source
+          pdoc microlive microlive.microscopy microlive.gui microlive.pipelines microlive.utils --output-dir docs/api --no-show-source
           
       - name: Prepare docs directory
         run: |
