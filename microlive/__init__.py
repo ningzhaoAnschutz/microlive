@@ -41,4 +41,10 @@ name = 'microlive'
 __all__ = [
     "__version__",
     "__author__",
+    # Submodules (listed for pdoc documentation discovery)
+    "microscopy",
+    "imports",
+    "pipelines",
+    "utils",
+    "gui",
 ]
