@@ -438,7 +438,7 @@ When **"Use 2D Projection for Tracking"** is disabled:
 | **Linking** | TrackPy | TrackPy |
 | **Speed** | Faster | Slower |
 | **Accuracy** | Good for thin samples | Better for thick samples |
-| **Cluster Detection** | No | Yes |
+| **Cluster Detection** | Sigma-based | Geometric (DBSCAN) |
 | **Memory Usage** | Lower | Higher |
 
 **When to Use Each Mode:**
@@ -456,32 +456,56 @@ When **"Use 2D Projection for Tracking"** is disabled:
 
 ### Cluster Detection and Analysis
 
-**3D tracking mode enables advanced cluster detection capabilities:**
+MicroLive provides cluster detection in both 2D and 3D tracking modes using different approaches optimized for each modality.
+
+#### Cluster Classification Methods
+
+**2D Projection Mode: Sigma-Based Classification**
+
+When using 2D tracking, clusters are identified based on spot **spatial width (sigma)**, not intensity:
+
+- **Physical basis**: Multiple overlapping mRNAs/spots that are too close to be resolved individually create a wider Gaussian profile than a single diffraction-limited spot
+- **Method**: TrackPy measures each spot's spatial extent (`size` column)
+- **Reference calculation**: The median of the lower 50% of measured sizes establishes the expected sigma for a single spot
+- **Classification threshold**: Spots with `size > 1.5× reference_size` are classified as clusters
+- **Cluster size estimation**: `cluster_size = round((size / reference_size)²)` based on the area ratio
+
+This approach is self-calibrating and does not rely on intensity, which can vary due to expression levels.
+
+**3D Tracking Mode: Geometric (DBSCAN) Classification**
+
+When using 3D tracking with Big-FISH, clusters are identified based on **spatial proximity**:
+
+- **Method**: DBSCAN clustering via `detection.detect_clusters()`
+- **Cluster Radius (nm)**: Maximum distance between spots to be considered part of the same cluster
+- **Minimum Spots**: Minimum number of nearby spots required to form a cluster (default: 2)
+- **Cluster size**: The actual count of individual spots detected within the cluster region
+
+This approach is appropriate for 3D data where individual spots can be spatially resolved.
 
 #### Cluster vs. Spot Classification
 
-- **Individual Spots**: Single, isolated fluorescent puncta
-- **Clusters**: Groups of spots within a defined radius that may represent:
+- **Individual Spots**: Single, isolated fluorescent puncta (`cluster_size = 1`)
+- **Clusters**: Groups of spots that may represent:
+  - Multiple mRNAs at a transcription site
   - Protein complexes
-  - Transcriptional factories
   - Stress granules
   - Other biomolecular condensates
 
 #### Cluster Parameters
 
-- **Cluster Radius (nm)**: Maximum distance between spots to be considered part of the same cluster
+- **Cluster Radius (nm)**: Maximum distance between spots to be considered part of the same cluster (3D mode only)
 - **Max Cluster Size**: Maximum number of spots allowed per cluster (helps filter artifacts)
 - **Separate Analysis**: Option to analyze clusters and individual spots independently
 
-#### Additional Data from 3D Analysis
+#### Additional Data from Cluster Analysis
 
-When using 3D tracking with cluster detection, you get:
+When cluster detection is enabled, you get:
 
 - **Cluster size information**: Number of spots per cluster
-- **3D coordinates**: Precise X, Y, Z positions for each spot
+- **3D coordinates** (3D mode): Precise X, Y, Z positions for each spot
 - **Cluster membership**: Which spots belong to which clusters
-- **Enhanced intensity measurements**: More accurate due to 3D localization
-- **Spatial relationships**: Better understanding of molecular organization
+- **Enhanced intensity measurements**: More accurate due to proper cluster handling
 
 ### Tracking Workflow
 
@@ -613,14 +637,35 @@ FWHM = 2√(2ln2) × σₓᵧ ≈ 2.355 × σₓᵧ
 
 **2. Cluster-Based Size (for clustered particles):**
 
-For spots detected as clusters (when `cluster_size > 1`), the cluster size represents the **number of individual spots grouped together** within the specified clustering radius using the Big-FISH library.
+For spots detected as clusters (when `cluster_size > 1`), the method depends on the tracking mode:
 
-#### Big-FISH Clustering Process
+**2D Mode (TrackPy - Sigma-Based):**
 
-The clustering analysis follows this workflow:
+The cluster size is estimated from the spot's spatial width compared to a reference single-spot width:
+
+```text
+cluster_size = round((measured_size / reference_size)²)
+```
+
+Where `reference_size` is the median of the lower 50% of measured spot sizes (self-calibrating).
+
+**3D Mode (Big-FISH - Geometric):**
+
+The cluster size represents the **actual count of individual spots** detected within the specified clustering radius using DBSCAN clustering.
+
+#### Cluster Detection Workflows
+
+**2D Sigma-Based Process (TrackPy):**
+
+1. **Spot Detection**: TrackPy detects spots and measures their spatial extent (`size` column)
+2. **Reference Calculation**: Median of lower 50% of sizes establishes single-spot reference
+3. **Classification**: Spots with `size > 1.5× reference_size` are classified as clusters
+4. **Size Estimation**: `cluster_size = round((size / reference_size)²)`
+
+**3D Geometric Process (Big-FISH):**
 
 1. **Individual Spot Detection**: Big-FISH first detects individual spots using local maxima detection and thresholding
-2. **Cluster Identification**: Spots within `cluster_radius_nm` of each other are grouped into clusters using the `detect_clusters` function
+2. **Cluster Identification**: Spots within `cluster_radius_nm` of each other are grouped into clusters using the `detect_clusters` function (DBSCAN)
 3. **Size Assignment**:
    - **Individual spots** (`cluster_size = 1`): Isolated spots not part of any cluster
    - **Clustered spots** (`cluster_size > 1`): The number indicates how many individual spots were detected within the cluster

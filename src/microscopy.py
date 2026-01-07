@@ -3703,31 +3703,40 @@ class TrackPyDetection:
         # Since the image is 2D after projection, z can be set to 0
         z = np.zeros_like(x)
         
-        # We assume the median mass represents a single RNA molecule.
-        if 'mass' in f.columns and len(f) > 0:
-            masses = f['mass'].values
-            # Calculate reference mass (single spot)
-            # We use the median of the lower 50% to avoid skewing by very large clusters
-            sorted_mass = np.sort(masses)
-            num_lower = max(1, len(sorted_mass) // 2)
-            reference_mass = np.median(sorted_mass[:num_lower])
+        # Sigma-based cluster classification for 2D detection:
+        # TrackPy's 'size' column represents the spatial extent (sigma) of each spot.
+        # A cluster should be identified by its larger sigma (wider profile), NOT by intensity.
+        # Physical basis: multiple overlapping spots create a wider Gaussian profile.
+        if 'size' in f.columns and len(f) > 0:
+            sizes = f['size'].values  # TrackPy's size = spatial extent (sigma-like)
             
-            if reference_mass <= 0:
-                reference_mass = np.median(masses)  # Fallback to standard median
+            # Calculate reference size (single spot reference)
+            # Use median of lower 50% to avoid skewing by clusters
+            sorted_sizes = np.sort(sizes)
+            num_lower = max(1, len(sorted_sizes) // 2)
+            reference_size = np.median(sorted_sizes[:num_lower])
             
-            if reference_mass > 0:
-                # Use a stricter threshold for cluster size estimation
-                # A spot must be at least 1.75x the reference mass to be considered size 2
-                # This prevents false positives for single spots with slightly varying intensity
-                mass_ratio = masses / reference_mass
-                # Use floor-based calculation with offset to require significant excess mass
-                # size = 1 for ratio < 1.75, size = 2 for ratio [1.75, 2.5), etc.
-                calculated_size = np.floor(mass_ratio + 0.25)  # Shift threshold from 0.5 to 0.75
-                size = np.maximum(1, calculated_size).astype(int)
+            if reference_size <= 0:
+                reference_size = np.median(sizes)  # Fallback to standard median
+            
+            if reference_size > 0:
+                # Threshold: spots with size > 1.5x reference are likely clusters
+                sigma_threshold_ratio = 1.5
+                
+                # Estimate cluster size from area ratio (size^2)
+                # size = 1 for ratio <= 1.5, then scales with area
+                size_ratio = sizes / reference_size
+                # Only classify as cluster if size_ratio > threshold
+                estimated_size = np.where(
+                    size_ratio > sigma_threshold_ratio,
+                    np.maximum(2, np.round((size_ratio) ** 2)),  # Area scales with sigma^2
+                    1  # Single spot
+                ).astype(int)
+                size = estimated_size
             else:
                 size = np.ones_like(x, dtype=int)
         else:
-            # Fallback if no mass or no spots
+            # Fallback if no size column or no spots
             size = np.ones_like(x, dtype=int)
 
         clusters_and_spots = np.column_stack((z, y, x, size)) if len(x) > 0 else np.empty((0, 4))
@@ -3915,85 +3924,9 @@ class BigFISH():
         else:
             clusters_and_spots = np.zeros((0, 4), dtype=np.float64)
         
-        # Sigma-based cluster classification:
-        # A spot should be classified as a cluster if it has a larger sigma (width)
-        # than expected for a single diffraction-limited spot, NOT based on intensity.
-        # Physical basis: multiple overlapping spots create a wider Gaussian profile.
-        #
-        # Strategy: Calculate sigma for all spots, use median as reference for "single spot",
-        # then classify spots with sigma > threshold * median_sigma as clusters.
-        if len(clusters_and_spots) > 0:
-            # Use consistent crop size: spot_size + 2 (same as Intensity class)
-            best_size = self.yx_spot_size_in_px + 2
-            half = best_size // 2
-            
-            # First pass: calculate sigma for all isolated spots
-            spot_sigmas = []
-            for i, spot in enumerate(clusters_and_spots):
-                if spot[3] != 1:  # Skip spots Big-FISH already identified as clusters
-                    spot_sigmas.append((i, np.nan))
-                    continue
-                    
-                z, y, x = int(spot[0]), int(spot[1]), int(spot[2])
-                y_min, y_max = max(0, y - half), min(rna.shape[1], y + half + 1)
-                x_min, x_max = max(0, x - half), min(rna.shape[2], x + half + 1)
-                
-                # Use max projection in Z for 2D sigma estimation
-                spot_data = np.max(rna[max(0, z-1):min(rna.shape[0], z+2), y_min:y_max, x_min:x_max], axis=0).astype(float)
-                
-                if spot_data.size == 0:
-                    spot_sigmas.append((i, np.nan))
-                    continue
-                
-                try:
-                    # Fast moment-based sigma estimation (same as Intensity class fast path)
-                    bg_val = np.percentile(spot_data, 5)
-                    img_sub = spot_data - bg_val
-                    img_sub[img_sub < 0] = 0
-                    total_mass = np.sum(img_sub) + 1e-9
-                    
-                    h_crop, w_crop = img_sub.shape
-                    Y, X = np.indices((h_crop, w_crop))
-                    com_x = np.sum(X * img_sub) / total_mass
-                    com_y = np.sum(Y * img_sub) / total_mass
-                    
-                    var_x = np.sum((X - com_x)**2 * img_sub) / total_mass
-                    var_y = np.sum((Y - com_y)**2 * img_sub) / total_mass
-                    
-                    sigma_x = max(np.sqrt(var_x), 0.8)
-                    sigma_y = max(np.sqrt(var_y), 0.8)
-                    measured_sigma = (sigma_x + sigma_y) / 2
-                    spot_sigmas.append((i, measured_sigma))
-                except Exception:
-                    spot_sigmas.append((i, np.nan))
-            
-            # Get valid sigma values (non-NaN)
-            valid_sigmas = [s for _, s in spot_sigmas if not np.isnan(s)]
-            
-            if len(valid_sigmas) >= 3:  # Need enough samples for reliable median
-                # Use median of lower 50% as reference (single spots should have smaller sigma)
-                sorted_sigmas = np.sort(valid_sigmas)
-                n_lower = max(1, len(sorted_sigmas) // 2)
-                reference_sigma = np.median(sorted_sigmas[:n_lower])
-                
-                # Threshold: spots with sigma > 1.5x reference are likely clusters
-                sigma_threshold_ratio = 1.5
-                
-                # Second pass: classify spots based on sigma comparison
-                for idx, measured_sigma in spot_sigmas:
-                    if np.isnan(measured_sigma):
-                        continue
-                    
-                    current_size = clusters_and_spots[idx, 3]
-                    if current_size != 1:
-                        continue
-                    
-                    # If sigma is significantly larger than reference, classify as cluster
-                    if measured_sigma > sigma_threshold_ratio * reference_sigma:
-                        # Estimate cluster size from area ratio (sigma^2)
-                        area_ratio = (measured_sigma / reference_sigma) ** 2
-                        estimated_size = max(2, int(round(area_ratio)))
-                        clusters_and_spots[idx, 3] = estimated_size
+        # Note: For 3D detection, we trust Big-FISH's geometric cluster detection
+        # (DBSCAN-based) which uses spatial proximity. No additional sigma-based
+        # classification is applied here.
         
         ## PLOTTING
         # OPTIMIZATION: Only plot if explicitly requested
@@ -9995,6 +9928,7 @@ class Plots():
                             y_axes_min_max_list_values = None,
                             x_axes_min_max_list_values = None,
                             figsize=(8,4),
+                            verbose=False,
                             ):
         # restore default matplotlib parameters
         plt.rcdefaults()
@@ -10136,7 +10070,8 @@ class Plots():
             max_lag_index = int(max_lag_index)
             if max_lag_index >= len(lags):
                 max_lag_index = len(lags) - 1
-                print('Warning: max_lag_index is out of range. Setting it to the last index')
+                if verbose:
+                    print('Warning: max_lag_index is out of range. Setting it to the last index')
             ax.set_xlim(lags[start_lag]-1, lags[max_lag_index])
         # axis text size
         ax.tick_params(axis='both', which='major', labelsize=16)

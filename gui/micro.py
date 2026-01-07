@@ -309,7 +309,7 @@ class Plots:
                             index_max_lag_for_fit=None, start_lag=0, line_color='blue',
                             plot_title=None, fit_type='linear', de_correlation_threshold=0.05,
                             normalize_plot_with_g0=False, axes=None, max_lag_index=None, plot_individual_trajectories=False,
-                            y_min_percentile=None, y_max_percentile=None):
+                            y_min_percentile=None, y_max_percentile=None, verbose=False):
         
         def single_exponential_decay(tau, A, tau_c, C):
             return A * np.exp(-tau / tau_c) + C
@@ -400,7 +400,8 @@ class Plots:
             A_fitted, tau_c_fitted, C_fitted = params
             G_fitted = single_exponential_decay(taus, *params)
             G0_fitted = single_exponential_decay(0, A_fitted, tau_c_fitted, C_fitted)
-            logging.info(f"Fitted G(0): {G0_fitted}")
+            if verbose:
+                logging.info(f"Fitted G(0): {G0_fitted}")
             threshold_value = de_correlation_threshold
             try:
                 dw_index = np.where(G_fitted < threshold_value)[0][0]
@@ -413,7 +414,8 @@ class Plots:
                     plot_title = f'Exponential Fit (Signal {channel_label})'
                 ax.set_title(plot_title, fontsize=10)
             except IndexError:
-                logging.warning("Could not find a time where G(τ) falls below threshold.")
+                if verbose:
+                    logging.warning("Could not find a time where G(τ) falls below threshold.")
                 ax.axhline(y=threshold_value, color='r', linestyle='--', linewidth=1)
         ax.set_xlabel(r"$\tau$(au)")
         if normalize_plot_with_g0:
@@ -425,7 +427,8 @@ class Plots:
             max_lag_index = int(max_lag_index)
             if max_lag_index >= len(lags):
                 max_lag_index = len(lags) - 1
-                logging.warning('max_lag_index is out of range. Setting it to the last index')
+                if verbose:
+                    logging.warning('max_lag_index is out of range. Setting it to the last index')
             if max_lag_index < 20:
                 space_before_start = 5
             else:

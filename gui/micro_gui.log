@@ -40550,3 +40550,1415 @@ PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/
 2026-01-01 18:55:47,447 - root - INFO - Cellpose eval finished. Masks max: 1
 2026-01-01 18:55:47,755 - root - INFO - Running Cellpose (no optimization)
 2026-01-01 18:55:48,029 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 19:15:29,715 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 19:52:50,645 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 20:02:47,642 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 20:15:49,826 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 20:19:27,362 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 20:24:37,775 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 20:57:32,090 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 21:02:29,966 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 21:03:59,790 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:01,914 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:04:02,222 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:03,199 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:04:03,496 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:04,864 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:04:05,165 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:06,131 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:04:06,428 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:07,396 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:04:07,696 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:08,930 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:04:09,244 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:10,184 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:04:10,477 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:11,277 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:04:11,569 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:04:12,233 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:13:19,401 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 21:24:31,019 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-01 21:25:34,074 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:35,041 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:25:35,399 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:37,018 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:25:37,327 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:38,169 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:25:38,481 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:39,789 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:25:40,096 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:41,319 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-01 21:25:41,627 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:42,409 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:25:42,716 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:43,433 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-01 21:25:43,748 - root - INFO - Running Cellpose (no optimization)
+2026-01-01 21:25:44,437 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-02 05:18:34,359 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 05:24:16,348 - root - INFO - Decorrelation threshold value: -0.0003816238367294871
+2026-01-02 05:24:16,350 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-02 05:24:21,993 - root - INFO - Decorrelation threshold value: -0.0003816238367294871
+2026-01-02 05:24:21,994 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-02 05:24:21,995 - root - INFO - Decorrelation threshold value: 0.2578952982184598
+2026-01-02 05:24:21,995 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-02 05:35:42,201 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 05:48:06,963 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 06:11:22,706 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 06:20:50,869 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 06:23:45,455 - root - INFO - Decorrelation threshold value: -0.005689588877723363
+2026-01-02 06:23:50,173 - root - INFO - Decorrelation threshold value: -0.0065475287489984
+2026-01-02 06:34:47,385 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 10:04:00,247 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 10:07:51,297 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 10:10:37,387 - root - INFO - Decorrelation threshold value: 0.0002561696782700345
+2026-01-02 10:10:37,389 - root - INFO - Decorrelation threshold value: -0.004312891218785216
+2026-01-02 10:10:43,799 - root - INFO - Decorrelation threshold value: -0.004312891218785216
+2026-01-02 10:16:05,026 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 10:19:04,030 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-02 10:19:04,032 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-02 10:19:07,549 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-02 10:19:34,200 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-02 10:20:31,955 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:32,931 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-02 10:20:33,225 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:34,807 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-02 10:20:35,114 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:35,917 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-02 10:20:36,223 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:37,566 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-02 10:20:37,879 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:39,109 - root - INFO - Cellpose eval finished. Masks max: 1
+2026-01-02 10:20:39,424 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:40,201 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-02 10:20:40,495 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:41,215 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-02 10:20:41,511 - root - INFO - Running Cellpose (no optimization)
+2026-01-02 10:20:42,207 - root - INFO - Cellpose eval finished. Masks max: 0
+2026-01-02 14:12:45,271 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 15:37:29,389 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 15:46:36,892 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 15:55:09,105 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 15:56:59,823 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 16:02:14,083 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:21:32,926 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:25:27,358 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:37:47,019 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:37:47,632 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:37:49,264 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:43:44,055 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:47:11,840 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-02 19:49:12,998 - root - ERROR - Error during cellpose_max_cells evaluation: tuple index out of range
+2026-01-02 19:49:13,002 - root - ERROR - Traceback (most recent call last):
+  File "/Users/nzlab-la/Desktop/microlive/src/microscopy.py", line 1591, in run_cellpose
+    masks = model.eval(
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 210, in eval
+    masks, flows, styles = self.cp.eval(x, channels=channels,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 534, in eval
+    masks = self._compute_masks(x.shape, dP, cellprob, flow_threshold=flow_threshold,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 620, in _compute_masks
+    outputs = dynamics.resize_and_compute_masks(
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 839, in resize_and_compute_masks
+    mask = compute_masks(dP, cellprob, niter=niter,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 906, in compute_masks
+    mask = get_masks_torch(p_final, inds, dP.shape[1:],
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 757, in get_masks_torch
+    coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+IndexError: tuple index out of range
+
+2026-01-02 19:49:13,325 - root - ERROR - Error during cellpose_max_cells evaluation: tuple index out of range
+2026-01-02 19:49:13,325 - root - ERROR - Traceback (most recent call last):
+  File "/Users/nzlab-la/Desktop/microlive/src/microscopy.py", line 1591, in run_cellpose
+    masks = model.eval(
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 210, in eval
+    masks, flows, styles = self.cp.eval(x, channels=channels,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 534, in eval
+    masks = self._compute_masks(x.shape, dP, cellprob, flow_threshold=flow_threshold,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 620, in _compute_masks
+    outputs = dynamics.resize_and_compute_masks(
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 839, in resize_and_compute_masks
+    mask = compute_masks(dP, cellprob, niter=niter,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 906, in compute_masks
+    mask = get_masks_torch(p_final, inds, dP.shape[1:],
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 757, in get_masks_torch
+    coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+IndexError: tuple index out of range
+
+2026-01-02 19:49:13,648 - root - ERROR - Error during cellpose_max_cells evaluation: tuple index out of range
+2026-01-02 19:49:13,649 - root - ERROR - Traceback (most recent call last):
+  File "/Users/nzlab-la/Desktop/microlive/src/microscopy.py", line 1591, in run_cellpose
+    masks = model.eval(
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 210, in eval
+    masks, flows, styles = self.cp.eval(x, channels=channels,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 534, in eval
+    masks = self._compute_masks(x.shape, dP, cellprob, flow_threshold=flow_threshold,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/models.py", line 620, in _compute_masks
+    outputs = dynamics.resize_and_compute_masks(
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 839, in resize_and_compute_masks
+    mask = compute_masks(dP, cellprob, niter=niter,
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 906, in compute_masks
+    mask = get_masks_torch(p_final, inds, dP.shape[1:],
+  File "/opt/anaconda3/envs/micro_gpu/lib/python3.10/site-packages/cellpose/dynamics.py", line 757, in get_masks_torch
+    coo = torch.sparse_coo_tensor(pt, torch.ones(pt.shape[1], device=pt.device, dtype=torch.int),
+IndexError: tuple index out of range
+
+2026-01-02 20:03:05,886 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 11:26:36,820 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 13:22:11,800 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 13:22:53,587 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 13:34:31,509 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 14:15:26,804 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 22:28:50,282 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-03 22:54:06,483 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 08:17:36,945 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 08:20:49,357 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 08:31:56,210 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 08:43:04,978 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 12:06:00,294 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 12:08:47,669 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 13:36:56,567 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 16:48:48,685 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 19:07:06,712 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 19:53:18,582 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 20:20:53,484 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 20:33:07,925 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 20:41:48,125 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 20:48:27,312 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 21:02:25,070 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-04 21:32:05,483 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 09:51:19,238 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 09:52:53,555 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:52:53,691 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:52:54,748 - root - INFO - Retry on CPU finished. Masks max: 11
+2026-01-05 09:52:55,201 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:52:55,291 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:52:56,294 - root - INFO - Retry on CPU finished. Masks max: 11
+2026-01-05 09:52:56,734 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:52:56,824 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:52:57,807 - root - INFO - Retry on CPU finished. Masks max: 11
+2026-01-05 09:52:58,244 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:52:58,336 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:52:59,322 - root - INFO - Retry on CPU finished. Masks max: 11
+2026-01-05 09:52:59,783 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:52:59,876 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:53:00,784 - root - INFO - Retry on CPU finished. Masks max: 13
+2026-01-05 09:53:01,246 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:53:01,336 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:53:02,149 - root - INFO - Retry on CPU finished. Masks max: 11
+2026-01-05 09:53:02,577 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:53:02,671 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:53:03,272 - root - INFO - Retry on CPU finished. Masks max: 7
+2026-01-05 09:53:03,706 - root - WARNING - MPS sparse error detected: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Attempting to run on GPU with resample=False.
+2026-01-05 09:53:03,798 - root - WARNING - MPS sparse error persisted with resample=False: Could not run 'aten::_sparse_coo_tensor_with_dims_and_tensors' with arguments from the 'SparseMPS' backend. This could be because the operator doesn't exist for this backend, or was omitted during the selective/custom build process (if using custom build). If you are a Facebook employee using PyTorch on mobile, please visit https://fburl.com/ptmfixes for possible resolutions. 'aten::_sparse_coo_tensor_with_dims_and_tensors' is only available for these backends: [MPS, Meta, SparseCPU, SparseMeta, BackendSelect, Python, FuncTorchDynamicLayerBackMode, Functionalize, Named, Conjugate, Negative, ZeroTensor, ADInplaceOrView, AutogradOther, AutogradCPU, AutogradCUDA, AutogradHIP, AutogradXLA, AutogradMPS, AutogradIPU, AutogradXPU, AutogradHPU, AutogradVE, AutogradLazy, AutogradMTIA, AutogradPrivateUse1, AutogradPrivateUse2, AutogradPrivateUse3, AutogradMeta, AutogradNestedTensor, Tracer, AutocastCPU, AutocastXPU, AutocastCUDA, FuncTorchBatched, BatchedNestedTensor, FuncTorchVmapMode, Batched, VmapMode, FuncTorchGradWrapper, PythonTLSSnapshot, FuncTorchDynamicLayerFrontMode, PreDispatch, PythonDispatcher].
+
+MPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/mps/MPSFallback.mm:75 [backend fallback]
+Meta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterMeta.cpp:26993 [kernel]
+SparseCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseCPU.cpp:1387 [kernel]
+SparseMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterSparseMeta.cpp:287 [kernel]
+BackendSelect: registered at /Users/runner/work/pytorch/pytorch/pytorch/build/aten/src/ATen/RegisterBackendSelect.cpp:815 [kernel]
+Python: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:153 [backend fallback]
+FuncTorchDynamicLayerBackMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:497 [backend fallback]
+Functionalize: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/FunctionalizeFallbackKernel.cpp:349 [backend fallback]
+Named: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/NamedRegistrations.cpp:7 [backend fallback]
+Conjugate: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ConjugateFallback.cpp:17 [backend fallback]
+Negative: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/NegateFallback.cpp:18 [backend fallback]
+ZeroTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/ZeroTensorFallback.cpp:86 [backend fallback]
+ADInplaceOrView: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/VariableFallbackKernel.cpp:86 [backend fallback]
+AutogradOther: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradCUDA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHIP: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXLA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMPS: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradIPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradXPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradHPU: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradVE: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradLazy: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMTIA: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse1: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse2: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradPrivateUse3: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradMeta: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+AutogradNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/VariableType_2.cpp:19857 [autograd kernel]
+Tracer: registered at /Users/runner/work/pytorch/pytorch/pytorch/torch/csrc/autograd/generated/TraceType_2.cpp:17623 [kernel]
+AutocastCPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:209 [backend fallback]
+AutocastXPU: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:351 [backend fallback]
+AutocastCUDA: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/autocast_mode.cpp:165 [backend fallback]
+FuncTorchBatched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:731 [backend fallback]
+BatchedNestedTensor: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/LegacyBatchingRegistrations.cpp:758 [backend fallback]
+FuncTorchVmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/VmapModeRegistrations.cpp:27 [backend fallback]
+Batched: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/LegacyBatchingRegistrations.cpp:1075 [backend fallback]
+VmapMode: fallthrough registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/VmapModeRegistrations.cpp:33 [backend fallback]
+FuncTorchGradWrapper: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/TensorWrapper.cpp:207 [backend fallback]
+PythonTLSSnapshot: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:161 [backend fallback]
+FuncTorchDynamicLayerFrontMode: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/functorch/DynamicLayer.cpp:493 [backend fallback]
+PreDispatch: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:165 [backend fallback]
+PythonDispatcher: registered at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/core/PythonFallbackKernel.cpp:157 [backend fallback]
+. Falling back to CPU.
+2026-01-05 09:53:04,322 - root - INFO - Retry on CPU finished. Masks max: 3
+2026-01-05 09:54:20,195 - root - CRITICAL - Qt Fatal: Traceback (most recent call last):
+  File "/opt/anaconda3/envs/micro/lib/python3.12/site-packages/matplotlib/backends/backend_qtagg.py", line 18, in paintEvent
+    def paintEvent(self, event):
+
+KeyboardInterrupt
+2026-01-05 09:54:55,949 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 10:20:33,749 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 10:23:40,751 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 11:02:30,559 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 12:25:32,154 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 14:19:24,732 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 14:25:05,572 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 15:34:33,784 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 16:01:57,615 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 16:06:15,093 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:07:58,368 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:07:58,370 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:01,507 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:01,509 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:01,705 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:01,706 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:01,869 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:01,870 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:02,035 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:02,036 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:02,204 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:02,204 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:02,371 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:02,371 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:02,537 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:02,537 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:02,872 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:02,873 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:03,238 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:03,239 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:03,402 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:03,403 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:03,568 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:03,569 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:03,769 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:03,769 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:03,968 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:03,969 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:04,137 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:04,137 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:04,695 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:04,698 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:04,828 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:04,829 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:04,978 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:04,979 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:05,128 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:05,129 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:05,278 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:05,279 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:05,428 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-05 16:08:05,429 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:11,615 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:19,792 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:08:23,084 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:09:02,317 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-05 16:13:51,181 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:14:00,322 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:14:16,158 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-05 16:14:50,650 - root - INFO - Fitted G(0): 0.029083476960232026
+2026-01-05 16:14:51,497 - root - INFO - Fitted G(0): 0.029083476960232026
+2026-01-05 16:14:56,168 - root - INFO - Fitted G(0): 0.029083476960232026
+2026-01-05 16:15:06,500 - root - INFO - Fitted G(0): 0.027397206090635957
+2026-01-05 16:15:24,714 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:39,537 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:43,105 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:48,566 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:51,715 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:51,888 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:53,338 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:56,145 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:15:56,262 - root - INFO - Fitted G(0): 0.010840562231379636
+2026-01-05 16:16:16,505 - root - INFO - Fitted G(0): 0.02917235047496633
+2026-01-05 16:16:17,359 - root - INFO - Fitted G(0): 0.02917235047496633
+2026-01-05 16:16:18,227 - root - INFO - Fitted G(0): 0.02917235047496633
+2026-01-05 16:21:33,198 - root - INFO - Fitted G(0): 0.042121485796403714
+2026-01-05 16:21:51,326 - root - INFO - Fitted G(0): 0.04010304628483184
+2026-01-05 16:22:13,474 - root - INFO - Fitted G(0): 0.03035455152104305
+2026-01-05 16:22:13,538 - root - INFO - Fitted G(0): 0.03035455152104305
+2026-01-05 16:22:13,597 - root - INFO - Fitted G(0): 0.03035455152104305
+2026-01-05 16:22:13,658 - root - INFO - Fitted G(0): 0.03035455152104305
+2026-01-05 16:22:13,717 - root - INFO - Fitted G(0): 0.03035455152104305
+2026-01-05 16:22:28,608 - root - INFO - Fitted G(0): 0.13671290600014435
+2026-01-05 16:22:44,404 - root - INFO - Fitted G(0): 0.13671290600014435
+2026-01-05 16:23:00,387 - root - INFO - Fitted G(0): 0.13671290600014435
+2026-01-05 16:23:12,813 - root - INFO - Fitted G(0): 0.13671290600014435
+2026-01-05 16:24:24,656 - root - INFO - Fitted G(0): 0.41641643650330534
+2026-01-05 16:24:44,152 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:24:48,267 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:24:48,485 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:24:48,854 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:24:49,018 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:24:49,217 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:24:49,384 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:25:10,528 - root - INFO - Fitted G(0): 0.038293178640306284
+2026-01-05 16:29:40,537 - root - INFO - Fitted G(0): 0.040256063253146505
+2026-01-05 16:29:40,540 - root - INFO - Fitted G(0): 0.05536624620439673
+2026-01-05 16:30:24,471 - root - INFO - Fitted G(0): 0.05536624620439673
+2026-01-05 16:32:44,769 - root - INFO - Fitted G(0): 0.05530300730711816
+2026-01-05 16:35:01,320 - root - INFO - Fitted G(0): 0.031223255167065245
+2026-01-05 16:35:17,379 - root - INFO - Fitted G(0): 0.016799248269668946
+2026-01-05 16:35:17,379 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:35:44,521 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:35:44,521 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:35:56,710 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:35:56,710 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:00,571 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:36:00,571 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:01,614 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:36:01,614 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:02,252 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:36:02,252 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:03,603 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:36:03,603 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:04,452 - root - INFO - Fitted G(0): 0.02349896480722828
+2026-01-05 16:36:04,452 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:16,054 - root - INFO - Fitted G(0): 0.023633433168786123
+2026-01-05 16:36:16,054 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:25,657 - root - INFO - Fitted G(0): 0.023633433168786123
+2026-01-05 16:36:25,657 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:36:38,926 - root - INFO - Fitted G(0): 0.05180529274795965
+2026-01-05 16:36:38,926 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:37:02,853 - root - INFO - Fitted G(0): 0.019034276670538475
+2026-01-05 16:37:16,726 - root - INFO - Fitted G(0): 0.019034276670538475
+2026-01-05 16:37:34,380 - root - INFO - Fitted G(0): 0.019034276670538475
+2026-01-05 16:37:46,278 - root - INFO - Fitted G(0): 0.030830611079027785
+2026-01-05 16:37:46,278 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:38:01,043 - root - INFO - Fitted G(0): 0.04175061426620685
+2026-01-05 16:38:01,043 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:45:55,038 - root - INFO - Fitted G(0): 0.04175061426620685
+2026-01-05 16:45:55,038 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 16:46:21,110 - root - INFO - Fitted G(0): 0.15100419273215854
+2026-01-05 16:46:21,112 - root - INFO - Fitted G(0): 0.04175061426620685
+2026-01-05 16:46:21,112 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-05 17:02:56,914 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 08:58:44,432 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 09:09:06,112 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 09:11:14,564 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 09:41:51,920 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 09:41:56,969 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 09:41:56,970 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 09:57:55,992 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 09:59:39,899 - root - INFO - Fitted G(0): 0.07504940015032283
+2026-01-06 09:59:41,025 - root - INFO - Fitted G(0): 0.07504940015032283
+2026-01-06 10:00:06,128 - root - INFO - Fitted G(0): 0.06038676921222498
+2026-01-06 10:00:11,187 - root - INFO - Fitted G(0): 0.06038676921222498
+2026-01-06 10:00:24,848 - root - INFO - Fitted G(0): 0.07043087830127828
+2026-01-06 10:00:40,123 - root - INFO - Fitted G(0): 0.05083085276644656
+2026-01-06 10:02:41,915 - root - INFO - Fitted G(0): 0.05083085276644656
+2026-01-06 10:04:00,566 - root - INFO - Fitted G(0): 0.05083085276644656
+2026-01-06 10:04:04,842 - root - INFO - Fitted G(0): 0.04888490616695944
+2026-01-06 10:04:59,886 - root - INFO - Fitted G(0): 0.04888490616695944
+2026-01-06 10:06:38,359 - root - INFO - Fitted G(0): 0.04888490616695944
+2026-01-06 10:06:42,170 - root - INFO - Fitted G(0): 0.04888490616695944
+2026-01-06 10:06:43,550 - root - INFO - Fitted G(0): 0.053016811642182776
+2026-01-06 10:06:43,551 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:06:49,406 - root - INFO - Fitted G(0): 0.06010992717515699
+2026-01-06 10:06:49,407 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:06:53,043 - root - INFO - Fitted G(0): 0.06307126589026414
+2026-01-06 10:06:53,044 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:06:57,684 - root - INFO - Fitted G(0): 0.06435013752828239
+2026-01-06 10:06:57,685 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:07:04,944 - root - INFO - Fitted G(0): 0.06297090572817306
+2026-01-06 10:07:04,945 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:07:07,322 - root - INFO - Fitted G(0): 0.07765321339742091
+2026-01-06 10:07:07,323 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:07:14,822 - root - INFO - Fitted G(0): 0.07765321339742091
+2026-01-06 10:07:14,824 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 10:07:16,544 - root - INFO - Fitted G(0): 0.07857288731991793
+2026-01-06 10:07:32,229 - root - INFO - Fitted G(0): 0.07395580473832375
+2026-01-06 10:07:32,230 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:07:37,957 - root - INFO - Fitted G(0): 0.07392306742365311
+2026-01-06 10:07:37,957 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:07:44,488 - root - INFO - Fitted G(0): 0.07528517701080523
+2026-01-06 10:07:51,754 - root - INFO - Fitted G(0): 0.07871882578280837
+2026-01-06 10:07:55,606 - root - INFO - Fitted G(0): 0.07871882578280837
+2026-01-06 10:08:09,693 - root - INFO - Fitted G(0): 0.07871882578280837
+2026-01-06 10:18:40,690 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 10:21:48,519 - root - INFO - Fitted G(0): 0.05909004536694446
+2026-01-06 10:21:49,863 - root - INFO - Fitted G(0): 0.05909004536694446
+2026-01-06 10:21:51,683 - root - INFO - Fitted G(0): 0.056414164158847965
+2026-01-06 10:21:53,326 - root - INFO - Fitted G(0): 0.058635736952484994
+2026-01-06 10:21:53,326 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:21:54,942 - root - INFO - Fitted G(0): 0.06310956816240547
+2026-01-06 10:21:56,572 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:21:58,050 - root - INFO - Fitted G(0): 0.055367890424330754
+2026-01-06 10:22:00,993 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:09,373 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:11,009 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:14,989 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:14,989 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:16,627 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:16,627 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:19,191 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:20,829 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:25,285 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:26,959 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:31,859 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:31,859 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:35,517 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:37,366 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:37,366 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:39,004 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:39,004 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:42,294 - root - INFO - Fitted G(0): 0.07496791598804567
+2026-01-06 10:22:42,294 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:47,794 - root - INFO - Fitted G(0): 0.0741383665398744
+2026-01-06 10:22:51,582 - root - INFO - Fitted G(0): 0.0750500792841425
+2026-01-06 10:22:51,583 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:22:54,304 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:22:56,635 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:01,778 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:06,353 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:08,029 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:09,651 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:11,472 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:13,142 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:14,755 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:16,367 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:18,016 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:18,016 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 10:23:21,875 - root - INFO - Fitted G(0): 0.07402946894967125
+2026-01-06 10:23:27,691 - root - INFO - Fitted G(0): 0.08100801298250389
+2026-01-06 10:23:30,437 - root - INFO - Fitted G(0): 0.08824216936452096
+2026-01-06 10:23:34,339 - root - INFO - Fitted G(0): 0.08535860110733681
+2026-01-06 10:23:35,538 - root - INFO - Fitted G(0): 0.08535860110733681
+2026-01-06 10:24:31,143 - root - INFO - Fitted G(0): 0.08535860110733681
+2026-01-06 10:24:39,991 - root - INFO - Fitted G(0): 0.08824216936452096
+2026-01-06 10:24:41,197 - root - INFO - Fitted G(0): 0.08824216936452096
+2026-01-06 10:24:46,932 - root - INFO - Fitted G(0): 0.08109050652730129
+2026-01-06 10:24:48,283 - root - INFO - Fitted G(0): 0.08109050652730129
+2026-01-06 10:30:08,128 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 12:02:39,488 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 13:07:05,438 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 13:16:04,327 - root - INFO - Fitted G(0): 0.07313887492678245
+2026-01-06 13:16:05,721 - root - INFO - Fitted G(0): 0.07313887492678245
+2026-01-06 13:16:07,341 - root - INFO - Fitted G(0): 0.07345356328628994
+2026-01-06 13:16:16,877 - root - INFO - Fitted G(0): 0.07345356328628994
+2026-01-06 13:16:16,877 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 13:16:18,515 - root - INFO - Fitted G(0): 0.07345356328628994
+2026-01-06 13:16:18,515 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 13:16:21,079 - root - INFO - Fitted G(0): 0.07345356328628994
+2026-01-06 13:16:30,660 - root - INFO - Fitted G(0): 0.07490631936276441
+2026-01-06 13:16:35,900 - root - INFO - Fitted G(0): 0.07391921564685011
+2026-01-06 13:16:41,376 - root - INFO - Fitted G(0): 0.07405325090839769
+2026-01-06 13:16:42,953 - root - INFO - Fitted G(0): 0.07274366812169755
+2026-01-06 13:32:19,546 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 13:38:10,592 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:38:29,850 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:38:51,382 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:39:06,586 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:40:01,018 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 13:40:01,019 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:40:23,080 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:41:01,769 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:41:16,843 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:41:16,891 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:44:12,368 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:44:27,279 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:45:24,071 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:45:39,115 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:45:39,165 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:52:08,151 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:52:09,863 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:53:25,109 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:53:57,496 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:53:58,468 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:16,957 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:17,660 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:42,909 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:43,521 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:53,555 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:54,576 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:55,672 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:57,585 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:54:59,490 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:55:12,093 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 13:55:12,094 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:55:19,468 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 13:55:19,469 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:55:31,042 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 13:55:31,044 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:55:36,642 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 13:55:36,642 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 13:55:47,071 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 13:55:47,073 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:01:41,766 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 14:01:41,767 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:02:07,600 - root - ERROR - Error in linear fit: arange: cannot compute length
+2026-01-06 14:02:07,601 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:02:36,349 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:03:51,572 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:31:57,207 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 14:34:30,267 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:34:35,801 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:34:35,803 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:34:40,330 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:35:53,962 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:35:55,192 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:35:58,598 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:20,024 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:28,742 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:28,742 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:30,506 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:30,506 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:34,217 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:39,022 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:40,619 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:42,389 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:42,389 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:44,140 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:44,140 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:46,628 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:46,628 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:48,643 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:48,643 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:50,322 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:50,322 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:51,907 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:51,908 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:56,584 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:56,584 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:36:58,852 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:36:58,853 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:37:49,429 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:37:49,430 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:37:51,032 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:37:51,033 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:37:52,600 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:37:52,600 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:37:54,525 - root - INFO - Fitted G(0): 0.03744600518278012
+2026-01-06 14:37:54,525 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:37:58,645 - root - INFO - Fitted G(0): 0.03695112424872581
+2026-01-06 14:37:58,646 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:37:59,930 - root - INFO - Fitted G(0): 0.03695112424872581
+2026-01-06 14:37:59,930 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:03,518 - root - INFO - Fitted G(0): 0.03596487682110286
+2026-01-06 14:38:03,518 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:04,805 - root - INFO - Fitted G(0): 0.03596487682110286
+2026-01-06 14:38:04,805 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:11,339 - root - INFO - Fitted G(0): 0.0038325423381309065
+2026-01-06 14:38:11,339 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:12,656 - root - INFO - Fitted G(0): 0.005292870179715692
+2026-01-06 14:38:12,656 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:13,946 - root - INFO - Fitted G(0): 0.005292870179715692
+2026-01-06 14:38:13,947 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:18,619 - root - INFO - Fitted G(0): 0.005292870179715692
+2026-01-06 14:38:18,619 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:20,191 - root - INFO - Fitted G(0): 0.005292870179715692
+2026-01-06 14:38:20,192 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:21,835 - root - INFO - Fitted G(0): 0.005292870179715692
+2026-01-06 14:38:23,357 - root - INFO - Fitted G(0): 0.005292870179715692
+2026-01-06 14:38:28,854 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:30,143 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:43,142 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:48,983 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:51,025 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:51,025 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:52,723 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:52,723 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:56,042 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:56,042 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:38:58,936 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:38:58,936 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 14:39:00,671 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:39:02,298 - root - INFO - Fitted G(0): 0.034821900528428235
+2026-01-06 14:43:22,010 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 14:46:14,707 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:46:14,709 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:46:48,702 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:46:48,703 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:47:22,298 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:47:22,300 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:47:53,557 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:47:53,560 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:48:31,638 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:48:31,639 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 14:49:06,052 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:55:18,629 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:56:18,650 - root - INFO - Fitted G(0): 0.1623236702829237
+2026-01-06 14:57:03,514 - root - INFO - Fitted G(0): 0.2003320263969301
+2026-01-06 14:57:36,717 - root - INFO - Fitted G(0): 0.2003320263969301
+2026-01-06 14:58:20,272 - root - INFO - Fitted G(0): 0.17369467935934296
+2026-01-06 14:58:53,851 - root - INFO - Fitted G(0): 0.17369467935934296
+2026-01-06 14:59:35,108 - root - INFO - Fitted G(0): 0.15627542795445845
+2026-01-06 15:00:36,061 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:01:09,489 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:02:16,934 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:02:16,934 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:05:43,309 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:05:43,312 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:07:58,060 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:07:58,061 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:10:33,409 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:10:33,411 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:19:00,314 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:19:00,314 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:38:45,829 - root - INFO - Fitted G(0): 0.08730642937774735
+2026-01-06 15:38:45,829 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:44:21,063 - root - INFO - Fitted G(0): 0.012053431194623277
+2026-01-06 15:44:21,063 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:44:29,081 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:44:29,082 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:44:50,807 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:44:50,807 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:45:17,264 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:45:21,456 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:45:27,819 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:45:46,343 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:45:46,343 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:45:50,897 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:03,882 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:08,090 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:20,132 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:20,132 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:46:28,156 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:28,156 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:46:46,039 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:46,039 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:46:50,239 - root - INFO - Fitted G(0): 0.07802986064389562
+2026-01-06 15:46:50,239 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:46:54,727 - root - INFO - Fitted G(0): 0.07795219875326632
+2026-01-06 15:46:54,727 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:46:59,234 - root - INFO - Fitted G(0): 0.07783016955825647
+2026-01-06 15:46:59,234 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:06,137 - root - INFO - Fitted G(0): 0.07783016955825647
+2026-01-06 15:47:06,137 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:13,733 - root - INFO - Fitted G(0): 0.07774607676977403
+2026-01-06 15:47:13,733 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:18,204 - root - INFO - Fitted G(0): 0.07817704163151237
+2026-01-06 15:47:18,204 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:22,386 - root - INFO - Fitted G(0): 0.07817704163151237
+2026-01-06 15:47:22,386 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:26,883 - root - INFO - Fitted G(0): 0.07757222499146817
+2026-01-06 15:47:26,883 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:45,099 - root - INFO - Fitted G(0): 0.07757222499146817
+2026-01-06 15:47:45,100 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:47:53,365 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:47:57,541 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:48:02,039 - root - INFO - Fitted G(0): 0.07723573806037405
+2026-01-06 15:48:02,039 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:48:06,214 - root - INFO - Fitted G(0): 0.07723573806037405
+2026-01-06 15:48:06,214 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:48:10,703 - root - INFO - Fitted G(0): 0.07366579554196098
+2026-01-06 15:48:14,890 - root - INFO - Fitted G(0): 0.06996452084060535
+2026-01-06 15:48:19,065 - root - INFO - Fitted G(0): 0.06996452084060535
+2026-01-06 15:48:24,193 - root - INFO - Fitted G(0): 0.07041724629305726
+2026-01-06 15:48:28,702 - root - INFO - Fitted G(0): 0.07439288928069135
+2026-01-06 15:48:28,702 - root - WARNING - Could not find a time where G(τ) falls below threshold.
+2026-01-06 15:48:37,205 - root - INFO - Fitted G(0): 0.07308330926224413
+2026-01-06 15:51:44,859 - root - INFO - Fitted G(0): 0.07308330926224413
+2026-01-06 15:54:05,785 - root - INFO - Fitted G(0): 0.07308330926224413
+2026-01-06 16:20:28,185 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 19:44:02,703 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 19:55:13,568 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 20:01:45,128 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 20:05:51,212 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 20:20:39,479 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 21:13:31,829 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 21:30:48,727 - root - WARNING - Qt Warning: Could not parse application stylesheet
+2026-01-06 21:33:10,646 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:17,501 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:32,178 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:33,763 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:37,690 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:48,501 - root - INFO - Fitted G(0): 0.2460270855410219
+2026-01-06 21:33:48,502 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:49,236 - root - INFO - Fitted G(0): 0.2460270855410219
+2026-01-06 21:33:49,237 - root - WARNING - max_lag_index is out of range. Setting it to the last index
+2026-01-06 21:33:51,617 - root - INFO - Fitted G(0): 0.2460270855410219
+2026-01-06 21:33:51,618 - root - WARNING - max_lag_index is out of range. Setting it to the last index
