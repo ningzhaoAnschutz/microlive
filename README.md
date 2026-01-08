@@ -8,7 +8,9 @@
 
 **MicroLive** is a Python-based GUI application for live-cell microscopy image analysis and single-molecule measurements. It provides an end-to-end workflow from image loading through particle tracking, colocalization analysis, and statistical analysis.
 
-<img src="https://raw.githubusercontent.com/ningzhaoAnschutz/microlive/main/docs/Microlive_video_720_fast.gif" alt="MicroLive Demo" width="900" />
+[![MicroLive Demo Video](https://img.youtube.com/vi/GU1ct5go-AU/maxresdefault.jpg)](https://youtu.be/GU1ct5go-AU?si=wEJWUaSYgNGj-Pi3)
+
+*Click the image above to watch the demo video on YouTube*
 
 ---
 
