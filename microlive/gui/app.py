@@ -2102,38 +2102,68 @@ class GUI(QMainWindow):
                     except Exception:
                         print(f"Error parsing JSON ImageDescription metadata: {desc_text}")
                 else:
-                    # OME-XML metadata
-                    try:
-                        root = ET.fromstring(desc_text)
-                        ns = {'ome': root.tag.split('}')[0].strip('{')}
-                        pixels = root.find('.//ome:Pixels', ns)
-                        if pixels is not None:
-                            attrib = pixels.attrib
-                            if 'PhysicalSizeX' in attrib:
-                                voxel_x_nm = float(attrib['PhysicalSizeX']) * 1000.0
-                            if 'PhysicalSizeY' in attrib:
-                                voxel_y_nm = float(attrib['PhysicalSizeY']) * 1000.0
-                            if 'PhysicalSizeZ' in attrib:
-                                voxel_z_nm = float(attrib['PhysicalSizeZ']) * 1000.0
-                            if 'TimeIncrement' in attrib:
-                                dt_seconds = float(attrib['TimeIncrement'])
-                            channel_elems = pixels.findall('ome:Channel', ns)
-                            detected_channel_names = [ch.attrib.get('Name') for ch in channel_elems if 'Name' in ch.attrib]
-                    except ET.ParseError:
-                        print("Error parsing OME-XML ImageDescription metadata")
+                    # Check if it's ImageJ format (starts with "ImageJ=")
+                    if desc_stripped.startswith('ImageJ='):
+                        # Parse ImageJ metadata
+                        # ImageJ doesn't store XY pixel size in description, only spacing (Z)
+                        # We'll try to get pixel size from XResolution tag later
+                        pass  # ImageJ metadata doesn't contain pixel size in description
+                    elif desc_stripped.startswith('<') or desc_stripped.startswith('<?xml'):
+                        # OME-XML metadata (starts with < or <?xml)
+                        try:
+                            root = ET.fromstring(desc_text)
+                            ns = {'ome': root.tag.split('}')[0].strip('{')}
+                            pixels = root.find('.//ome:Pixels', ns)
+                            if pixels is not None:
+                                attrib = pixels.attrib
+                                if 'PhysicalSizeX' in attrib:
+                                    voxel_x_nm = float(attrib['PhysicalSizeX']) * 1000.0
+                                if 'PhysicalSizeY' in attrib:
+                                    voxel_y_nm = float(attrib['PhysicalSizeY']) * 1000.0
+                                if 'PhysicalSizeZ' in attrib:
+                                    voxel_z_nm = float(attrib['PhysicalSizeZ']) * 1000.0
+                                if 'TimeIncrement' in attrib:
+                                    dt_seconds = float(attrib['TimeIncrement'])
+                                channel_elems = pixels.findall('ome:Channel', ns)
+                                detected_channel_names = [ch.attrib.get('Name') for ch in channel_elems if 'Name' in ch.attrib]
+                        except ET.ParseError:
+                            # Not valid XML - that's okay, will try XResolution tags
+                            pass
             else:
                 print("No ImageDescription found in TIFF metadata.")
+            # Try to get pixel size from XResolution tag if not found yet
             if voxel_x_nm is None:
                 x_res = page0.tags.get('XResolution')
                 if x_res:
                     num, den = x_res.value
-                    voxel_x_nm = float(num) / float(den) * 1000.0
+                    resolution = float(num) / float(den)  # pixels per unit
+                    # Check ResolutionUnit: 1=None, 2=inch, 3=centimeter
+                    res_unit = page0.tags.get('ResolutionUnit')
+                    res_unit_val = res_unit.value if res_unit else 1
+                    if resolution > 0:
+                        # XResolution is pixels per unit, so pixel size = 1/XResolution
+                        pixel_size_in_unit = 1.0 / resolution
+                        if res_unit_val == 2:  # inch
+                            candidate_nm = pixel_size_in_unit * 25400 * 1000  # inch to nm
+                        elif res_unit_val == 3:  # centimeter
+                            candidate_nm = pixel_size_in_unit * 10000 * 1000  # cm to nm
+                        else:  # None or unknown - assume µm for microscopy images
+                            candidate_nm = pixel_size_in_unit * 1000  # µm to nm
+                        # Sanity check: microscopy pixel sizes are typically 10-5000 nm
+                        # Reject values outside this range as likely corrupted/invalid
+                        if 10 <= candidate_nm <= 5000:
+                            voxel_x_nm = candidate_nm
             if voxel_z_nm is None:
                 z_res = page0.tags.get('ZResolution')
                 if z_res:
                     num, den = z_res.value
-                    voxel_z_nm = float(num) / float(den) * 1000.0
-        # If essential metadata is missing, prompt user (as per original logic)
+                    resolution = float(num) / float(den)
+                    if resolution > 0:
+                        candidate_nm = (1.0 / resolution) * 1000  # assume µm
+                        # Sanity check for Z: 50-10000 nm is reasonable
+                        if 50 <= candidate_nm <= 10000:
+                            voxel_z_nm = candidate_nm
+        # If essential metadata is missing, prompt user only for what's missing
         missing = []
         if voxel_x_nm is None:
             missing.append("voxel size X (nm)")
@@ -2142,10 +2172,7 @@ class GUI(QMainWindow):
         if dt_seconds is None:
             missing.append("time increment (s)")
         if missing:
-            voxel_x_nm = None
-            voxel_z_nm = None
-            dt_seconds = None
-            missing = ["voxel size X (nm)", "voxel size Z (nm)", "time increment (s)"]
+            # Only prompt for what's actually missing, keep found values
             self.ask_for_metadata_from_user(missing)
         # Set voxel sizes and time interval if available
         if voxel_x_nm is not None:
@@ -2823,6 +2850,105 @@ class GUI(QMainWindow):
             # Reset current indices
             self.current_frame = 0
             self.current_channel = 0
+            
+            # Reset merged mode
+            self.merged_mode = False
+
+    def close_all_files(self):
+        """
+        Remove all loaded files (LIF and TIFF) from the tree and free their memory.
+        Clears all data and resets the GUI to its initial empty state.
+        """
+        # Get all top-level items count
+        num_files = self.image_tree.topLevelItemCount()
+        if num_files == 0:
+            return
+        
+        # Clear all loaded file data
+        self.loaded_lif_files.clear()
+        
+        # Remove all items from tree view
+        self.image_tree.clear()
+        
+        # Clear core data
+        self.image_stack = None
+        self.data_folder_path = None
+        self.colocalization_results = None
+        self.current_total_plots = None
+        
+        # Use unified reset for all tabs and state
+        self.reset_all_state()
+        
+        # Clear info labels
+        labels_to_clear = [
+            'file_label', 'frames_label', 'z_scales_label',
+            'y_pixels_label', 'x_pixels_label', 'channels_label',
+            'voxel_yx_size_label', 'voxel_z_nm_label',
+            'bit_depth_label', 'time_interval_label',
+            'laser_lines_label', 'intensities_label', 'wave_ranges_label'
+        ]
+        for lbl_name in labels_to_clear:
+            if hasattr(self, lbl_name):
+                getattr(self, lbl_name).setText("")
+        
+        # Clear channel controls
+        if hasattr(self, 'channelControlsTabs'):
+            self.channelControlsTabs.clear()
+        
+        # Clear channel buttons
+        for btn_list in [getattr(self, 'channel_buttons_display', []),
+                        getattr(self, 'channel_buttons_tracking', []),
+                        getattr(self, 'channel_buttons_tracking_vis', []),
+                        getattr(self, 'segmentation_channel_buttons', [])]:
+            for btn in btn_list:
+                if btn:
+                    btn.setParent(None)
+        
+        # Reset button lists
+        self.channel_buttons_display = []
+        self.channel_buttons_tracking = []
+        if hasattr(self, 'channel_buttons_tracking_vis'):
+            self.channel_buttons_tracking_vis = []
+        if hasattr(self, 'segmentation_channel_buttons'):
+            self.segmentation_channel_buttons = []
+        
+        # Clear channel checkboxes for correlation
+        if hasattr(self, 'channel_checkboxes'):
+            for cb in self.channel_checkboxes:
+                if cb:
+                    cb.setParent(None)
+            self.channel_checkboxes = []
+        
+        # Clear combo boxes
+        if hasattr(self, 'intensity_channel_combo'):
+            self.intensity_channel_combo.clear()
+        if hasattr(self, 'time_course_channel_combo'):
+            self.time_course_channel_combo.clear()
+        if hasattr(self, 'channel_combo_box_1'):
+            self.channel_combo_box_1.clear()
+        if hasattr(self, 'channel_combo_box_2'):
+            self.channel_combo_box_2.clear()
+        
+        # Disable controls
+        if hasattr(self, 'time_slider_display'):
+            self.time_slider_display.setEnabled(False)
+            self.time_slider_display.setValue(0)
+        if hasattr(self, 'play_button_display'):
+            self.play_button_display.setEnabled(False)
+        if hasattr(self, 'time_slider_tracking'):
+            self.time_slider_tracking.setValue(0)
+        if hasattr(self, 'time_slider_tracking_vis'):
+            self.time_slider_tracking_vis.setValue(0)
+        
+        # Stop any playing timers
+        self.stop_all_playback()
+        
+        # Reset current indices
+        self.current_frame = 0
+        self.current_channel = 0
+        
+        # Reset merged mode
+        self.merged_mode = False
 
     def on_tree_current_item_changed(self, current, previous):
         """
@@ -2913,7 +3039,7 @@ class GUI(QMainWindow):
 
     def merge_color_channels(self):
         if self.image_stack is None:
-            QMessageBox.information(self, "Merge Error", "No image loaded to merge channels.")
+            # Silently return if no image - this can happen when closing files in merge mode
             return
         merged_img = self.compute_merged_image()
         if merged_img is None:
@@ -3145,10 +3271,15 @@ class GUI(QMainWindow):
         self.image_tree.itemClicked.connect(self.on_tree_item_clicked)
         self.image_tree.currentItemChanged.connect(self.on_tree_current_item_changed)
         display_right_layout.addWidget(self.image_tree)
-        # Close file button
+        # Close file buttons (using horizontal layout for both buttons)
+        close_buttons_layout = QHBoxLayout()
         self.close_file_button = QPushButton("Close File", self)
         self.close_file_button.clicked.connect(self.close_selected_file)
-        display_right_layout.addWidget(self.close_file_button)
+        close_buttons_layout.addWidget(self.close_file_button)
+        self.close_all_files_button = QPushButton("Close All", self)
+        self.close_all_files_button.clicked.connect(self.close_all_files)
+        close_buttons_layout.addWidget(self.close_all_files_button)
+        display_right_layout.addLayout(close_buttons_layout)
         # Visualization controls
         self.control_panel_image_properties(display_right_layout)
         # Group box for image info
@@ -6164,9 +6295,8 @@ class GUI(QMainWindow):
         # (Cellpose masks are labeled, not suitable for photobleaching mask input)
         if has_cellpose_mask and not has_segmentation_mask:
             mode = 'entire_image'
-            # Inform user that we're using entire_image mode
-            QMessageBox.information(self, "Using Entire Image", 
-                                    "Cellpose masks detected. Photobleaching will be calculated using the entire image.")
+            # Inform user via status bar (non-blocking)
+            self.statusBar().showMessage("Cellpose detected: using entire image for photobleaching calculation.", 5000)
         
         self.photobleaching_mode = mode
         radius = self.radius_spinbox.value()
