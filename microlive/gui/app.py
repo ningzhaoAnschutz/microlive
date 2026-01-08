@@ -8106,7 +8106,7 @@ class GUI(QMainWindow):
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
-        if not hasattr(self, 'user_selected_threshold') or self.user_selected_threshold <= 0:
+        if not hasattr(self, 'user_selected_threshold') or self.user_selected_threshold is None or self.user_selected_threshold <= 0:
             QMessageBox.warning(self, "Tracking Aborted", "Threshold is zero; please adjust the threshold slider before running tracking.")
             return
         
