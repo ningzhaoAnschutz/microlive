@@ -1,0 +1,240 @@
+# =====================================================================
+# Simplified Spot Simulation Configuration
+# =====================================================================
+# 
+# This configuration file controls the generation of synthetic microscopy
+# images for MicroLive validation and parameter recovery testing.
+#
+# All parameters are documented with units and typical ranges.
+# See IMPLEMENTATION_PLAN.md for detailed algorithm descriptions.
+#
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# Image Dimensions and Physical Properties
+# ---------------------------------------------------------------------
+image:
+  dimensions: '3D'           # '2D' or '3D'
+  size_yx: [512, 512]        # [Y, X] pixels
+  num_z_slices: 10           # Number of Z-slices (ignored if 2D)
+  voxel_size_yx_nm: 130.0    # Pixel size in nanometers
+  voxel_size_z_nm: 300.0     # Z-step in nanometers
+  
+# ---------------------------------------------------------------------
+# Simulation Timing
+# ---------------------------------------------------------------------
+simulation:
+  total_time_seconds: 600      # Use 600s for faster tests (use 1800 for full sim)
+  frame_rate_seconds: 5        # Save every N seconds (→ 120 frames)
+  random_seed: 42              # For reproducibility (null for random)
+
+# ---------------------------------------------------------------------
+# Particle Parameters (Lead Channel: ch0)
+# ---------------------------------------------------------------------
+# Controls how many particles exist and how long they persist.
+# The lead channel defines all positions; ch1/ch2 inherit via colocalization.
+particles:
+  average_count: 50          # Target number of active particles at any time
+  
+  # Trajectory length constraints (as fraction of total simulation time)
+  # These ensure particles exist long enough for meaningful tracking
+  min_trajectory_fraction: 0.5  # Minimum: 50% of total frames
+  max_trajectory_fraction: 1.0  # Maximum: 100% of total frames
+
+# ---------------------------------------------------------------------
+# Motion Parameters (Brownian Random Walk)
+# ---------------------------------------------------------------------
+motion:
+  diffusion_coefficient: 0.05  # D in px²/frame
+  # To convert to physical units: 
+  #   D_physical = D * (voxel_size_nm)² / frame_rate_seconds
+  # Example: 0.05 px²/frame * (130 nm)² / 5 s = 169.0 nm²/s = 0.000169 µm²/s
+  
+  confinement_type: 'cell'     # Options: 'cell', 'nucleus', 'none'
+  # 'cell' = particles reflect off cell boundary
+  # 'nucleus' = particles confined to nucleus (Phase 2)
+  # 'none' = particles can exit cell (not recommended)
+
+# ---------------------------------------------------------------------
+# Spot Properties (Sampled from Normal Distributions)
+# ---------------------------------------------------------------------
+# These parameters enable recovery testing - MicroLive should measure
+# values close to the configured mean ± std when analyzing the output.
+spot_properties:
+  # Size: PSF sigma in pixels
+  # MicroLive will report this as psf_sigma_ch_N from Gaussian fitting
+  size_mean: 1.5             # Mean PSF sigma (pixels)
+  size_std: 0.3              # Standard deviation
+  size_min: 0.8              # Minimum clamp (prevents unrealistic small spots)
+  size_max: 3.0              # Maximum clamp (prevents unrealistic large spots)
+  
+  # Intensity: Defined via SNR (Signal-to-Noise Ratio)
+  # Peak intensity = local_background × (1 + SNR)
+  # This decouples spot brightness from background levels
+  #
+  # Examples with cytosol background = 1200:
+  #   SNR 1.5 → peak = 1200 × 2.5 = 3000  (marginal detectability)
+  #   SNR 3.0 → peak = 1200 × 4.0 = 4800  (good detectability)
+  #   SNR 5.0 → peak = 1200 × 6.0 = 7200  (excellent)
+  #   SNR 8.0 → peak = 1200 × 9.0 = 10800 (very bright)
+  #
+  snr_mean: 3.0              # Mean SNR (typical range: 2-10)
+  snr_std: 0.5               # Standard deviation
+  snr_min: 1.5               # Minimum clamp (below this, spots may be undetectable)
+  snr_max: 8.0               # Maximum clamp (prevents unrealistic bright spots)
+
+# ---------------------------------------------------------------------
+# Colocalization Settings
+# ---------------------------------------------------------------------
+# ch1 and ch2 spots inherit positions from ch0 (lead channel).
+# Colocalization is assigned at particle birth and persists until death.
+# 
+# Example: ch1_probability: 0.7 means 70% of ch0 particles will have
+# a corresponding ch1 spot at the exact same position.
+colocalization:
+  ch1_probability: 0.7       # Fraction of ch0 particles with ch1 partner
+  ch2_probability: 0.3       # Fraction of ch0 particles with ch2 partner
+  
+  # Colocalized spot SNR (relative to ch0 particle)
+  # ch1_snr = ch0_snr × ch1_snr_multiplier
+  ch1_snr_multiplier: 0.8    # ch1 SNR = ch0 SNR × 0.8 (slightly dimmer)
+  ch2_snr_multiplier: 0.5    # ch2 SNR = ch0 SNR × 0.5 (much dimmer)
+  
+  # Colocalized spot size (relative to ch0 particle)
+  ch1_size_multiplier: 1.0   # ch1 size = ch0 size × 1.0 (same)
+  ch2_size_multiplier: 1.2   # ch2 size = ch0 size × 1.2 (slightly larger)
+
+# ---------------------------------------------------------------------
+# Photobleaching (Exponential Decay)
+# ---------------------------------------------------------------------
+# Model: I(t) = I0 × exp(-k × t)
+# k = decay rate in s⁻¹ (0 = no bleaching)
+# 
+# Calculation for target % loss at t=600s:
+#   k = -ln(remaining_fraction) / t
+#   For 20% loss: k = -ln(0.80)/600 = 0.00037 s⁻¹
+#   For 30% loss: k = -ln(0.70)/600 = 0.00060 s⁻¹
+#   For 40% loss: k = -ln(0.60)/600 = 0.00085 s⁻¹
+#
+# Each channel bleaches independently - MicroLive's photobleaching analysis
+# should recover these rates.
+photobleaching:
+  ch0_decay_rate: 0.00037      # Lead channel: ~20% loss over 600s
+  ch1_decay_rate: 0.00060      # Channel 1: ~30% loss over 600s  
+  ch2_decay_rate: 0.00085      # Channel 2: ~40% loss over 600s
+
+# ---------------------------------------------------------------------
+# PSF (Point Spread Function) Parameters
+# ---------------------------------------------------------------------
+# These define the optical blur applied to each spot.
+# sigma_xy affects lateral resolution, sigma_z affects axial resolution.
+psf:
+  sigma_xy: 1.2              # Lateral PSF width (pixels)
+  sigma_z: 1.5               # Axial PSF width (z-slice units)
+  truncate: 4.0              # Kernel extends to truncate × sigma
+
+# ---------------------------------------------------------------------
+# Baseline Intensities (Three-Region Background)
+# ---------------------------------------------------------------------
+# Each compartment has a distinct baseline intensity representing
+# autofluorescence and general background signal.
+#
+# These values serve two purposes:
+#   1. Create the background image showing cell structure
+#   2. Determine absolute spot intensity via SNR formula:
+#      peak_intensity = local_background × (1 + SNR)
+#
+# Typical values for 16-bit microscopy (0-65535 range):
+#   - Low autofluorescence: 200-500
+#   - Medium autofluorescence: 500-1500
+#   - High autofluorescence: 1500-3000
+#
+baseline:
+  outside_cell: 1000          # BACKGROUND: Area outside cell boundary (virtual_cell: 1000)
+  cytosol: 1600               # CYTOSOL: Cell body (virtual_cell: 1600)
+  nucleus: 1800               # NUCLEUS: Nuclear compartment (virtual_cell: 1800)
+
+# ---------------------------------------------------------------------
+# Noise Model
+# ---------------------------------------------------------------------
+# Adds realistic camera and biological noise to the image.
+noise:
+  read_noise_std: 5.0        # Gaussian read noise (camera electronics)
+  shot_noise_enabled: true   # Enable Poisson shot noise
+  shot_noise_scale: 0.1      # Shot noise scaling factor
+  cellular_noise_amplitude: 8.0  # Spatially correlated texture amplitude
+  cellular_noise_sigma: 5.0  # Spatial correlation length (pixels)
+
+# ---------------------------------------------------------------------
+# Cell Geometry (Three-Region Spatial Model)
+# ---------------------------------------------------------------------
+# Defines the three compartments: Background, Cytosol, and Nucleus.
+# Inspired by virtual_cell microscopy simulator.
+#
+# Background: Area outside cell (intensity = baseline.outside_cell)
+# Cytosol: Cell body excluding nucleus (intensity = baseline.cytosol)
+# Nucleus: Nuclear region (intensity = baseline.nucleus)
+#
+cell_geometry:
+  # Multi-cell configuration
+  num_cells: 1                      # Number of cells to simulate (1-N)
+  layout: 'single'                  # Cell layout: 'single', 'grid', 'random'
+  grid_spacing_yx: [360, 360]       # Spacing between cells in grid layout [Y, X]
+  
+  # Geometry type options:
+  #   'half_ellipsoid' - Dome anchored at z=0 (adherent cells, recommended)
+  #   'full_ellipsoid' - Symmetric ellipsoid (suspended cells)
+  #   'box'            - Rectangular prism
+  #   'cylinder'       - Rod shape (bacteria)
+  geometry_type: 'half_ellipsoid'
+  
+  # Cell (cytosol outer boundary)
+  cell_center_yx: [256, 256]      # Cell center [Y, X] in pixels (for single cell)
+  cell_diameter_yx: [350, 350]    # Cell diameter [Y, X] in pixels
+  cell_height_z: 8                # Cell height in Z-slices (for 3D)
+  
+  # Nucleus (inner compartment) - values from virtual_cell config
+  nucleus_enabled: true           # Set to false for cytosol-only simulations
+  nucleus_diameter_yx: [80, 70]   # Nucleus diameter [Y, X] in pixels (virtual_cell: [80, 70])
+  nucleus_height_z: 5             # Nucleus height in Z-slices (virtual_cell: 50/10 = 5)
+  nucleus_offset_yx: [20, -20]    # Nucleus offset from cell center [Y, X] (virtual_cell: [20, -20])
+  
+  # Particle placement options
+  particle_compartment: 'both'    # Where particles can spawn: 'cytosol', 'nucleus', 'both'
+  
+  # Boundary enforcement (see IMPLEMENTATION_PLAN.md Section 3.6)
+  # How particles behave at compartment boundaries:
+  #   'cell'     - Reflect off cell boundary (stay in cytosol + nucleus)
+  #   'cytosol'  - Stay in cytosol only, cannot enter nucleus
+  #   'nucleus'  - Stay in nucleus only
+  #   'none'     - No boundary enforcement (testing mode)
+  confinement_mode: 'cell'
+
+# ---------------------------------------------------------------------
+# Channel Names (for TIFF metadata)
+# ---------------------------------------------------------------------
+channel_names:
+  - "Lead_Ch0"
+  - "Coloc_Ch1"
+  - "Coloc_Ch2"
+
+# ---------------------------------------------------------------------
+# Output Settings
+# ---------------------------------------------------------------------
+output:
+  directory: "results"       # Output folder (created if doesn't exist)
+  prefix: "simulated"        # Filename prefix
+  
+  # Compression settings for efficient storage
+  # See IMPLEMENTATION_PLAN.md Section 8 for details
+  image_compression: 'zlib'        # 'zlib', 'lzw', 'zstd', 'none'
+  image_compression_level: 6       # 1-9 (higher = smaller files, slower)
+  
+  # Mask data type
+  # uint8 supports up to 255 cells (sufficient for most cases)
+  # uint16 supports up to 65535 cells (for very dense multi-cell)
+  mask_dtype: 'uint8'
+  
+  # Export formats for ground truth
+  export_csv: true           # Human-readable, larger files
+  export_parquet: true       # 5-10x smaller than CSV, faster loading

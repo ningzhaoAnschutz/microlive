@@ -1,0 +1,95 @@
+# Multi-cell Simulation Configuration
+# ====================================
+# Tests Phase 3: Multi-Cell Support
+# 
+# This configuration generates multiple cells in a single image,
+# each with its own spot population but sharing common characteristics.
+
+image:
+  dimensions: '3D'
+  size_yx: [512, 512]
+  num_z_slices: 10
+  voxel_size_yx_nm: 130.0
+  voxel_size_z_nm: 300.0
+
+simulation:
+  total_time_seconds: 300  # 60 frames at 5s intervals
+  frame_rate_seconds: 5
+  random_seed: 42
+
+# ---------------------------------------------------------------------
+# Per-Cell Particle Configuration
+# ---------------------------------------------------------------------
+# You can specify particles as:
+#   1. average_count: Number - average across all cells (default)
+#   2. per_cell_counts: [n1, n2, n3, ...] - specific count per cell
+#
+# The simulator will distribute particles to each cell accordingly.
+particles:
+  # average_count: 15  # Alternative: 15 particles per cell on average
+  per_cell_counts: [20, 15, 10, 5]  # Different counts per cell
+
+spot_properties:
+  snr_mean: 3.0
+  snr_std: 0.5
+  snr_min: 1.5
+  snr_max: 8.0
+  size_mean: 1.5
+  size_std: 0.3
+  size_min: 0.8
+  size_max: 3.0
+
+particle_motion:
+  diffusion_coefficient: 0.05  # D in px²/frame
+  confinement_type: 'cell'
+
+colocalization:
+  ch1_probability: 0.7
+  ch2_probability: 0.3
+  ch1_snr_multiplier: 0.8
+  ch2_snr_multiplier: 0.5
+
+# Photobleaching (same as single-cell for consistency)
+photobleaching:
+  ch0_decay_rate: 0.00037      # ~20% loss over 600s
+  ch1_decay_rate: 0.00060      # ~30% loss over 600s
+  ch2_decay_rate: 0.00085      # ~40% loss over 600s
+
+baseline:
+  outside_cell: 1000
+  cytosol: 1600
+  nucleus: 1800
+
+noise:
+  read_noise_std: 10.0
+  shot_noise_enabled: true
+
+# ---------------------------------------------------------------------
+# Multi-Cell Geometry Configuration
+# ---------------------------------------------------------------------
+cell_geometry:
+  num_cells: 4                      # Number of cells
+  layout: 'grid'                    # 'grid' or 'custom'
+  grid_spacing_yx: [230, 230]       # Spacing between cell centers
+  
+  geometry_type: 'half_ellipsoid'   # Cell shape
+  cell_center_yx: [256, 256]        # Center of the grid
+  cell_diameter_yx: [180, 180]      # Cell size
+  cell_height_z: 8
+  
+  nucleus_enabled: true
+  nucleus_diameter_yx: [70, 60]     # Smaller nucleus
+  nucleus_height_z: 5
+  nucleus_offset_yx: [15, -10]      # Offset from cell center
+  
+  particle_compartment: 'both'      # 'cytosol', 'nucleus', or 'both'
+  confinement_mode: 'cell'          # Particles stay in their cell
+
+output:
+  directory: "results_multicell"
+  prefix: "simulated"
+  image_compression: 'zlib'
+  image_compression_level: 6
+  mask_dtype: 'uint8'
+  export_csv: true
+  export_parquet: true
