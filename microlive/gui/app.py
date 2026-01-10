@@ -8494,17 +8494,23 @@ class GUI(QMainWindow):
                 spot_count = len(df_ch)
                 threshold = self.tracking_thresholds.get(ch, 'N/A')
                 
+                # Format threshold to 2 decimal places
+                if isinstance(threshold, (int, float)):
+                    threshold_str = f"{threshold:.2f}"
+                else:
+                    threshold_str = str(threshold)
+                
                 # Check if this is detection-only or full tracking
                 params = self.tracking_parameters_per_channel.get(ch, {})
                 is_detection_only = params.get('detection_only', False)
                 
                 if is_detection_only:
                     # Detection-only: show spots only (no trajectories)
-                    item_text = f"Ch {ch}: thr={threshold}, {spot_count} spots (detect)"
+                    item_text = f"Ch {ch}: thr={threshold_str}, {spot_count} spots (detect)"
                 else:
                     # Full tracking: show spots and trajectory count
                     traj_count = df_ch['particle'].nunique() if 'particle' in df_ch.columns else 0
-                    item_text = f"Ch {ch}: thr={threshold}, {spot_count} spots, {traj_count} traj"
+                    item_text = f"Ch {ch}: thr={threshold_str}, {spot_count} spots, {traj_count} traj"
                 
                 self.tracked_channels_list.addItem(item_text)
 
@@ -10929,6 +10935,22 @@ class GUI(QMainWindow):
         if hasattr(self, 'columns_spinbox'):
             self.columns_spinbox.setValue(12)
         
+        # Reset Visual channel combos
+        if hasattr(self, 'channel_combo_box_1'):
+            self.channel_combo_box_1.clear()
+        if hasattr(self, 'channel_combo_box_2'):
+            self.channel_combo_box_2.clear()
+        if hasattr(self, 'colocalization_tracking_channel_combo'):
+            self.colocalization_tracking_channel_combo.clear()
+        
+        # Reset ML/Intensity settings to defaults
+        if hasattr(self, 'ml_threshold_input'):
+            self.ml_threshold_input.setValue(0.51)
+        if hasattr(self, 'snr_threshold_input'):
+            self.snr_threshold_input.setValue(3.0)
+        if hasattr(self, 'method_ml_radio'):
+            self.method_ml_radio.setChecked(True)
+        
         # Reset per-cell table
         if hasattr(self, 'coloc_percell_table'):
             self.coloc_percell_table.setText("")
@@ -13305,7 +13327,9 @@ class GUI(QMainWindow):
         if prefix:
             name_components.append(prefix)
         name_components.append(safe_base_file_name)
-        name_components.append(safe_image_name)
+        # Only add image name if different from base file name (avoid duplication)
+        if safe_image_name and safe_image_name != safe_base_file_name:
+            name_components.append(safe_image_name)
         final_name = '_'.join([comp for comp in name_components if comp])
         # Append extension if provided
         if extension:
