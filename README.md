@@ -192,7 +192,14 @@ microlive/
 │   ├── utils/                    # Utility modules
 │   │   ├── device.py             # GPU detection
 │   │   └── resources.py          # Resource paths
+│   ├── data/                     # ML models and resources
 │   └── pipelines/                # Analysis pipeline modules
+├── simulations/                  # Spot simulation & validation (not in pip)
+│   ├── spot_simulator.py         # Multi-cell simulation engine
+│   ├── run_simulation.py         # CLI runner
+│   ├── visualize_results.py      # Visualization tools
+│   ├── config_*.yaml             # Configuration examples
+│   └── tests/                    # 8-test validation suite (100% pass)
 ├── docs/                         # Documentation
 │   ├── user_guide.md             # User manual
 │   ├── tutorial.md               # Step-by-step tutorials

@@ -1035,6 +1035,10 @@ class GUI(QMainWindow):
         self.display_zoom_roi = None  # (x_min, x_max, y_min, y_max) or None for full view
         self.display_zoom_selector = None  # RectangleSelector instance
         
+        # Visualization tab zoom feature - ROI for visualization
+        self.tracking_vis_zoom_roi = None  # (x_min, x_max, y_min, y_max) or None for full view
+        self.tracking_vis_zoom_selector = None  # RectangleSelector instance
+        
         self.plots = Plots(self)
         self.use_multi = False
         mi.Banner().print_banner()
@@ -10984,6 +10988,20 @@ class GUI(QMainWindow):
             ax.text(0.5, 0.5, 'Run distance colocalization to see results.',
                     horizontalalignment='center', verticalalignment='center',
                     fontsize=12, color='white', transform=ax.transAxes)
+            
+            # Store axes reference and recreate RectangleSelector
+            self.ax_dist_coloc = ax
+            self.dist_coloc_zoom_selector = RectangleSelector(
+                ax,
+                self._on_dist_coloc_zoom_select,
+                useblit=True,
+                button=[1],
+                minspanx=5, minspany=5,
+                spancoords='pixels',
+                interactive=False,
+                props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+            )
+            
             self.canvas_dist_coloc.draw()
         if hasattr(self, 'dist_frame_slider'):
             self.dist_frame_slider.setMaximum(0)
@@ -12022,7 +12040,7 @@ class GUI(QMainWindow):
     
     def export_distance_colocalization_data(self):
         """Export distance colocalization data to CSV."""
-        if not hasattr(self, 'distance_coloc_results'):
+        if not hasattr(self, 'distance_coloc_results') or self.distance_coloc_results is None:
             QMessageBox.warning(self, "No Results", 
                                 "Please run Distance colocalization first.")
             return
@@ -12053,7 +12071,7 @@ class GUI(QMainWindow):
     
     def export_distance_colocalization_image(self):
         """Export distance colocalization visualization."""
-        if not hasattr(self, 'distance_coloc_results'):
+        if not hasattr(self, 'distance_coloc_results') or self.distance_coloc_results is None:
             QMessageBox.warning(self, "No Results", 
                                 "Please run Distance colocalization first.")
             return
@@ -12074,7 +12092,7 @@ class GUI(QMainWindow):
     
     def display_distance_colocalization(self):
         """Display distance colocalization results."""
-        if not hasattr(self, 'distance_coloc_results'):
+        if not hasattr(self, 'distance_coloc_results') or self.distance_coloc_results is None:
             # Show placeholder with tracking-like black background
             fig = self.figure_dist_coloc
             fig.clear()
@@ -12193,6 +12211,10 @@ class GUI(QMainWindow):
     
     def _draw_distance_overlay(self):
         """Draw image overlay with spot markers for the current frame (tracking-like style)."""
+        # Early return if no results
+        if not hasattr(self, 'distance_coloc_results') or self.distance_coloc_results is None:
+            return
+        
         fig = self.figure_dist_coloc
         fig.clear()
         fig.patch.set_facecolor('black')
@@ -12448,7 +12470,7 @@ class GUI(QMainWindow):
             self.dist_frame_label.setText(f"Frame: {value}/{max_val}")
         
         # Re-run analysis for this frame if overlay mode
-        if self.dist_view_overlay_radio.isChecked() and hasattr(self, 'distance_coloc_results'):
+        if self.dist_view_overlay_radio.isChecked() and hasattr(self, 'distance_coloc_results') and self.distance_coloc_results is not None:
             self._draw_distance_overlay()
     
     # === Verify Visual Subtab Methods ===
@@ -12878,23 +12900,43 @@ class GUI(QMainWindow):
         x1, y1 = x0 + crop_sz, y0 + crop_sz
         if getattr(self, 'tracking_vis_merged', False):
             main_img = self.compute_merged_image(use_brightness_slider=True)
-            main_cmap = None
+            # Fallback for single-channel images (compute_merged_image returns None)
+            if main_img is None:
+                main_img = norm_stack[selected_channelIndex]
+                main_cmap = cmap_list_imagej[selected_channelIndex % len(cmap_list_imagej)]
+            else:
+                main_cmap = None
         else:
             main_img = norm_stack[selected_channelIndex]
             main_cmap = cmap_list_imagej[selected_channelIndex % len(cmap_list_imagej)]
         gs = fig.add_gridspec(1, 2, width_ratios=[3, 2], hspace=0.1, wspace=0.1)
         ax_main = fig.add_subplot(gs[0, 0])
+        
+        # Store main axes reference and recreate RectangleSelector
+        self.ax_tracking_vis_main = ax_main
+        self.tracking_vis_zoom_selector = RectangleSelector(
+            ax_main,
+            self._on_tracking_vis_zoom_select,
+            useblit=True,
+            button=[1],
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
         gs2 = gs[0, 1].subgridspec(C, 1, hspace=0.1)
         axes_zoom = [fig.add_subplot(gs2[i, 0]) for i in range(C)]        
         # remove background if requested
         if hasattr(self, 'checkbox_remove_bg') and self.checkbox_remove_bg.isChecked():
-            if getattr(self, 'segmentation_mask', None) is not None:
-                mask_2d = (self.segmentation_mask > 0)
+            seg_mask = getattr(self, 'segmentation_mask', None)
+            if seg_mask is not None:
+                mask_2d = (seg_mask > 0)
                 # If main_img is single‐channel (2D) and mask matches:
-                if self.segmentation_mask.shape == main_img.shape:
+                if seg_mask.shape == main_img.shape:
                     main_img = main_img * mask_2d
                 # If main_img is merged RGB (3D) and mask matches height/width:
-                elif main_img.ndim == 3 and self.segmentation_mask.shape == main_img.shape[:2]:
+                elif main_img.ndim == 3 and seg_mask.shape == main_img.shape[:2]:
                     main_img = main_img * mask_2d[..., None]
         if main_cmap:
             ax_main.imshow(main_img, cmap=main_cmap, interpolation='nearest', vmin=0, vmax=1)
@@ -12946,11 +12988,69 @@ class GUI(QMainWindow):
             ax.imshow(crop, cmap=cmap_list_imagej[ci % len(cmap_list_imagej)], interpolation='nearest', vmin=0, vmax=1)
             ax.axis('off')
         fig.tight_layout()
+        
+        # Add thin white frame border to main image
+        for spine in self.ax_tracking_vis_main.spines.values():
+            spine.set_visible(True)
+            spine.set_color('white')
+            spine.set_linewidth(0.5)
+        
+        # Apply zoom if set - must be after tight_layout
+        if self.tracking_vis_zoom_roi is not None:
+            x_min, x_max, y_min, y_max = self.tracking_vis_zoom_roi
+            self.ax_tracking_vis_main.set_xlim(x_min, x_max)
+            self.ax_tracking_vis_main.set_ylim(y_max, y_min)  # Inverted for image coordinates
+        
         self.canvas_tracking_vis.draw_idle()
         
         # Update trajectory statistics panel
         self._update_trajectory_stats()
 
+    # === Visualization Tab Zoom Methods ===
+
+    def _on_tracking_vis_zoom_select(self, eclick, erelease):
+        """Handle rectangle selection for zoom in Visualization tab."""
+        if eclick.xdata is None or erelease.xdata is None:
+            return
+        
+        x_min, x_max = sorted([eclick.xdata, erelease.xdata])
+        y_min, y_max = sorted([eclick.ydata, erelease.ydata])
+        
+        # Require minimum selection size
+        if (x_max - x_min) < 10 or (y_max - y_min) < 10:
+            return
+        
+        # Store the ROI
+        self.tracking_vis_zoom_roi = (x_min, x_max, y_min, y_max)
+        
+        # Update label
+        if hasattr(self, 'tracking_vis_zoom_label'):
+            self.tracking_vis_zoom_label.setText(
+                f"🔍 ROI: X[{int(x_min)}:{int(x_max)}] Y[{int(y_min)}:{int(y_max)}]"
+            )
+            self.tracking_vis_zoom_label.setStyleSheet(
+                "color: #00d4aa; font-size: 10px; font-weight: bold;"
+            )
+        
+        # Redraw with zoom
+        self.display_tracking_visualization()
+
+    def _on_tracking_vis_canvas_click(self, event):
+        """Handle mouse clicks on visualization canvas - double-click to reset zoom."""
+        if event.dblclick:
+            self._reset_tracking_vis_zoom()
+
+    def _reset_tracking_vis_zoom(self):
+        """Reset visualization tab zoom to show full image."""
+        self.tracking_vis_zoom_roi = None
+        
+        # Update label
+        if hasattr(self, 'tracking_vis_zoom_label'):
+            self.tracking_vis_zoom_label.setText("🔍 Full View")
+            self.tracking_vis_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # Redraw without zoom
+        self.display_tracking_visualization()
 
     def reset_tracking_visualization_tab(self):
         """Clear the Tracking Visualization tab when the image changes."""
@@ -12973,6 +13073,25 @@ class GUI(QMainWindow):
             fontsize=12, color='white',
             transform=self.ax_tracking_vis.transAxes
         )
+        
+        # Recreate RectangleSelector on new axes
+        self.tracking_vis_zoom_selector = RectangleSelector(
+            self.ax_tracking_vis,
+            self._on_tracking_vis_zoom_select,
+            useblit=True,
+            button=[1],
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
+        # Reset zoom ROI
+        self.tracking_vis_zoom_roi = None
+        if hasattr(self, 'tracking_vis_zoom_label'):
+            self.tracking_vis_zoom_label.setText("🔍 Full View")
+            self.tracking_vis_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
         # reset the checkboxes
         if hasattr(self, 'checkbox_remove_bg'):
             self.checkbox_remove_bg.setChecked(False)
@@ -13113,6 +13232,21 @@ class GUI(QMainWindow):
         left_layout.addWidget(self.canvas_tracking_vis)
         self.canvas_tracking_vis.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
+        # Set up zoom feature: RectangleSelector for left-click drag
+        self.tracking_vis_zoom_selector = RectangleSelector(
+            self.ax_tracking_vis,
+            self._on_tracking_vis_zoom_select,
+            useblit=True,
+            button=[1],  # Left mouse button only
+            minspanx=5, minspany=5,
+            spancoords='pixels',
+            interactive=False,
+            props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
+        )
+        
+        # Connect double-click to reset zoom
+        self.canvas_tracking_vis.mpl_connect('button_press_event', self._on_tracking_vis_canvas_click)
+        
         # Percentile spinboxes for intensity scaling
         spin_layout = QHBoxLayout()
         self.min_percentile_spinbox_tracking_vis = QDoubleSpinBox(self)
@@ -13170,6 +13304,11 @@ class GUI(QMainWindow):
         self.play_button_tracking_vis = QPushButton("Play", self)
         self.play_button_tracking_vis.clicked.connect(self.play_pause_tracking_vis)
         controls_layout.addWidget(self.play_button_tracking_vis)
+        
+        # Zoom status label
+        self.tracking_vis_zoom_label = QLabel("🔍 Full View")
+        self.tracking_vis_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        controls_layout.addWidget(self.tracking_vis_zoom_label)
         # Export buttons (Image & Video)
         export_buttons_layout = QHBoxLayout()
         left_layout.addLayout(export_buttons_layout)
