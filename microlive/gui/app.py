@@ -5363,17 +5363,18 @@ class GUI(QMainWindow):
         x_min, x_max = min(x0, x1), max(x0, x1)
         y_min, y_max = min(y0, y1), max(y0, y1)
         
-        # Validate: at least 10px from border and min 20px² area
+        # Silently clamp to safe region (10px margin from borders)
+        margin = 10
         if self.image_stack is not None:
             H, W = self.image_stack.shape[2], self.image_stack.shape[3]
-            if x_min < 10 or y_min < 10 or x_max > W - 10 or y_max > H - 10:
-                QMessageBox.warning(self, "Invalid ROI", "ROI must be at least 10 pixels from image border.")
-                self.reg_roi_start = None
-                return
+            x_min = max(margin, x_min)
+            y_min = max(margin, y_min)
+            x_max = min(W - margin, x_max)
+            y_max = min(H - margin, y_max)
         
         area = (x_max - x_min) * (y_max - y_min)
         if area < 20:
-            QMessageBox.warning(self, "Invalid ROI", "ROI too small (minimum 20 square pixels).")
+            # Silently reject too-small ROI
             self.reg_roi_start = None
             return
         
@@ -5385,7 +5386,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'roi_status_label'):
             roi_w = x_max - x_min
             roi_h = y_max - y_min
-            self.roi_status_label.setText(f"✅ ROI: {roi_w} × {roi_h} px")
+            self.roi_status_label.setText(f"ROI: {roi_w} x {roi_h} px")
             self.roi_status_label.setStyleSheet("color: #00cc66; font-size: 11px; font-weight: bold;")
         
         # Update display
@@ -6303,7 +6304,7 @@ class GUI(QMainWindow):
             self.statusBar().showMessage("Cellpose detected: using entire image for photobleaching calculation.", 5000)
         
         self.photobleaching_mode = mode
-        radius = self.radius_spinbox.value()
+        radius = self.radius_slider.value()
         
         if self.segmentation_mask is None:
             mask_GUI = None 
@@ -6500,29 +6501,75 @@ class GUI(QMainWindow):
         photobleaching_layout = QVBoxLayout(self.photobleaching_tab)
         # Controls at the top
         controls_layout = QHBoxLayout()
+        
+        # Mode selection
         mode_label = QLabel("Mode:")
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["inside_cell", "outside_cell", "use_circular_region", "entire_image"])
         self.mode_combo.setCurrentText("entire_image")  # Default to entire_image mode
+        self.mode_combo.setMinimumWidth(140)
         controls_layout.addWidget(mode_label)
         controls_layout.addWidget(self.mode_combo)
+        
+        controls_layout.addSpacing(20)
+        
+        # Radius slider (replaces spinbox)
         radius_label = QLabel("Radius:")
-        self.radius_spinbox = QSpinBox()
-        self.radius_spinbox.setMinimum(1)
-        self.radius_spinbox.setMaximum(200)
-        self.radius_spinbox.setValue(30)
         controls_layout.addWidget(radius_label)
-        controls_layout.addWidget(self.radius_spinbox)
-        # Photobleaching run button
-        self.run_photobleaching_button = QPushButton("Run Photobleaching", self)
+        
+        self.radius_slider = QSlider(Qt.Horizontal)
+        self.radius_slider.setMinimum(10)
+        self.radius_slider.setMaximum(100)
+        self.radius_slider.setValue(30)
+        self.radius_slider.setMinimumWidth(120)
+        self.radius_slider.setMaximumWidth(200)
+        self.radius_slider.setTickPosition(QSlider.TicksBelow)
+        self.radius_slider.setTickInterval(10)
+        controls_layout.addWidget(self.radius_slider)
+        
+        self.radius_value_label = QLabel("30")
+        self.radius_value_label.setMinimumWidth(30)
+        self.radius_value_label.setStyleSheet("font-weight: bold;")
+        controls_layout.addWidget(self.radius_value_label)
+        
+        # Connect slider to update label
+        self.radius_slider.valueChanged.connect(
+            lambda v: self.radius_value_label.setText(str(v))
+        )
+        
+        controls_layout.addStretch()
+        
+        # Photobleaching run button - PROMINENT (styled like Registration button)
+        self.run_photobleaching_button = QPushButton("Run Photobleaching")
+        self.run_photobleaching_button.setMinimumHeight(40)
+        self.run_photobleaching_button.setMinimumWidth(180)
+        self.run_photobleaching_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 12px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.run_photobleaching_button.clicked.connect(self.compute_photobleaching)
         controls_layout.addWidget(self.run_photobleaching_button)
+        
         # Add controls layout on top
         photobleaching_layout.addLayout(controls_layout)
+        
         # Main figure for photobleaching
         self.figure_photobleaching = Figure()
         self.canvas_photobleaching = FigureCanvas(self.figure_photobleaching)
         photobleaching_layout.addWidget(self.canvas_photobleaching)
+        
         # Horizontal layout for toolbar + export
         toolbar_and_export_layout = QHBoxLayout()
         # Navigation toolbar
@@ -13906,7 +13953,7 @@ class GUI(QMainWindow):
     def _export_metadata(self, file_path):        
         # Photobleaching: Read from widgets if available, else fallback to attribute
         pb_mode = self.mode_combo.currentText() if hasattr(self, 'mode_combo') else self.photobleaching_mode
-        pb_radius = self.radius_spinbox.value() if hasattr(self, 'radius_spinbox') else self.photobleaching_radius
+        pb_radius = self.radius_slider.value() if hasattr(self, 'radius_slider') else self.photobleaching_radius
 
         # Tracking Parameters: Read directly from spinboxes
         min_len = self.min_length_input.value() if hasattr(self, 'min_length_input') else self.min_length_trajectory
