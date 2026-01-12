@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python=3.10
   - pip
+  - numpy>=1.24,<2.0
   - pip:
     # Install MicroLive package (which pulls all dependencies)
     - microlive

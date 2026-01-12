@@ -141,6 +141,29 @@ microlive
 
 ---
 
+### Troubleshooting Installation
+
+If you encounter errors during installation (especially on Python 3.12):
+
+```bash
+# Option 1: Upgrade pip and pre-install numpy
+pip install --upgrade pip setuptools wheel
+pip install numpy
+pip install microlive
+
+# Option 2: Use Python 3.10 (most compatible)
+conda create -n microlive python=3.10 -y
+conda activate microlive
+pip install microlive
+```
+
+**Common error**: `ModuleNotFoundError: No module named 'numpy'` during `pystackreg` build
+
+- This occurs when pip tries to build older package versions from source
+- Solution: Pre-install NumPy before installing MicroLive
+
+---
+
 ## Usage
 
 ### GUI Application

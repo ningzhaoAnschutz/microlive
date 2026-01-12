@@ -84,7 +84,7 @@ dependencies = [
     
     # Utilities
     "tqdm>=4.66",
-    "pystackreg>=0.2",
+    "pystackreg>=0.2.8",
     "openpyxl>=3.1",
     "PyYAML>=6.0",
     "pydantic>=2.0",
