@@ -5,7 +5,17 @@ channels:
 dependencies:
   - python=3.10
   - pip
-  - numpy>=1.24,<2.0
+  # Core scientific stack via conda (prevents pip resolution issues)
+  - numpy=1.26.4
+  - pandas=2.2.2
+  - scipy=1.13
+  - scikit-image=0.24
+  - scikit-learn=1.5
+  - matplotlib=3.9
+  - numba=0.60
+  - llvmlite=0.43
+  - dask=2024.8
+  - distributed=2024.8
   - pip:
     # PyTorch with CUDA 12.4 support for Windows/Linux GPU
     - --extra-index-url https://download.pytorch.org/whl/cu124
