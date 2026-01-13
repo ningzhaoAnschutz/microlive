@@ -1,7 +1,14 @@
-"""Pipeline module for MicroLive.
+"""Pipeline module for MicroLive FRAP analysis.
 
-This module is part of the microlive package.
+This module is part of the microlive package and provides functions for
+Fluorescence Recovery After Photobleaching (FRAP) analysis.
+
+The pipeline uses a pretrained Cellpose model for nuclei segmentation that
+is automatically downloaded from GitHub on first use.
 """
+import os
+import traceback
+
 from microlive.imports import *
 
 from skimage.feature import canny
@@ -11,6 +18,95 @@ from skimage.filters import threshold_otsu
 from skimage.morphology import binary_opening, binary_closing
 from skimage.measure import label, regionprops
 from skimage.transform import hough_circle, hough_circle_peaks
+
+# Import model downloader with graceful fallback
+try:
+    from microlive.utils.model_downloader import get_frap_nuclei_model_path
+    _HAS_MODEL_DOWNLOADER = True
+except ImportError:
+    _HAS_MODEL_DOWNLOADER = False
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# GPU Detection and MPS Compatibility (aligned with microscopy.py)
+# =============================================================================
+
+class PatchMPSFloat64:
+    """
+    Context manager to safely monkeypatch torch.zeros on MPS devices 
+    to force float32 instead of float64 (which is not supported).
+    
+    Copied from microlive.microscopy for self-contained FRAP pipeline.
+    """
+    def __init__(self):
+        self.original_zeros = torch.zeros
+        self.is_mps = torch.backends.mps.is_available() and torch.backends.mps.is_built()
+
+    def __enter__(self):
+        if not self.is_mps:
+            return
+        
+        def patched_zeros(*args, **kwargs):
+            # Check if device is MPS (either string or torch.device)
+            device = kwargs.get('device', None)
+            is_target_device = False
+            if device is not None:
+                if isinstance(device, str) and 'mps' in device:
+                    is_target_device = True
+                elif isinstance(device, torch.device) and device.type == 'mps':
+                    is_target_device = True
+            
+            # Check if dtype is float64/double
+            dtype = kwargs.get('dtype', None)
+            is_target_dtype = (dtype == torch.float64 or dtype == torch.double)
+
+            if is_target_device and is_target_dtype:
+                kwargs['dtype'] = torch.float32
+            
+            return self.original_zeros(*args, **kwargs)
+        
+        torch.zeros = patched_zeros
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.is_mps:
+            torch.zeros = self.original_zeros
+
+
+def _detect_gpu():
+    """
+    Detect available GPU (CUDA or MPS) for Cellpose.
+    
+    Returns:
+        bool: True if GPU is available (CUDA or MPS), False otherwise.
+    """
+    os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+    return torch.cuda.is_available() or torch.backends.mps.is_available()
+
+
+def _get_frap_nuclei_model():
+    """
+    Get the path to the pretrained FRAP nuclei segmentation model.
+    
+    Downloads from GitHub on first use, caches locally in ~/.microlive/models/.
+    Returns None if download fails, allowing fallback to default Cellpose model.
+    
+    Returns:
+        str or None: Path to the model file, or None if unavailable.
+    """
+    if not _HAS_MODEL_DOWNLOADER:
+        logger.debug("Model downloader not available, using default nuclei model")
+        return None
+    
+    try:
+        model_path = get_frap_nuclei_model_path()
+        logger.info(f"Using pretrained FRAP nuclei model: {model_path}")
+        return model_path
+    except Exception as e:
+        logger.warning(f"Could not load FRAP nuclei model: {e}. Using default.")
+        return None
 
 def read_lif_files_in_folder(folder_path):
     # create funtion that read all the .lif files in a folder and return the list of images
@@ -160,43 +256,111 @@ def find_frap_coordinates(image_TXY, frap_time, stable_FRAP_channel, min_diamete
         return None, None
 
 
-def segment_image(image_TXY, step_size=5, pretrained_model_segmentation=None, frap_time=None, pixel_dilation_pseudo_cytosol=10,stable_FRAP_channel=0,min_diameter=10):
+def segment_image(image_TXY, step_size=5, pretrained_model_segmentation='auto', frap_time=None, pixel_dilation_pseudo_cytosol=10,stable_FRAP_channel=0,min_diameter=10):
+    """
+    Segment nuclei in FRAP image stack using Cellpose.
+    
+    Args:
+        image_TXY: 3D image array (Time, X, Y).
+        step_size: Number of frames between segmentations.
+        pretrained_model_segmentation: Model to use:
+            - 'auto' (default): Auto-download and use FRAP-optimized model from GitHub
+            - None or 'nuclei': Use default Cellpose nuclei model
+            - str path: Use custom pretrained model at given path
+        frap_time: Frame index of FRAP event.
+        pixel_dilation_pseudo_cytosol: Pixels to dilate for pseudo-cytosol.
+        stable_FRAP_channel: Channel index for stable signal.
+        min_diameter: Minimum ROI diameter in pixels.
+    
+    Returns:
+        Tuple of (masks_TXY, background_mask, pseudo_cytosol_masks_TXY).
+    """
     num_pixels_to_dilate = 1
-    use_gpu = False  # or True if you want to try MPS on Apple Silicon
-    if pretrained_model_segmentation is not None:
+    
+    # GPU detection (aligned with microscopy.py)
+    use_gpu = _detect_gpu()
+    logger.debug(f"FRAP Pipeline: GPU available = {use_gpu}")
+    
+    # Ensure image is float32 for MPS compatibility
+    image_TXY = image_TXY.astype(np.float32)
+    
+    # Determine which model to use
+    if pretrained_model_segmentation == 'auto':
+        # Auto-download FRAP-optimized model from GitHub
+        pretrained_model_segmentation = _get_frap_nuclei_model()
+    
+    # Helper function to run Cellpose with error handling
+    def _run_cellpose_eval(model, image, model_type_fallback=None, **kwargs):
+        """Run Cellpose evaluation with MPS error handling and CPU fallback."""
+        nonlocal use_gpu
+        try:
+            with PatchMPSFloat64():
+                return model.eval(image, **kwargs)[0]
+        except RuntimeError as e:
+            if "sparse" in str(e) and torch.backends.mps.is_available():
+                logger.warning(f"MPS sparse error detected: {e}. Retrying with resample=False.")
+                try:
+                    kwargs['resample'] = False
+                    with PatchMPSFloat64():
+                        return model.eval(image, **kwargs)[0]
+                except RuntimeError as e2:
+                    logger.warning(f"MPS error persisted: {e2}. Falling back to CPU.")
+                    # Reinitialize model on CPU
+                    if model_type_fallback is not None:
+                        model = models.CellposeModel(gpu=False, model_type=model_type_fallback)
+                    else:
+                        model = models.CellposeModel(gpu=False, pretrained_model=pretrained_model_segmentation)
+                    use_gpu = False
+                    kwargs.pop('resample', None)  # Reset resample
+                    return model.eval(image, **kwargs)[0]
+            else:
+                logger.error(f"Cellpose RuntimeError: {e}")
+                logger.error(traceback.format_exc())
+                return np.zeros(image.shape[:2], dtype=np.uint16)
+        except Exception as e:
+            logger.error(f"Cellpose error: {e}")
+            logger.error(traceback.format_exc())
+            return np.zeros(image.shape[:2], dtype=np.uint16)
+    
+    # Initialize models
+    if pretrained_model_segmentation is not None and pretrained_model_segmentation != 'nuclei':
+        logger.info(f"Using pretrained model for nuclei segmentation")
         model_nucleus = models.CellposeModel(
             gpu=use_gpu,
             pretrained_model=pretrained_model_segmentation
         )
     else:
+        logger.info("Using default Cellpose nuclei model")
         model_nucleus = models.CellposeModel(
             gpu=use_gpu,
             model_type='nuclei'
         )
-    #model_cyto = models.Cellpose(gpu=False, model_type='cyto2')
-    model_cyto = models.CellposeModel( gpu=use_gpu, model_type='cyto2')
+    model_cyto = models.CellposeModel(gpu=use_gpu, model_type='cyto2')
+    
     num_steps = (image_TXY.shape[0] + step_size - 1) // step_size
     list_masks = []
     list_selected_mask_id = []
     list_selected_masks = []
     list_masks_cyto = []
+    
     # If frap_time is provided, segment the FRAP images and select the mask with maximum intensity change
     if frap_time is not None:
         # Ensure frap_time is within valid range
         if frap_time < 1 or frap_time >= image_TXY.shape[0] - 1:
             raise ValueError("frap_time must be within the range of the image stack.")
         # Segment the image at frap_time
-        #masks_frap = model_nucleus.eval(image_TXY[frap_time], normalize=True, channels=[0,0], flow_threshold=0.8, diameter=150, min_size=100)[0]
-        masks_frap = model_nucleus.eval(
+        masks_frap = _run_cellpose_eval(
+            model_nucleus,
             image_TXY[frap_time],
-            channels=[0, 0],          # ← add this!
+            model_type_fallback='nuclei',
+            channels=[0, 0],
             normalize=True,
             flow_threshold=1,
             diameter=150,
             min_size=50
-        )[0]
+        )
         # remove all the maks that are touching the border
-        masks_frap =remove_border_masks(masks_frap,min_size=50)
+        masks_frap = remove_border_masks(masks_frap, min_size=50)
         # Get unique mask labels (excluding background)
         mask_labels = np.unique(masks_frap)
         mask_labels = mask_labels[mask_labels != 0]
@@ -210,13 +374,10 @@ def segment_image(image_TXY, step_size=5, pretrained_model_segmentation=None, fr
                     selected_mask_frap = binary_dilation(selected_mask_frap, iterations=num_pixels_to_dilate).astype('int')
                     break
             else:
-                #selected_mask_id_frap = None
                 selected_mask_frap = None
         else:
-            #selected_mask_id_frap = None
             selected_mask_frap = None
     else:
-        #selected_mask_id_frap = None
         selected_mask_frap = None
     if selected_mask_frap is None:
         return None, None, None
@@ -224,19 +385,29 @@ def segment_image(image_TXY, step_size=5, pretrained_model_segmentation=None, fr
     for step in range(num_steps):
         i = step * step_size
         # Detecting masks in i-th frame
-        masks = model_nucleus.eval(
+        masks = _run_cellpose_eval(
+            model_nucleus,
             image_TXY[i],
-            channels=[0, 0],         
+            model_type_fallback='nuclei',
+            channels=[0, 0],
             normalize=True,
             flow_threshold=1,
             diameter=150,
             min_size=50
-        )[0]
+        )
         list_masks.append(masks)
-        masks =remove_border_masks(masks,min_size=50)
+        masks = remove_border_masks(masks, min_size=50)
         # Detect cytosol masks only every `step_size` frames
         if step % 2 == 0:
-            masks_cyto = model_cyto.eval(image_TXY[i], normalize=True, flow_threshold=0.5, diameter=250, min_size=100)[0]
+            masks_cyto = _run_cellpose_eval(
+                model_cyto,
+                image_TXY[i],
+                model_type_fallback='cyto2',
+                normalize=True,
+                flow_threshold=0.5,
+                diameter=250,
+                min_size=100
+            )
             list_masks_cyto.append(masks_cyto)
         if frap_time is None:
             # Selecting the mask that is in the center of the image
@@ -311,7 +482,7 @@ def segment_image(image_TXY, step_size=5, pretrained_model_segmentation=None, fr
 
 
 
-def create_image_arrays(list_concatenated_images, selected_image=0, FRAP_channel_to_quantify=0,pretrained_model_segmentation=None,frap_time=None, starting_changing_frame=40, step_size_increase=5,min_diameter=10):
+def create_image_arrays(list_concatenated_images, selected_image=0, FRAP_channel_to_quantify=0,pretrained_model_segmentation='auto',frap_time=None, starting_changing_frame=40, step_size_increase=5,min_diameter=10):
     image_TZXYC = list_concatenated_images[selected_image] # shape (T Z Y X C)
     print('Image with shape (T Z Y X C):\n ' ,list_concatenated_images[selected_image].shape) # TZYXC
     print('Original Image pixel ', 'min: {:.2f}, max: {:.2f}, mean: {:.2f}, std: {:.2f}'.format(np.min(image_TZXYC), np.max(image_TZXYC), np.mean(image_TZXYC), np.std(image_TZXYC)) )
