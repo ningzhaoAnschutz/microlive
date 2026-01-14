@@ -1423,6 +1423,13 @@ class Intensity():
         optimize_spot_size: Search for optimal spot size (5-11 px). Slower. Defaults to False.
         allow_subpixel_repositioning: Search ±2px for better center. Defaults to False.
         fast_gaussian_fit: Use moment-based (fast) vs full Gaussian fit. Defaults to True.
+        snr_method: Method for calculating signal-to-noise ratio. Options:
+            - 'peak' (default): Uses the maximum pixel value in the spot region as signal.
+              This is the standard definition of SNR: (max_spot - mean_bg) / std_bg.
+              Recommended for most applications.
+            - 'disk_doughnut': Uses mean disk intensity as signal instead of peak value.
+              Calculates SNR as: (mean_disk - mean_bg) / std_bg.
+              More robust when data is very noisy or spots are dim.
     
     Attributes:
         number_spots: Number of spots to measure.
@@ -1431,7 +1438,7 @@ class Intensity():
     
     def __init__(self, original_image, spot_size=5, array_spot_location_z_y_x=None, 
                  use_max_projection=False, optimize_spot_size=False, allow_subpixel_repositioning=False,
-                 fast_gaussian_fit=True):
+                 fast_gaussian_fit=True, snr_method='peak'):
         self.original_image = original_image
         if array_spot_location_z_y_x is None:
             self.array_spot_location_z_y_x = np.array([[0, 0, 0]])
@@ -1449,6 +1456,7 @@ class Intensity():
         self.optimize_spot_size = optimize_spot_size
         self.allow_subpixel_repositioning = allow_subpixel_repositioning
         self.fast_gaussian_fit = fast_gaussian_fit
+        self.snr_method = snr_method
 
     def two_dimensional_gaussian(self, xy, amplitude, x0, y0, sigma_x, sigma_y, offset):
         """Evaluate 2D Gaussian at given coordinates."""
@@ -1551,11 +1559,23 @@ class Intensity():
     def calculate_intensity(self):
         """Calculate intensity metrics for all spots across all channels.
         
+        The signal-to-noise ratio (SNR) calculation method is controlled by the
+        `snr_method` parameter set during class initialization:
+        
+        - **'peak'** (default): Uses the maximum pixel value in the spot region 
+          as the signal. This is the standard definition of SNR commonly used 
+          in microscopy: SNR = (max_spot - mean_background) / std_background.
+          
+        - **'disk_doughnut'**: Uses the mean disk intensity as signal instead 
+          of the peak value. This method is more robust for very noisy data 
+          or dim spots where the maximum value may be unreliable due to noise.
+          SNR = (mean_disk - mean_background) / std_background.
+        
         Returns:
             tuple: 8-element tuple of arrays, each with shape [N_spots, N_channels]:
                 - intensities: Background-subtracted intensity (disk - doughnut mean).
                 - intensities_std: Standard deviation within disk region.
-                - intensities_snr: Signal-to-noise ratio (disk-bg) / std(bg).
+                - intensities_snr: Signal-to-noise ratio (calculation depends on snr_method).
                 - intensities_background_mean: Mean background from doughnut.
                 - intensities_background_std: Std of background from doughnut.
                 - psfs_amplitude: PSF peak amplitude from Gaussian fit (or NaN).
@@ -1577,11 +1597,31 @@ class Intensity():
             donut_values = tem_img[~np.isnan(tem_img)].astype('uint16')
             return donut_values
 
-        def signal_to_noise_ratio(values_disk, values_donut):
-            mean_disk = np.mean(values_disk.astype(float))
+        def signal_to_noise_ratio(values_disk, values_donut, snr_method='peak'):
+            """Calculate signal-to-noise ratio for a spot.
+            
+            Args:
+                values_disk: Pixel values in the spot disk region.
+                values_donut: Pixel values in the background doughnut region.
+                snr_method: 'peak' uses max pixel value as signal (standard),
+                           'disk_doughnut' uses mean disk intensity (robust for noisy data).
+            
+            Returns:
+                tuple: (SNR, mean_background, std_background)
+            """
             mean_donut = np.mean(values_donut.astype(float))
             std_donut = np.std(values_donut.astype(float))
-            SNR = (mean_disk - mean_donut) / std_donut if std_donut > 0 else 0
+            
+            if snr_method == 'peak':
+                # Standard SNR: use peak (maximum) pixel value as signal
+                max_disk = np.max(values_disk.astype(float))
+                signal = max_disk - mean_donut
+            else:
+                # disk_doughnut method: use mean disk intensity as signal
+                mean_disk = np.mean(values_disk.astype(float))
+                signal = mean_disk - mean_donut
+            
+            SNR = signal / std_donut if std_donut > 0 else 0
             return SNR, mean_donut, std_donut
 
         def disk_donut(values_disk, values_donut, spot_size):
@@ -1749,7 +1789,7 @@ class Intensity():
                 # Use the updated integer positions for the final intensity crop
                 crop_disk_and_donut = return_crop(frame_data[:,:,i], current_x_int, current_y_int, spot_range=crop_range)
                 values_donut = return_donut(crop_disk_and_donut, spot_size=best_size)
-                intensities_snr[sp,i], intensities_background_mean[sp,i], intensities_background_std[sp,i] = signal_to_noise_ratio(values_disk, values_donut)
+                intensities_snr[sp,i], intensities_background_mean[sp,i], intensities_background_std[sp,i] = signal_to_noise_ratio(values_disk, values_donut, self.snr_method)
                 # disk_donut calculation
                 intensities[sp,i], intensities_std[sp,i] = disk_donut(values_disk, values_donut, spot_size=best_size)
                 intensities_total[sp,i] = np.sum(values_disk)

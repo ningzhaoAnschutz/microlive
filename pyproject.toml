@@ -145,6 +145,11 @@ path = "microlive/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["microlive"]
+# Include non-Python data files (icons, ML models)
+artifacts = [
+    "microlive/data/icons/*.png",
+    "microlive/data/models/*.pth",
+]
 exclude = [
     "*.log",
     "**/micro_gui.log",

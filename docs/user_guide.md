@@ -615,11 +615,23 @@ For algorithm implementation details, see [API Reference](api_reference.md#track
 
 - **PSF Sigma**: The standard deviation (σₓ, σᵧ) from the 2D Gaussian fit, representing the spot width in pixels.
 
-- **Signal-to-Noise Ratio (SNR)**: Calculated as the difference between mean spot and background intensities divided by background standard deviation:
+- **Signal-to-Noise Ratio (SNR)**: MicroLive supports two methods for calculating SNR, selectable via the `snr_method` parameter:
+
+  **Peak Method (Default)** — Standard SNR definition using maximum pixel value as signal:
+
+```text
+  SNR = (max_intensity_spot - mean_intensity_background) / std_background
+```
+
+  This is the standard definition of SNR in microscopy. It measures the contrast between the brightest pixel in the spot (the peak) and the background noise level. Recommended for most applications.
+
+  **Disk-Doughnut Method** — Uses mean disk intensity instead of peak value:
 
 ```text
   SNR = (mean_intensity_spot - mean_intensity_background) / std_background
 ```
+
+  This alternative method is more robust when data is very noisy or spots are dim, where the maximum pixel value may be unreliable due to noise spikes. Use this method when working with low-SNR imaging conditions.
 
 - **Spot Size (FWHM-based)**: Physical size measurements of detected particles calculated using Full Width at Half Maximum principles:
 
