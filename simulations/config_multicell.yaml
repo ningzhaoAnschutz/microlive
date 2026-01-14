@@ -27,27 +27,29 @@ simulation:
 # The simulator will distribute particles to each cell accordingly.
 particles:
   # average_count: 15  # Alternative: 15 particles per cell on average
-  per_cell_counts: [20, 15, 10, 5]  # Different counts per cell
+  per_cell_counts: [50, 35, 40, 25]  # Different counts per cell
 
 spot_properties:
-  snr_mean: 3.0
-  snr_std: 0.5
-  snr_min: 1.5
-  snr_max: 8.0
-  size_mean: 1.5
-  size_std: 0.3
-  size_min: 0.8
-  size_max: 3.0
+  # SNR: Realistic values for single mRNA spots
+  snr_mean: 3.0              # Mean SNR
+  snr_std: 1.0               # Standard deviation  
+  snr_min: 0.5              # Minimum (challenging)
+  snr_max: 4.0               # Maximum (bright)
+  # Size: PSF sigma in pixels (separate from SNR)
+  size_mean: 1.5             # Typical diffraction-limited
+  size_std: 0.5
+  size_min: 0.5
+  size_max: 2.0
 
-particle_motion:
+motion:
   diffusion_coefficient: 0.05  # D in px²/frame
   confinement_type: 'cell'
 
 colocalization:
-  ch1_probability: 0.7
-  ch2_probability: 0.3
-  ch1_snr_multiplier: 0.8
-  ch2_snr_multiplier: 0.5
+  ch1_probability: 0.8
+  ch2_probability: 0.6
+  ch1_snr_multiplier: 1.0
+  ch2_snr_multiplier: 1.0
 
 # Photobleaching (same as single-cell for consistency)
 photobleaching:
@@ -56,13 +58,29 @@ photobleaching:
   ch2_decay_rate: 0.00085      # ~40% loss over 600s
 
 baseline:
-  outside_cell: 1000
-  cytosol: 1600
-  nucleus: 1800
+  outside_cell: 1200
+  cytosol: 1800
+  nucleus: 2200
 
+# ---------------------------------------------------------------------
+# Noise Model (Per-Channel Gaussian Noise)
+# ---------------------------------------------------------------------
+# noise_std = standard deviation of pixel intensity fluctuations
+# Units: same as your image intensity (camera counts / arbitrary units)
+#
+# Typical values:
+#   5-20:   Low noise (high-end cameras, averaged images)
+#   20-50:  Moderate noise (typical confocal/widefield)
+#   50-100: High noise (fast acquisition, low light)
+#   100+:   Very high noise (extreme conditions)
+#
+# SNR relationship: if you set snr_mean=1.0 and noise_std=50, 
+# the spot signal will be 50 intensity units above background.
+#
 noise:
-  read_noise_std: 10.0
-  shot_noise_enabled: true
+  ch0_noise_std: 300.0    # Channel 0 noise std
+  ch1_noise_std: 300.0    # Channel 1 noise std
+  ch2_noise_std: 300.0    # Channel 2 noise std
 
 # ---------------------------------------------------------------------
 # Multi-Cell Geometry Configuration

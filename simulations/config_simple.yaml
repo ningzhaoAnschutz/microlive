@@ -61,27 +61,28 @@ motion:
 # These parameters enable recovery testing - MicroLive should measure
 # values close to the configured mean ± std when analyzing the output.
 spot_properties:
-  # Size: PSF sigma in pixels
+  # Size: PSF sigma in pixels (controls spot width, NOT brightness)
   # MicroLive will report this as psf_sigma_ch_N from Gaussian fitting
-  size_mean: 1.5             # Mean PSF sigma (pixels)
+  size_mean: 1.5             # Mean PSF sigma (pixels) - typical diffraction-limited
   size_std: 0.3              # Standard deviation
-  size_min: 0.8              # Minimum clamp (prevents unrealistic small spots)
-  size_max: 3.0              # Maximum clamp (prevents unrealistic large spots)
+  size_min: 0.8              # Minimum clamp
+  size_max: 3.0              # Maximum clamp
   
-  # Intensity: Defined via SNR (Signal-to-Noise Ratio)
-  # Peak intensity = local_background × (1 + SNR)
-  # This decouples spot brightness from background levels
+  # SNR: Signal-to-Noise Ratio (controls brightness)
+  # 
+  # SNR = (spot_peak - background) / noise_std
+  # signal_amplitude = SNR × noise_std = SNR × sqrt(background + read_noise²)
   #
-  # Examples with cytosol background = 1200:
-  #   SNR 1.5 → peak = 1200 × 2.5 = 3000  (marginal detectability)
-  #   SNR 3.0 → peak = 1200 × 4.0 = 4800  (good detectability)
-  #   SNR 5.0 → peak = 1200 × 6.0 = 7200  (excellent)
-  #   SNR 8.0 → peak = 1200 × 9.0 = 10800 (very bright)
+  # Detectability guide:
+  #   SNR 0.5 → Barely visible, often missed by detection
+  #   SNR 1.0 → Marginally detectable
+  #   SNR 1.5 → Typical single mRNA spot
+  #   SNR 3.0 → Good detectability
   #
-  snr_mean: 3.0              # Mean SNR (typical range: 2-10)
+  snr_mean: 3.0              # Mean SNR (good detectability)
   snr_std: 0.5               # Standard deviation
-  snr_min: 1.5               # Minimum clamp (below this, spots may be undetectable)
-  snr_max: 8.0               # Maximum clamp (prevents unrealistic bright spots)
+  snr_min: 0.5               # Minimum clamp (challenging detection)
+  snr_max: 3.0               # Maximum clamp (bright spots)
 
 # ---------------------------------------------------------------------
 # Colocalization Settings
@@ -92,13 +93,13 @@ spot_properties:
 # Example: ch1_probability: 0.7 means 70% of ch0 particles will have
 # a corresponding ch1 spot at the exact same position.
 colocalization:
-  ch1_probability: 0.7       # Fraction of ch0 particles with ch1 partner
-  ch2_probability: 0.3       # Fraction of ch0 particles with ch2 partner
+  ch1_probability: 0.8       # Fraction of ch0 particles with ch1 partner
+  ch2_probability: 0.6       # Fraction of ch0 particles with ch2 partner
   
   # Colocalized spot SNR (relative to ch0 particle)
   # ch1_snr = ch0_snr × ch1_snr_multiplier
-  ch1_snr_multiplier: 0.8    # ch1 SNR = ch0 SNR × 0.8 (slightly dimmer)
-  ch2_snr_multiplier: 0.5    # ch2 SNR = ch0 SNR × 0.5 (much dimmer)
+  ch1_snr_multiplier: 1.0    # ch1 SNR = ch0 SNR × 1.0 (same brightness)
+  ch2_snr_multiplier: 1.0    # ch2 SNR = ch0 SNR × 1.0 (same brightness)
   
   # Colocalized spot size (relative to ch0 particle)
   ch1_size_multiplier: 1.0   # ch1 size = ch0 size × 1.0 (same)
@@ -155,15 +156,26 @@ baseline:
   nucleus: 1800               # NUCLEUS: Nuclear compartment (virtual_cell: 1800)
 
 # ---------------------------------------------------------------------
-# Noise Model
+# Noise Model (Per-Channel Gaussian Noise)
 # ---------------------------------------------------------------------
-# Adds realistic camera and biological noise to the image.
+# noise_std = standard deviation of pixel intensity fluctuations
+# Units: same as your image intensity (camera counts / arbitrary units)
+#
+# Typical values:
+#   5-20:   Low noise (high-end cameras, averaged images)
+#   20-50:  Moderate noise (typical confocal/widefield)
+#   50-100: High noise (fast acquisition, low light)
+#   100+:   Very high noise (extreme conditions)
+#
+# SNR relationship: if you set snr_mean=1.0 and noise_std=50, 
+# the spot signal will be 50 intensity units above background.
+#
+# Formula: signal_amplitude = SNR × noise_std
+#
 noise:
-  read_noise_std: 5.0        # Gaussian read noise (camera electronics)
-  shot_noise_enabled: true   # Enable Poisson shot noise
-  shot_noise_scale: 0.1      # Shot noise scaling factor
-  cellular_noise_amplitude: 8.0  # Spatially correlated texture amplitude
-  cellular_noise_sigma: 5.0  # Spatial correlation length (pixels)
+  ch0_noise_std: 300.0   # Channel 0 noise std
+  ch1_noise_std: 300.0   # Channel 1 noise std
+  ch2_noise_std: 300.0   # Channel 2 noise std
 
 # ---------------------------------------------------------------------
 # Cell Geometry (Three-Region Spatial Model)

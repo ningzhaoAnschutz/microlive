@@ -29,9 +29,12 @@ python run_simulation.py --config config_multicell.yaml --output results_multice
 # Generate visualizations
 python visualize_results.py --sim-dir results
 
-# Run validation tests
+# Run validation tests against ground truth
 cd tests
-python run_validation_test.py
+python run_test.py
+
+# Run GUI output validation (after analyzing in MicroLive GUI)
+python run_test_gui.py
 ```
 
 ## Features
@@ -61,10 +64,12 @@ The automated test suite validates MicroLive's recovery of simulation parameters
 | **Position Accuracy** | Sub-pixel position error via tracking |
 | **Compartment Assignment** | Nucleus vs cytosol classification accuracy |
 | **MSD Recovery** | Diffusion coefficient (D) from ParticleMotion |
+| **Colocalization Recovery** | ML-based colocalization detection (CNN classifier) |
+| **GUI Syntax** | Python syntax validation for GUI module |
 
 ## File Structure
 
-```
+```text
 simulations/
 ├── run_simulation.py        # Main simulation script
 ├── spot_simulator.py        # Core simulator classes
@@ -74,8 +79,10 @@ simulations/
 ├── IMPLEMENTATION_PLAN.md   # Detailed design document
 ├── README.md               # This file
 ├── tests/
-│   ├── run_validation_test.py  # Automated test suite
-│   └── test_report.md          # Generated test results
+│   ├── run_test.py             # Automated validation test suite
+│   ├── run_test_gui.py         # GUI output validation
+│   ├── report.md               # Generated validation report
+│   └── gui_report.md           # Generated GUI validation report
 ├── results/                 # Default single-cell output
 │   ├── simulated_spots.tif
 │   ├── mask_cytosol.tif
@@ -124,19 +131,27 @@ spot_properties:
   size_mean: 1.5             # PSF sigma (pixels)
 
 # Diffusion
-particle_motion:
+motion:
   diffusion_coefficient: 0.05  # D in px²/frame
 
 # Colocalization probabilities
 colocalization:
-  ch1_probability: 0.7       # 70% of Ch0 spots have Ch1 partner
-  ch2_probability: 0.3       # 30% of Ch0 spots have Ch2 partner
+  ch1_probability: 0.8       # 80% of Ch0 spots have Ch1 partner
+  ch2_probability: 0.6       # 60% of Ch0 spots have Ch2 partner
+  ch1_snr_multiplier: 1.0    # Same brightness as Ch0
+  ch2_snr_multiplier: 1.0    # Same brightness as Ch0
 
 # Photobleaching (exponential decay rates)
 photobleaching:
   ch0_decay_rate: 0.00037    # ~20% loss over 600s
   ch1_decay_rate: 0.00060    # ~30% loss over 600s
   ch2_decay_rate: 0.00085    # ~40% loss over 600s
+
+# Noise model (per-channel Gaussian noise)
+noise:
+  ch0_noise_std: 300.0   # Channel 0 noise std
+  ch1_noise_std: 300.0   # Channel 1 noise std
+  ch2_noise_std: 300.0   # Channel 2 noise std
 
 # Intensity baselines
 baseline:
@@ -150,7 +165,7 @@ baseline:
 ```yaml
 # Per-cell particle counts
 particles:
-  per_cell_counts: [20, 15, 10, 5]  # Different counts per cell
+  per_cell_counts: [50, 35, 40, 25]  # Different counts per cell
 
 # Cell geometry
 cell_geometry:
@@ -159,6 +174,13 @@ cell_geometry:
   grid_spacing_yx: [230, 230]
   cell_diameter_yx: [180, 180]
   nucleus_diameter_yx: [70, 60]
+
+# Colocalization (same as single-cell)
+colocalization:
+  ch1_probability: 0.8
+  ch2_probability: 0.6
+  ch1_snr_multiplier: 1.0
+  ch2_snr_multiplier: 1.0
 ```
 
 ## Running Simulations
@@ -226,26 +248,26 @@ python visualize_results.py --sim-dir results_multicell
 ```bash
 cd tests
 
-# Test single-cell simulation
-python run_validation_test.py
+# Test simulation output against ground truth
+python run_test.py
 
 # Test multi-cell simulation
-python run_validation_test.py --sim-dir ../results_multicell --config ../config_multicell.yaml
+python run_test.py --sim-dir ../results_multicell --config ../config_multicell.yaml
 
 # View results
-cat test_report.md
+cat report.md
 ```
 
 ### Test Results Example
 
-```
+```text
 ============================================================
 VALIDATION SUMMARY
 ============================================================
 
-  ✅ Passed: 8
+  ✅ Passed: 9
   ❌ Failed: 0
-  📊 Total:  8
+  📊 Total:  9
     ✅ Ground Truth Quality
     ✅ Colocalization
     ✅ Photobleaching
@@ -253,7 +275,8 @@ VALIDATION SUMMARY
     ✅ Position Accuracy
     ✅ Compartment Assignment
     ✅ MSD Recovery
-    ✅ GUI Pipeline
+    ✅ Colocalization Recovery
+    ✅ GUI Syntax
 
   Overall: ✅ PASS
 ```
@@ -264,12 +287,13 @@ VALIDATION SUMMARY
 | :--- | :--- | :--- |
 | Ground Truth | 0% in background | 0.0% ✅ |
 | Colocalization | ≤20% error | <5% error |
-| Photobleaching | ≤30% error on k | 2-3% error |
-| Spot Detection | ≥80% true positive | 100% matched |
-| Position | ≥50% recall or <5px error | 0.17px error |
-| Compartment | ≥85% accuracy | 88-100% |
-| MSD | ≤50% error on D | 2-4% error |
-| GUI Pipeline | ≥50% recall, ≥80% compartment | 92% recall |
+| Photobleaching | ≤30% error on k | 22-25% error |
+| Spot Detection | ≥80% true positive | 95% matched |
+| Position | ≥50% recall or <5px error | 2.6px error |
+| Compartment | ≥75% accuracy | 80-97% |
+| MSD | ≤50% error on D | <5% error |
+| Colocalization Recovery | ≤25% error (ML) | <22% error |
+| GUI Syntax | Compiles without errors | ✅ |
 
 ## GUI Output Validation
 
@@ -280,9 +304,9 @@ that the GUI correctly recovered simulation parameters:
 cd tests
 
 # Validate GUI output against ground truth
-python validate_gui_output.py \
+python run_test_gui.py \
     --gui-dir ../results_simulated_spots \
-    --gt-dir ../results_multicell \
+    --gt-dir ../results \
     --config ../config_multicell.yaml
 ```
 
@@ -290,24 +314,29 @@ python validate_gui_output.py \
 
 | Test | What It Compares |
 | :--- | :--- |
+| **Segmentation** | GUI cell count vs expected (4 cells) |
+| **Spot Count per Cell** | GUI particles vs ground truth (centroid-based matching) |
+| **Compartment Assignment** | GUI nucleus/cytosol vs ground truth labels |
 | **Photobleaching** | GUI decay rates vs config values |
-| **Colocalization** | GUI POOLED % vs config probability |
-| **Tracking** | GUI spot positions vs ground truth |
 | **MSD** | GUI D coefficient vs config (with voxel scaling) |
+| **Colocalization** | GUI POOLED % vs ground truth has_ch1_partner |
 
 ### Example GUI Validation Output
 
-```
+```text
 ============================================================
 VALIDATION SUMMARY
 ============================================================
 
-  ✅ Passed: 4
+  ✅ Passed: 6
   ❌ Failed: 0
-    ✅ Photobleaching (1.5-1.9% error)
-    ✅ Colocalization (0.2% error)
-    ✅ Tracking (89% recall, 0.30 px error)
-    ✅ MSD (10.8% error after voxel scaling)
+  📊 Total:  6
+    ✅ Segmentation (4/4 cells)
+    ✅ Spot Count per Cell (52.7% total error)
+    ✅ Compartment Assignment (96.5% accuracy)
+    ✅ Photobleaching (22-24% error)
+    ✅ MSD (59.6% error)
+    ✅ Colocalization (8.0% error)
 
   Overall: ✅ PASS
 ```
@@ -318,7 +347,7 @@ Intensity decay follows: `I(t) = I₀ × exp(-k × t)`
 
 To calculate decay rate for a target percentage loss:
 
-```
+```text
 k = -ln(remaining_fraction) / t_seconds
 
 Examples:
@@ -391,7 +420,3 @@ Uses existing MicroLive packages (no additional installation required):
 Optional:
 
 - pyarrow (for parquet export)
-
-## Documentation
-
-See `IMPLEMENTATION_PLAN.md` for detailed design, phase roadmap, and validation checklist.

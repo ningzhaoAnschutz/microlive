@@ -62,9 +62,25 @@ class Particle:
         """Check if particle exists at given frame."""
         return self.birth_frame <= frame < self.death_frame
     
-    def get_peak_intensity(self, local_background: float) -> float:
-        """Calculate peak intensity: background × (1 + SNR)."""
-        return local_background * (1.0 + self.snr)
+    def get_peak_intensity(self, local_background: float, noise_std: float) -> float:
+        """Calculate spot signal amplitude using MicroLive's SNR definition.
+        
+        MicroLive calculates: SNR = (spot_peak - background_mean) / background_std
+        
+        Therefore, the signal amplitude (peak above background) = SNR × noise_std
+        
+        Note: This returns only the SIGNAL AMPLITUDE (added above background),
+        not the total peak intensity. Since _render_gaussian_spot ADDS to an
+        image that already contains the background, we only return the signal.
+        
+        Args:
+            local_background: Mean background intensity at this position (for reference)
+            noise_std: Expected noise standard deviation (sqrt(background + read_noise²))
+            
+        Returns:
+            Signal amplitude to add above the background
+        """
+        return self.snr * noise_std
     
     def get_unique_id(self, image_id: int = 0, spot_type: int = 0) -> str:
         """Generate globally unique particle identifier."""
@@ -685,6 +701,13 @@ class SpotSimulator:
         n_channels = 3
         frame_img = np.zeros((*self.shape, n_channels), dtype=np.float32)
         
+        # Get noise std per channel for amplitude calculation
+        noise_cfg = self.config.get('noise', {})
+        noise_std_per_ch = [
+            noise_cfg.get(f'ch{ch}_noise_std', 20.0)
+            for ch in range(n_channels)
+        ]
+        
         # Add baseline to all channels
         for c in range(n_channels):
             frame_img[:, :, :, c] = self.baseline_map.copy()
@@ -696,23 +719,26 @@ class SpotSimulator:
             
             pos = particle.current_position
             local_bg = self._get_local_background(*pos)
-            amplitude = particle.get_peak_intensity(local_bg)
             
             # Channel 0 (lead channel)
+            # Signal amplitude = SNR × noise_std
+            amplitude = particle.get_peak_intensity(local_bg, noise_std_per_ch[0])
             self._render_gaussian_spot(frame_img[:, :, :, 0], pos, amplitude, particle.size)
             
             # Channel 1 (colocalized)
             if particle.has_ch1_partner:
                 ch1_cfg = self.config.get('colocalization', {})
                 ch1_mult = ch1_cfg.get('ch1_snr_multiplier', 0.8)
-                ch1_amp = local_bg * (1.0 + particle.snr * ch1_mult)
+                ch1_snr = particle.snr * ch1_mult
+                ch1_amp = ch1_snr * noise_std_per_ch[1]
                 self._render_gaussian_spot(frame_img[:, :, :, 1], pos, ch1_amp, particle.size)
             
             # Channel 2 (colocalized)
             if particle.has_ch2_partner:
                 ch2_cfg = self.config.get('colocalization', {})
                 ch2_mult = ch2_cfg.get('ch2_snr_multiplier', 0.5)
-                ch2_amp = local_bg * (1.0 + particle.snr * ch2_mult)
+                ch2_snr = particle.snr * ch2_mult
+                ch2_amp = ch2_snr * noise_std_per_ch[2]
                 self._render_gaussian_spot(frame_img[:, :, :, 2], pos, ch2_amp, particle.size)
         
         # Apply photobleaching
@@ -795,21 +821,34 @@ class SpotSimulator:
         return frame
     
     def _apply_noise(self, frame: np.ndarray) -> np.ndarray:
-        """Apply noise model (read noise + shot noise)."""
+        """Apply per-channel Gaussian noise model.
+        
+        Noise is applied as additive Gaussian noise with configurable
+        standard deviation per channel:
+          - ch0_noise_std, ch1_noise_std, ch2_noise_std
+        
+        The noise_std value represents the standard deviation of pixel intensity
+        fluctuations in the same units as your image (typically camera counts).
+        
+        Typical values:
+          - 5-20: Low noise (high-end cameras, averaged images)
+          - 20-50: Moderate noise (typical confocal/widefield)
+          - 50-100: High noise (fast acquisition, low light)
+          - 100+: Very high noise (extreme low light conditions)
+        """
         noise_cfg = self.config.get('noise', {})
-        read_noise_std = noise_cfg.get('read_noise_std', 10.0)
-        shot_noise = noise_cfg.get('shot_noise_enabled', True)
         
-        # Ensure non-negative before Poisson
-        frame = np.maximum(frame, 0)
+        # Get per-channel noise std
+        n_channels = frame.shape[-1]
         
-        if shot_noise:
-            # Poisson noise (shot noise)
-            frame = self.rng.poisson(frame.astype(np.float64)).astype(np.float32)
-        
-        if read_noise_std > 0:
-            # Gaussian read noise
-            frame += self.rng.normal(0, read_noise_std, frame.shape).astype(np.float32)
+        for ch in range(n_channels):
+            # Per-channel noise (required)
+            ch_noise_std = noise_cfg.get(f'ch{ch}_noise_std', 20.0)
+            
+            if ch_noise_std > 0:
+                # Gaussian noise - models combined camera/detector noise
+                noise = self.rng.normal(0, ch_noise_std, frame[:, :, :, ch].shape)
+                frame[:, :, :, ch] += noise.astype(np.float32)
         
         return frame
     
@@ -823,6 +862,13 @@ class SpotSimulator:
         Includes compartment tracking and transition detection.
         """
         records = []
+        
+        # Get noise std per channel
+        noise_cfg = self.config.get('noise', {})
+        noise_std_per_ch = [
+            noise_cfg.get(f'ch{ch}_noise_std', 20.0)
+            for ch in range(3)
+        ]
         
         for particle in self.particles:
             prev_compartment = None
@@ -841,6 +887,9 @@ class SpotSimulator:
                 if prev_compartment is not None and compartment != prev_compartment:
                     transition = f"{prev_compartment}_to_{compartment}"
                 
+                # Calculate amplitude using SNR formula: amplitude = bg + SNR * noise_std
+                psf_amplitude_ch0 = local_bg + (particle.snr * noise_std_per_ch[0])
+                
                 # Base record
                 record = {
                     'frame': frame,
@@ -858,7 +907,8 @@ class SpotSimulator:
                     # Spot properties
                     'snr_ch_0': particle.snr,
                     'psf_sigma_ch_0': particle.size,
-                    'psf_amplitude_ch_0': local_bg * (1 + particle.snr),
+                    'psf_amplitude_ch_0': psf_amplitude_ch0,
+                    'noise_std_ch_0': noise_std_per_ch[0],
                     
                     # Compartment tracking
                     'is_nuc': is_nuc,
@@ -883,8 +933,9 @@ class SpotSimulator:
                     ch1_record['spot_type'] = 1
                     ch1_record['unique_particle'] = particle.get_unique_id(0, 1)
                     ch1_mult = self.config.get('colocalization', {}).get('ch1_snr_multiplier', 0.8)
-                    ch1_record['snr_ch_1'] = particle.snr * ch1_mult
-                    ch1_record['psf_amplitude_ch_1'] = local_bg * (1 + particle.snr * ch1_mult)
+                    ch1_snr = particle.snr * ch1_mult
+                    ch1_record['snr_ch_1'] = ch1_snr
+                    ch1_record['psf_amplitude_ch_1'] = local_bg + (ch1_snr * noise_std_per_ch[1])
                     records.append(ch1_record)
                 
                 if particle.has_ch2_partner:
@@ -892,8 +943,9 @@ class SpotSimulator:
                     ch2_record['spot_type'] = 2
                     ch2_record['unique_particle'] = particle.get_unique_id(0, 2)
                     ch2_mult = self.config.get('colocalization', {}).get('ch2_snr_multiplier', 0.5)
-                    ch2_record['snr_ch_2'] = particle.snr * ch2_mult
-                    ch2_record['psf_amplitude_ch_2'] = local_bg * (1 + particle.snr * ch2_mult)
+                    ch2_snr = particle.snr * ch2_mult
+                    ch2_record['snr_ch_2'] = ch2_snr
+                    ch2_record['psf_amplitude_ch_2'] = local_bg + (ch2_snr * noise_std_per_ch[2])
                     records.append(ch2_record)
                 
                 prev_compartment = compartment
