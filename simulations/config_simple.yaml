@@ -79,10 +79,10 @@ spot_properties:
   #   SNR 1.5 → Typical single mRNA spot
   #   SNR 3.0 → Good detectability
   #
-  snr_mean: 3.0              # Mean SNR (good detectability)
-  snr_std: 0.5               # Standard deviation
+  snr_mean: 3.5              # Mean SNR (good detectability)
+  snr_std: 1.0               # Standard deviation
   snr_min: 0.5               # Minimum clamp (challenging detection)
-  snr_max: 3.0               # Maximum clamp (bright spots)
+  snr_max: 5.0               # Maximum clamp (bright spots)
 
 # ---------------------------------------------------------------------
 # Colocalization Settings
