@@ -12553,6 +12553,9 @@ class GUI(QMainWindow):
             channels=(ch1, ch2)
         )
         
+        # Reset sorted flag so Sort button can be used
+        self._verify_visual_sorted = False
+        
         # Update stats label
         self._update_verify_visual_stats()
     
@@ -12570,20 +12573,78 @@ class GUI(QMainWindow):
         )
     
     def sort_verify_visual(self):
-        """Sort Verify Visual results by prediction value (lowest to highest)."""
+        """Sort Verify Visual results by prediction value (lowest to highest for review)."""
         if not hasattr(self, 'verify_visual_checkboxes') or len(self.verify_visual_checkboxes) == 0:
+            QMessageBox.information(self, "No Data", "No spots to sort. Please click Populate first.")
             return
         
-        values = self.colocalization_results.get('prediction_values_vector') if hasattr(self, 'colocalization_results') else None
+        if not hasattr(self, 'colocalization_results') or not self.colocalization_results:
+            QMessageBox.warning(self, "No Results", "No colocalization results available.")
+            return
+        
+        results = self.colocalization_results
+        values = results.get('prediction_values_vector')
+        mean_crop = results.get('mean_crop_filtered')
+        crop_size = results.get('crop_size', 15)
+        flag_vector = results.get('flag_vector')
+        ch1 = results.get('ch1_index', 0)
+        ch2 = results.get('ch2_index', 1)
+        
         if values is None or len(values) == 0:
             QMessageBox.information(self, "Cannot Sort", "No prediction values available for sorting.")
             return
         
-        # Re-populate with sorted order would require rebuilding crops
-        # For now, show a message that sorting is based on visual arrangement
-        QMessageBox.information(self, "Sort", 
-            "Spots are already displayed in their original detection order. "
-            "Lower prediction values indicate uncertain colocalization.")
+        if mean_crop is None:
+            QMessageBox.warning(self, "No Data", "Crop data not available for sorting.")
+            return
+        
+        # Check if already sorted (compare to original order)
+        if hasattr(self, '_verify_visual_sorted') and self._verify_visual_sorted:
+            QMessageBox.information(self, "Already Sorted", "Spots are already sorted by prediction value.")
+            return
+        
+        # Get current checkbox states before sorting
+        current_states = [chk.isChecked() for chk in self.verify_visual_checkboxes]
+        
+        # Create sorted indices (ascending by prediction value - uncertain first)
+        num_spots = len(values)
+        sorted_indices = np.argsort(values)
+        
+        # Re-order the arrays  
+        sorted_values = [values[i] for i in sorted_indices]
+        sorted_flags = [flag_vector[i] if i < len(flag_vector) else False for i in sorted_indices]
+        sorted_states = [current_states[i] if i < len(current_states) else False for i in sorted_indices]
+        
+        # Re-order crops - each spot is crop_size rows in the mean_crop array
+        num_crop_spots = mean_crop.shape[0] // crop_size
+        if num_crop_spots < num_spots:
+            num_spots = num_crop_spots
+            sorted_indices = sorted_indices[:num_spots]
+        
+        sorted_crop = np.zeros_like(mean_crop[:num_spots*crop_size])
+        for new_idx, old_idx in enumerate(sorted_indices[:num_spots]):
+            if old_idx < num_crop_spots:
+                sorted_crop[new_idx*crop_size:(new_idx+1)*crop_size] = \
+                    mean_crop[old_idx*crop_size:(old_idx+1)*crop_size]
+        
+        # Re-create verification crops with sorted data
+        self._create_verification_crops(
+            scroll_area=self.verify_visual_scroll_area,
+            checkboxes_list_attr='verify_visual_checkboxes',
+            mean_crop=sorted_crop,
+            crop_size=crop_size,
+            flag_vector=sorted_states,  # Use previously checked states after reorder
+            stats_label=self.verify_visual_stats_label,
+            num_channels=2,
+            channels=(ch1, ch2)
+        )
+        
+        # Mark as sorted
+        self._verify_visual_sorted = True
+        self._verify_visual_sort_indices = sorted_indices
+        
+        # Update stats
+        self._update_verify_visual_stats()
     
     def cleanup_verify_visual(self):
         """Clear all checkboxes in Verify Visual subtab."""
@@ -12719,6 +12780,9 @@ class GUI(QMainWindow):
             channels=(ch0, ch1)
         )
         
+        # Reset sorted flag so Sort button can be used
+        self._verify_distance_sorted = False
+        
         # Update stats label
         self._update_verify_distance_stats()
     
@@ -12743,9 +12807,72 @@ class GUI(QMainWindow):
             )
     
     def sort_verify_distance(self):
-        """Sort Verify Distance results (by cell ID or coordinate)."""
-        QMessageBox.information(self, "Sort", 
-            "Distance colocalization spots are displayed in detection order.")
+        """Sort Verify Distance results - colocalized spots first for easier review."""
+        if not hasattr(self, 'verify_distance_checkboxes') or len(self.verify_distance_checkboxes) == 0:
+            QMessageBox.information(self, "No Data", "No spots to sort. Please click Populate first.")
+            return
+        
+        if not hasattr(self, 'verify_distance_mean_crop') or self.verify_distance_mean_crop is None:
+            QMessageBox.warning(self, "No Data", "Crop data not available for sorting.")
+            return
+        
+        # Check if already sorted
+        if hasattr(self, '_verify_distance_sorted') and self._verify_distance_sorted:
+            QMessageBox.information(self, "Already Sorted", "Spots are already sorted by colocalization status.")
+            return
+        
+        mean_crop = self.verify_distance_mean_crop
+        crop_size = self.verify_distance_crop_size
+        
+        # Get current checkbox states
+        current_states = [chk.isChecked() for chk in self.verify_distance_checkboxes]
+        num_spots = len(current_states)
+        
+        # Create sorted indices - colocalized (checked) spots first
+        sorted_indices = sorted(range(num_spots), key=lambda i: (0 if current_states[i] else 1, i))
+        
+        # Re-order states  
+        sorted_states = [current_states[i] for i in sorted_indices]
+        
+        # Re-order crops
+        num_crop_spots = mean_crop.shape[0] // crop_size
+        if num_crop_spots < num_spots:
+            num_spots = num_crop_spots
+            sorted_indices = sorted_indices[:num_spots]
+        
+        sorted_crop = np.zeros_like(mean_crop[:num_spots*crop_size])
+        for new_idx, old_idx in enumerate(sorted_indices[:num_spots]):
+            if old_idx < num_crop_spots:
+                sorted_crop[new_idx*crop_size:(new_idx+1)*crop_size] = \
+                    mean_crop[old_idx*crop_size:(old_idx+1)*crop_size]
+        
+        # Get channels from distance results
+        results = self.distance_coloc_results if hasattr(self, 'distance_coloc_results') else {}
+        ch0 = results.get('channel_0', 0)
+        ch1 = results.get('channel_1', 1)
+        image = self.corrected_image if self.corrected_image is not None else self.image_stack
+        num_channels = image.shape[-1] if image is not None and image.ndim == 5 else 1
+        
+        # Re-create verification crops with sorted data
+        self._create_verification_crops(
+            scroll_area=self.verify_distance_scroll_area,
+            checkboxes_list_attr='verify_distance_checkboxes',
+            mean_crop=sorted_crop,
+            crop_size=crop_size,
+            flag_vector=sorted_states,
+            stats_label=self.verify_distance_stats_label,
+            num_channels=num_channels,
+            channels=(ch0, ch1)
+        )
+        
+        # Update stored crop data for subsequent sorts
+        self.verify_distance_mean_crop = sorted_crop
+        
+        # Mark as sorted
+        self._verify_distance_sorted = True
+        
+        # Update stats
+        self._update_verify_distance_stats()
     
     def cleanup_verify_distance(self):
         """Clear all checkboxes in Verify Distance subtab."""
@@ -12833,7 +12960,12 @@ class GUI(QMainWindow):
             
             # Checkbox
             chk = QCheckBox(f"Spot {i+1}")
-            chk.setChecked(bool(flag_vector[i]) if i < len(flag_vector) else False)
+            # Safely get the flag value (handle numpy arrays, lists, etc.)
+            try:
+                flag_val = bool(flag_vector[i]) if i < len(flag_vector) else False
+            except (TypeError, IndexError):
+                flag_val = False
+            chk.setChecked(flag_val)
             chk.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             
             # Connect to stats update
