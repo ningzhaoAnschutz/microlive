@@ -145,17 +145,16 @@ path = "microlive/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["microlive"]
-# Include non-Python data files (icons, ML models)
-artifacts = [
-    "microlive/data/icons/*.png",
-    "microlive/data/models/*.pth",
-]
+# Force include non-Python data files (ML models)
 exclude = [
     "*.log",
     "**/micro_gui.log",
     "**/__pycache__",
     "**/*.pyc",
 ]
+
+[tool.hatch.build.targets.wheel.force-include]
+"microlive/data/models/spot_detection_cnn.pth" = "microlive/data/models/spot_detection_cnn.pth"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -181,6 +180,9 @@ exclude = [
     "*.pyc",
     "*.log",
 ]
+
+[tool.hatch.build.targets.sdist.force-include]
+"microlive/data/models/spot_detection_cnn.pth" = "microlive/data/models/spot_detection_cnn.pth"
 
 # =============================================================================
 # Tool Configuration
