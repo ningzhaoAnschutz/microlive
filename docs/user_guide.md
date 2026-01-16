@@ -1140,6 +1140,109 @@ Colocalization → Run Automated Analysis → Colocalization Manual → Populate
 4. **Monitor Progress**: Track completion via statistics display
 5. **Export Data**: Save final manual classifications
 
+### Distance-Based Colocalization
+
+The Distance subtab provides colocalization analysis based on the physical proximity between spots in different channels, using the Euclidean distance between detected particles.
+
+#### Mathematical Basis
+
+Two particles are considered colocalized if their distance is within a specified threshold:
+
+```text
+Distance = √[(x₁ - x₂)² + (y₁ - y₂)² + z_scale × (z₁ - z₂)²]
+```
+
+Where:
+
+- **(x₁, y₁, z₁)**: Coordinates of the reference channel spot
+- **(x₂, y₂, z₂)**: Coordinates of the nearest target channel spot
+- **z_scale**: Anisotropic scaling factor (voxel_z / voxel_xy) for 3D mode
+
+#### Configuration Parameters
+
+| Parameter | Range | Default | Description |
+|-----------|-------|---------|-------------|
+| **Reference Channel** | 0-N | Ch0 | Channel containing reference particles |
+| **Colocalize Channel** | 0-N | Ch1 | Channel to test for colocalization |
+| **Distance Threshold** | 0.5-20 px | 2.0 | Maximum distance for colocalization |
+| **Use 3D** | Boolean | False | Include Z-dimension in distance calculation |
+| **Cell Selection** | All/Per-cell | All Cells (pooled) | Pool all cells or analyze per-cell |
+
+#### Results Display
+
+The Distance tab displays:
+
+- **Summary Statistics**: Total colocalized spots, per-channel breakdown, percentages
+- **Per-Cell Table**: Individual cell statistics when segmentation is available
+- **Visualization Mode**:
+  - **Scatter View**: XY positions of spots color-coded by classification
+  - **Overlay View**: Image with spot markers (yellow circles = colocalized)
+
+#### Interpretation Note
+
+The Distance tab reports statistics based on **individual observations** (each detection in each frame), not unique particle tracks. For a time-lapse with 360 frames:
+
+- A single particle detected in all frames contributes 360 observations
+- The colocalization percentage reflects the ratio of colocalized observations to total observations
+
+### Verify Distance Tab
+
+The Verify Distance subtab provides manual review of distance-based colocalization results, displaying **unique particle tracks** rather than individual frame observations.
+
+#### Key Concepts
+
+**Observations vs. Tracks:**
+
+| Metric | Distance Tab | Verify Distance Tab |
+|--------|--------------|---------------------|
+| **Unit** | Per-frame observation | Unique particle track |
+| **Count** | Total detections across all frames | Unique tracked particles |
+| **Typical ratio** | Many observations per track | One entry per track |
+
+**Example:**
+
+For a 360-frame video with 200 unique particles averaging 120 frames each:
+
+- **Distance Tab**: Shows ~24,000 observations (200 × 120)
+- **Verify Distance Tab**: Shows 200 unique tracks
+
+#### Colocalization Logic
+
+A particle track is marked as **colocalized** if:
+
+- **ANY observation** of that particle (in any frame) is within the distance threshold of a target channel spot
+
+This means a track that is colocalized in 50% of its frames will still appear as "colocalized" in Verify Distance.
+
+#### Workflow
+
+1. **Run Distance Colocalization**: Complete analysis in the Distance subtab
+2. **Click "Populate"**: Load results into the Verify Distance view
+3. **Review Thumbnails**: Each row shows a time-averaged crop of both channels
+4. **Adjust Classifications**: Check/uncheck based on visual inspection
+5. **Click "Sort"**: Orders spots by distance (closest to threshold first)
+6. **Export Data**: Save verified classifications
+
+#### Sorting Purpose
+
+The **Sort** button orders spots by their minimum distance to the threshold:
+
+- Spots closest to the threshold (most uncertain) appear first
+- Enables efficient review of borderline cases
+- Already clearly colocalized or non-colocalized spots are pushed to the end
+
+#### Statistics Display
+
+The header shows:
+
+```text
+[Distance: 2.0px / 260nm] Total: 200 | Colocalized: 195 (97.5%)
+```
+
+- **Distance**: Applied threshold in pixels and nanometers
+- **Total**: Number of unique particle tracks
+- **Colocalized**: Tracks with at least one colocalized observation
+
 ## Data Structures
 
 Understanding the structure of output data is crucial for effective analysis and interpretation of results. MicroLive generates structured DataFrames containing comprehensive information about detected particles, their trajectories, and colocalization relationships.

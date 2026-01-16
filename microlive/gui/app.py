@@ -11701,9 +11701,13 @@ class GUI(QMainWindow):
         layout = QVBoxLayout(self.coloc_verify_distance_widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        # Info label
-        info_label = QLabel("Review and correct Distance-based colocalization results:")
+        # Info label explaining what is displayed
+        info_label = QLabel(
+            "Review unique particle tracks. Each row shows a time-averaged crop. "
+            "A track is marked colocalized (✓) if ANY frame is within the distance threshold."
+        )
         info_label.setStyleSheet("font-style: italic; color: #999;")
+        info_label.setWordWrap(True)
         layout.addWidget(info_label)
         
         # Top bar with stats and buttons
@@ -12610,9 +12614,7 @@ class GUI(QMainWindow):
         num_spots = len(values)
         sorted_indices = np.argsort(values)
         
-        # Re-order the arrays  
-        sorted_values = [values[i] for i in sorted_indices]
-        sorted_flags = [flag_vector[i] if i < len(flag_vector) else False for i in sorted_indices]
+        # Re-order checkbox states to match new sort order
         sorted_states = [current_states[i] if i < len(current_states) else False for i in sorted_indices]
         
         # Re-order crops - each spot is crop_size rows in the mean_crop array
@@ -12691,7 +12693,11 @@ class GUI(QMainWindow):
     # === Verify Distance Subtab Methods ===
     
     def populate_verify_distance(self):
-        """Populate the Verify Distance subtab with Distance colocalization results."""
+        """Populate the Verify Distance subtab with Distance colocalization results.
+        
+        Calculates and stores the minimum distance from each reference channel spot
+        to its nearest partner in the target channel for sorting purposes.
+        """
         if not hasattr(self, 'distance_coloc_results') or not self.distance_coloc_results:
             QMessageBox.warning(self, "No Results", 
                 "Please run Distance colocalization first.")
@@ -12702,8 +12708,10 @@ class GUI(QMainWindow):
         ch0 = results.get('channel_0', 0)
         ch1 = results.get('channel_1', 1)
         df_coloc = results.get('df_colocalized', pd.DataFrame())
+        df_ch1_all = results.get('df_ch1_all', pd.DataFrame())
         threshold_px = results.get('threshold_distance_px', 2.0)
         threshold_nm = results.get('threshold_distance_nm', 130.0)
+        use_3d = results.get('use_3d', False)
         
         # We need to create crops from tracking data
         if not hasattr(self, 'df_tracking') or self.df_tracking.empty:
@@ -12745,28 +12753,129 @@ class GUI(QMainWindow):
         
         num_spots = mean_crop.shape[0] // crop_size
         
-        # Create flag vector based on distance colocalization
-        # Mark spots as colocalized if their coordinates match
-        coloc_coords = set()
+        # Build set of colocalized coordinates for matching
+        # Use a tolerance-based approach instead of exact coordinate matching
+        coloc_coords_array = np.empty((0, 4))  # z, y, x, cell_id
         if not df_coloc.empty:
-            for _, row in df_coloc.iterrows():
-                coord = (round(row.get('x', 0), 1), round(row.get('y', 0), 1))
-                coloc_coords.add(coord)
+            if 'z' in df_coloc.columns and use_3d:
+                coloc_coords_array = df_coloc[['z', 'y', 'x', 'cell_id']].values
+            else:
+                # Add dummy z=0 for 2D matching
+                coloc_coords_array = np.column_stack([
+                    np.zeros(len(df_coloc)),
+                    df_coloc['y'].values,
+                    df_coloc['x'].values,
+                    df_coloc['cell_id'].values
+                ])
         
+        # Calculate minimum distances for each spot in ch0 to nearest spot in ch1
+        # This will be used for sorting (ascending = closest to threshold = most uncertain)
+        distance_values = []
         flag_vector = []
-        for i, (_, row) in enumerate(df_ch0.drop_duplicates(subset=['particle']).iterrows()):
+        
+        # Get ch1 coordinates for distance calculation
+        ch1_coords = None
+        if not df_ch1_all.empty and 'x' in df_ch1_all.columns and 'y' in df_ch1_all.columns:
+            if use_3d and 'z' in df_ch1_all.columns:
+                ch1_coords = df_ch1_all[['z', 'y', 'x']].values
+            else:
+                ch1_coords = df_ch1_all[['y', 'x']].values
+        
+        # Get anisotropic scaling for 3D
+        voxel_z_nm = results.get('voxel_z_nm', 300.0)
+        voxel_xy_nm = results.get('voxel_xy_nm', 130.0)
+        z_scale = voxel_z_nm / voxel_xy_nm if use_3d and voxel_xy_nm > 0 else 1.0
+        
+        # Use the same particle column identification as CropArray
+        # This ensures our iteration matches the crop order
+        df_ch0_copy = df_ch0.copy()
+        if 'unique_particle' in df_ch0_copy.columns:
+            particle_col = 'unique_particle'
+        elif 'cell_id' in df_ch0_copy.columns:
+            if 'spot_type' in df_ch0_copy.columns:
+                df_ch0_copy['unique_particle'] = (
+                    df_ch0_copy['cell_id'].astype(str) + '_' +
+                    df_ch0_copy['spot_type'].astype(str) + '_' +
+                    df_ch0_copy['particle'].astype(str)
+                )
+            else:
+                df_ch0_copy['unique_particle'] = (
+                    df_ch0_copy['cell_id'].astype(str) + '_' +
+                    df_ch0_copy['particle'].astype(str)
+                )
+            particle_col = 'unique_particle'
+        else:
+            particle_col = 'particle'
+        
+        # Helper function to check if a spot coordinate is in the colocalized set
+        def is_coord_colocalized(z, y, x, cell_id, coloc_arr, tolerance=1.0):
+            """Check if a spot is in the colocalized set using coordinate tolerance."""
+            if len(coloc_arr) == 0:
+                return False
+            # Filter by cell_id first for efficiency
+            cell_mask = coloc_arr[:, 3].astype(int) == int(cell_id)
+            cell_coloc = coloc_arr[cell_mask]
+            if len(cell_coloc) == 0:
+                return False
+            # Check distance to each colocalized spot
+            for cz, cy, cx, _ in cell_coloc:
+                dist_xy = np.sqrt((x - cx)**2 + (y - cy)**2)
+                dist_z = abs(z - cz) if use_3d else 0
+                if dist_xy <= tolerance and dist_z <= tolerance:
+                    return True
+            return False
+        
+        # Iterate unique particles in the same order as CropArray
+        unique_particles = df_ch0_copy[particle_col].unique()
+        
+        for i, particle_id in enumerate(unique_particles):
             if i >= num_spots:
                 break
-            coord = (round(row.get('x', 0), 1), round(row.get('y', 0), 1))
-            flag_vector.append(coord in coloc_coords)
+            
+            df_particle = df_ch0_copy[df_ch0_copy[particle_col] == particle_id]
+            
+            # Check if ANY observation of this particle is colocalized
+            is_coloc = False
+            min_dist_all = threshold_px * 10.0  # Large default
+            
+            for _, row in df_particle.iterrows():
+                x_val, y_val = row['x'], row['y']
+                z_val = row.get('z', 0)
+                cell_id = row.get('cell_id', 0)
+                
+                # Check if this observation is in the colocalized set
+                if len(coloc_coords_array) > 0:
+                    if is_coord_colocalized(z_val, y_val, x_val, cell_id, coloc_coords_array, tolerance=1.0):
+                        is_coloc = True
+                
+                # Calculate minimum distance to any ch1 spot for this observation
+                if ch1_coords is not None and len(ch1_coords) > 0:
+                    if use_3d and ch1_coords.shape[1] == 3:
+                        spot_coord = np.array([[z_val * z_scale, y_val, x_val]])
+                        ch1_scaled = ch1_coords.copy().astype(float)
+                        ch1_scaled[:, 0] = ch1_scaled[:, 0] * z_scale  # Scale Z
+                    else:
+                        spot_coord = np.array([[y_val, x_val]])
+                        ch1_scaled = ch1_coords
+                    
+                    from scipy.spatial.distance import cdist
+                    distances = cdist(spot_coord, ch1_scaled, metric='euclidean')
+                    obs_min_dist = float(np.min(distances))
+                    if obs_min_dist < min_dist_all:
+                        min_dist_all = obs_min_dist
+            
+            flag_vector.append(is_coloc)
+            distance_values.append(min_dist_all)
         
-        # Pad flag_vector if needed
+        # Pad vectors if needed (shouldn't happen, but just in case)
         while len(flag_vector) < num_spots:
             flag_vector.append(False)
+            distance_values.append(threshold_px * 10.0)
         
-        # Store for later use
+        # Store for later use (sorting, etc.)
         self.verify_distance_mean_crop = mean_crop
         self.verify_distance_crop_size = crop_size
+        self.verify_distance_values = np.array(distance_values)  # For sorting by distance
         
         # Create spot crops with checkboxes
         self._create_verification_crops(
@@ -12807,7 +12916,12 @@ class GUI(QMainWindow):
             )
     
     def sort_verify_distance(self):
-        """Sort Verify Distance results - colocalized spots first for easier review."""
+        """Sort Verify Distance results by distance value (ascending - closest to threshold first).
+        
+        Similar to Visual method's certainty-based sorting, but uses the measured
+        distance to nearest partner. Spots with distances closest to the colocalization
+        threshold are shown first as they represent the most uncertain classifications.
+        """
         if not hasattr(self, 'verify_distance_checkboxes') or len(self.verify_distance_checkboxes) == 0:
             QMessageBox.information(self, "No Data", "No spots to sort. Please click Populate first.")
             return
@@ -12816,23 +12930,32 @@ class GUI(QMainWindow):
             QMessageBox.warning(self, "No Data", "Crop data not available for sorting.")
             return
         
+        # Check if distance values are available
+        if not hasattr(self, 'verify_distance_values') or self.verify_distance_values is None:
+            QMessageBox.warning(self, "No Distance Data", 
+                "Distance values not available. Please re-run Populate.")
+            return
+        
         # Check if already sorted
         if hasattr(self, '_verify_distance_sorted') and self._verify_distance_sorted:
-            QMessageBox.information(self, "Already Sorted", "Spots are already sorted by colocalization status.")
+            QMessageBox.information(self, "Already Sorted", "Spots are already sorted by distance value.")
             return
         
         mean_crop = self.verify_distance_mean_crop
         crop_size = self.verify_distance_crop_size
+        distance_values = self.verify_distance_values
         
-        # Get current checkbox states
+        # Get current checkbox states before sorting
         current_states = [chk.isChecked() for chk in self.verify_distance_checkboxes]
         num_spots = len(current_states)
         
-        # Create sorted indices - colocalized (checked) spots first
-        sorted_indices = sorted(range(num_spots), key=lambda i: (0 if current_states[i] else 1, i))
+        # Sort ascending by distance (closest to threshold = most uncertain first)
+        # This matches the Visual method's approach of showing uncertain cases first
+        sorted_indices = np.argsort(distance_values)
         
-        # Re-order states  
-        sorted_states = [current_states[i] for i in sorted_indices]
+        # Re-order states and distances
+        sorted_states = [current_states[i] if i < len(current_states) else False for i in sorted_indices]
+        sorted_distances = distance_values[sorted_indices]
         
         # Re-order crops
         num_crop_spots = mean_crop.shape[0] // crop_size
@@ -12865,8 +12988,10 @@ class GUI(QMainWindow):
             channels=(ch0, ch1)
         )
         
-        # Update stored crop data for subsequent sorts
+        # Update stored data after sorting for consistency
         self.verify_distance_mean_crop = sorted_crop
+        self.verify_distance_values = sorted_distances
+        self._verify_distance_sort_indices = sorted_indices  # Store for reference
         
         # Mark as sorted
         self._verify_distance_sorted = True
@@ -15607,6 +15732,7 @@ class GUI(QMainWindow):
             self.verify_visual_checkboxes = []
         if hasattr(self, 'verify_visual_stats_label'):
             self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
+        self._verify_visual_sorted = False
         
         # Reset Verify Distance
         if hasattr(self, 'verify_distance_scroll_area'):
@@ -15615,6 +15741,11 @@ class GUI(QMainWindow):
             self.verify_distance_checkboxes = []
         if hasattr(self, 'verify_distance_stats_label'):
             self.verify_distance_stats_label.setText("Run Distance colocalization first, then click Populate")
+        # Reset stored distance data for sorting
+        self.verify_distance_mean_crop = None
+        self.verify_distance_crop_size = None
+        self.verify_distance_values = None
+        self._verify_distance_sorted = False
 
     def reset_cellpose_tab(self):
         """Reset Cellpose tab state, masks, and UI controls to defaults."""
