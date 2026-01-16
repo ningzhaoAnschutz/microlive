@@ -9054,7 +9054,7 @@ class GUI(QMainWindow):
         # Cluster radius
         self.cluster_radius_input = QSpinBox()
         self.cluster_radius_input.setMinimum(100)
-        self.cluster_radius_input.setMaximum(2000)
+        self.cluster_radius_input.setMaximum(6000)
         self.cluster_radius_input.setValue(self.cluster_radius_nm)
         self.cluster_radius_input.valueChanged.connect(self.update_cluster_radius)
         params_layout.addRow("Cluster radius (nm):", self.cluster_radius_input)
