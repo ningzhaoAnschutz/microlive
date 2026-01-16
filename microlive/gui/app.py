@@ -13173,7 +13173,18 @@ class GUI(QMainWindow):
                     spot_coord = (int(dfm.iloc[0]['y']), int(dfm.iloc[0]['x']))
                     found_spot = True
                 else:
-                    spot_coord = (0, 0)
+                    # Particle not in current frame - jump to first valid frame for this particle
+                    df_particle = self.df_tracking[self.df_tracking[particle_col] == pid]
+                    if not df_particle.empty:
+                        first_frame = int(df_particle['frame'].min())
+                        self.current_frame = first_frame
+                        if hasattr(self, 'time_slider_tracking_vis'):
+                            self.time_slider_tracking_vis.setValue(first_frame)
+                        dfm = df_particle[df_particle['frame'] == first_frame]
+                        spot_coord = (int(dfm.iloc[0]['y']), int(dfm.iloc[0]['x']))
+                        found_spot = True
+                    else:
+                        spot_coord = (0, 0)
             else:
                 spot_coord = (0, 0)
         else:
@@ -13317,9 +13328,10 @@ class GUI(QMainWindow):
         ax_main.axis('off')
         
         # Add thin border to show image boundaries (matching Tracking tab style)
+        # Use -0.5 origin and full size to place border outside the image
         if self.image_stack is not None:
             img_H, img_W = main_img.shape[:2]
-            img_border = patches.Rectangle((0, 0), img_W-1, img_H-1, linewidth=0.8, 
+            img_border = patches.Rectangle((-0.5, -0.5), img_W, img_H, linewidth=0.8, 
                                             edgecolor='#555555', facecolor='none', linestyle='-')
             ax_main.add_patch(img_border)
         
@@ -13330,11 +13342,12 @@ class GUI(QMainWindow):
                 crop = np.zeros((crop_sz, crop_sz))
             ax.imshow(crop, cmap=cmap_list_imagej[ci % len(cmap_list_imagej)], interpolation='nearest', vmin=0, vmax=1)
             ax.axis('off')
-            # Add slim gray frame border to 2D crops (matching main image style)
-            for spine in ax.spines.values():
-                spine.set_visible(True)
-                spine.set_color('#555555')
-                spine.set_linewidth(0.8)
+            # Add gray frame border to 2D crops using Rectangle (spines hidden by axis('off'))
+            # Use -0.5 origin and full size to place border outside the image (matplotlib centers pixels at integers)
+            crop_h, crop_w = crop.shape[:2]
+            crop_border = patches.Rectangle((-0.5, -0.5), crop_w, crop_h, linewidth=0.8, 
+                                              edgecolor='#555555', facecolor='none', linestyle='-')
+            ax.add_patch(crop_border)
         
         # Render 3D intensity profiles if enabled
         if show_3d_profile and axes_3d:
