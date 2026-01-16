@@ -101,6 +101,7 @@ from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,)
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from mpl_toolkits.mplot3d import Axes3D  # For 3D intensity profile visualization
 from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass, distance_transform_edt
@@ -2841,12 +2842,21 @@ class GUI(QMainWindow):
             if hasattr(self, 'time_slider_display'):
                 self.time_slider_display.setEnabled(False)
                 self.time_slider_display.setValue(0)
+                self.time_slider_display.setMaximum(0)
+            if hasattr(self, 'frame_label_display'):
+                self.frame_label_display.setText("0/0")
             if hasattr(self, 'play_button_display'):
                 self.play_button_display.setEnabled(False)
             if hasattr(self, 'time_slider_tracking'):
                 self.time_slider_tracking.setValue(0)
+                self.time_slider_tracking.setMaximum(0)
+            if hasattr(self, 'frame_label_tracking'):
+                self.frame_label_tracking.setText("0/0")
             if hasattr(self, 'time_slider_tracking_vis'):
                 self.time_slider_tracking_vis.setValue(0)
+                self.time_slider_tracking_vis.setMaximum(0)
+            if hasattr(self, 'frame_label_tracking_vis'):
+                self.frame_label_tracking_vis.setText("0/0")
             
             # Stop any playing timers
             self.stop_all_playback()
@@ -2937,12 +2947,21 @@ class GUI(QMainWindow):
         if hasattr(self, 'time_slider_display'):
             self.time_slider_display.setEnabled(False)
             self.time_slider_display.setValue(0)
+            self.time_slider_display.setMaximum(0)
+        if hasattr(self, 'frame_label_display'):
+            self.frame_label_display.setText("0/0")
         if hasattr(self, 'play_button_display'):
             self.play_button_display.setEnabled(False)
         if hasattr(self, 'time_slider_tracking'):
             self.time_slider_tracking.setValue(0)
+            self.time_slider_tracking.setMaximum(0)
+        if hasattr(self, 'frame_label_tracking'):
+            self.frame_label_tracking.setText("0/0")
         if hasattr(self, 'time_slider_tracking_vis'):
             self.time_slider_tracking_vis.setValue(0)
+            self.time_slider_tracking_vis.setMaximum(0)
+        if hasattr(self, 'frame_label_tracking_vis'):
+            self.frame_label_tracking_vis.setText("0/0")
         
         # Stop any playing timers
         self.stop_all_playback()
@@ -13213,7 +13232,12 @@ class GUI(QMainWindow):
         else:
             main_img = norm_stack[selected_channelIndex]
             main_cmap = cmap_list_imagej[selected_channelIndex % len(cmap_list_imagej)]
-        gs = fig.add_gridspec(1, 2, width_ratios=[3, 2], hspace=0.1, wspace=0.1)
+        
+        # Always show 3D intensity profile for spot quality assessment
+        show_3d_profile = True
+        
+        # 3-column layout: main image + 2D crops + 3D surfaces
+        gs = fig.add_gridspec(1, 3, width_ratios=[3, 1, 1.5], hspace=0.1, wspace=0.15)
         ax_main = fig.add_subplot(gs[0, 0])
         
         # Store main axes reference and recreate RectangleSelector
@@ -13229,8 +13253,15 @@ class GUI(QMainWindow):
             props=dict(facecolor='cyan', edgecolor='white', alpha=0.3, linewidth=2)
         )
         
+        # 2D crop subgrid
         gs2 = gs[0, 1].subgridspec(C, 1, hspace=0.1)
-        axes_zoom = [fig.add_subplot(gs2[i, 0]) for i in range(C)]        
+        axes_zoom = [fig.add_subplot(gs2[i, 0]) for i in range(C)]
+        
+        # 3D profile subgrid (only create if enabled)
+        axes_3d = []
+        if show_3d_profile:
+            gs3 = gs[0, 2].subgridspec(C, 1, hspace=0.15)
+            axes_3d = [fig.add_subplot(gs3[i, 0], projection='3d') for i in range(C)]        
         # remove background if requested
         if hasattr(self, 'checkbox_remove_bg') and self.checkbox_remove_bg.isChecked():
             seg_mask = getattr(self, 'segmentation_mask', None)
@@ -13284,6 +13315,14 @@ class GUI(QMainWindow):
             rect = patches.Rectangle((x0, y0), crop_sz, crop_sz, edgecolor='white', facecolor='none', linewidth=2)
             ax_main.add_patch(rect)
         ax_main.axis('off')
+        
+        # Add thin border to show image boundaries (matching Tracking tab style)
+        if self.image_stack is not None:
+            img_H, img_W = main_img.shape[:2]
+            img_border = patches.Rectangle((0, 0), img_W-1, img_H-1, linewidth=0.8, 
+                                            edgecolor='#555555', facecolor='none', linestyle='-')
+            ax_main.add_patch(img_border)
+        
         for ci, ax in enumerate(axes_zoom):
             if found_spot:
                 crop = norm_stack[ci, y0:y1, x0:x1]
@@ -13291,6 +13330,58 @@ class GUI(QMainWindow):
                 crop = np.zeros((crop_sz, crop_sz))
             ax.imshow(crop, cmap=cmap_list_imagej[ci % len(cmap_list_imagej)], interpolation='nearest', vmin=0, vmax=1)
             ax.axis('off')
+            # Add slim white frame border to 2D crops
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_color('white')
+                spine.set_linewidth(0.5)
+        
+        # Render 3D intensity profiles if enabled
+        if show_3d_profile and axes_3d:
+            # Create meshgrid for surface plot (only once, using crop dimensions)
+            crop_example = norm_stack[0, y0:y1, x0:x1] if found_spot else np.zeros((crop_sz, crop_sz))
+            Y_grid, X_grid = np.meshgrid(np.arange(crop_example.shape[0]), 
+                                          np.arange(crop_example.shape[1]), indexing='ij')
+            
+            for ci, ax3d in enumerate(axes_3d):
+                if found_spot:
+                    crop = norm_stack[ci, y0:y1, x0:x1]
+                else:
+                    crop = np.zeros((crop_sz, crop_sz))
+                
+                # Get channel colormap
+                cmap = cmap_list_imagej[ci % len(cmap_list_imagej)]
+                
+                # Plot surface with matching colormap
+                ax3d.plot_surface(X_grid, Y_grid, crop, cmap=cmap, 
+                                   edgecolor='none', alpha=0.9, antialiased=True)
+                
+                # Style the 3D axes for dark theme
+                ax3d.set_facecolor('black')
+                ax3d.set_xlabel('X', fontsize=7, color='white', labelpad=-2)
+                ax3d.set_ylabel('Y', fontsize=7, color='white', labelpad=-2)
+                ax3d.set_zlabel('I', fontsize=7, color='white', labelpad=-2)
+                ax3d.tick_params(axis='both', which='major', labelsize=5, colors='white', pad=0)
+                ax3d.tick_params(axis='z', which='major', labelsize=5, colors='white', pad=0)
+                
+                # Set consistent Z limits for comparison across channels
+                ax3d.set_zlim(0, 1)
+                
+                # Make pane and grid styling match dark theme
+                ax3d.xaxis.pane.fill = False
+                ax3d.yaxis.pane.fill = False
+                ax3d.zaxis.pane.fill = False
+                ax3d.xaxis.pane.set_edgecolor('gray')
+                ax3d.yaxis.pane.set_edgecolor('gray')
+                ax3d.zaxis.pane.set_edgecolor('gray')
+                ax3d.grid(True, alpha=0.3, color='gray')
+                
+                # Add channel label
+                ax3d.set_title(f'Ch{ci}', fontsize=8, color='white', pad=-5)
+                
+                # Set viewing angle for nice perspective
+                ax3d.view_init(elev=25, azim=-45)
+        
         fig.tight_layout()
         
         # Add thin white frame border to main image
