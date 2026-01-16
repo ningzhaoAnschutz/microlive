@@ -105,6 +105,9 @@ dependencies = [
     # Plotting extras
     "brokenaxes",
     "joypy",
+    
+    # TASEP modeling
+    "tasep-models",
 ]
 
 [project.optional-dependencies]
