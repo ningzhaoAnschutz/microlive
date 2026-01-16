@@ -3948,7 +3948,8 @@ class BigFISH():
         
         # Select isolated spots (cluster_id < 0) and set cluster_size to 1
         spots_no_clusters = clusters_and_spots_big_fish[clusters_and_spots_big_fish[:,-1] < 0].copy()
-        spots_no_clusters[:,-1] = 1  # Replace cluster_id with cluster_size=1
+        if len(spots_no_clusters) > 0:
+            spots_no_clusters[:,-1] = 1  # Replace cluster_id with cluster_size=1
         
         # Select cluster centroids with cluster_size > 1
         clusters_no_spots = clusters[clusters[:,-2] > 1]
@@ -5012,6 +5013,7 @@ class DataProcessing():
         self.fast_gaussian_fit = fast_gaussian_fit
         # This number represent the number of columns that doesnt change with the number of color channels in the image
         self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME = 18
+        
     def get_dataframe(self):
         '''
         This method extracts data from the class SpotDetection and returns the data as a dataframe.
@@ -5162,7 +5164,7 @@ class DataProcessing():
                     array_spots_nuc[:,10:13] = spots_nuc[:,:3]   # populating coord 
                     array_spots_nuc[:,13] = 1                   # is_nuc
                     array_spots_nuc[:,14] = 0                   # is_cluster
-                    array_spots_nuc[:,15] = 0                   # cluster_size
+                    array_spots_nuc[:,15] = spots_nuc[:,3]      # cluster_size (use actual detected value)
                     array_spots_nuc[:,16] =  spot_type          # spot_type
                     array_spots_nuc[:,17] =  is_cell_in_border  # is_cell_fragmented
             
@@ -5171,7 +5173,7 @@ class DataProcessing():
                     array_spots_cytosol_only[:,10:13] = spots_cytosol_only[:,:3]    # populating coord 
                     array_spots_cytosol_only[:,13] = 0                             # is_nuc
                     array_spots_cytosol_only[:,14] = 0                             # is_cluster
-                    array_spots_cytosol_only[:,15] = 1                            # cluster_size
+                    array_spots_cytosol_only[:,15] = spots_cytosol_only[:,3]       # cluster_size (use actual detected value)
                     array_spots_cytosol_only[:,16] =  spot_type                    # spot_type
                     array_spots_cytosol_only[:,17] =  is_cell_in_border            # is_cell_fragmented
                 if (detected_cyto_clusters == True): #(detected_cyto == True) and 
