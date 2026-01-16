@@ -13330,11 +13330,11 @@ class GUI(QMainWindow):
                 crop = np.zeros((crop_sz, crop_sz))
             ax.imshow(crop, cmap=cmap_list_imagej[ci % len(cmap_list_imagej)], interpolation='nearest', vmin=0, vmax=1)
             ax.axis('off')
-            # Add slim white frame border to 2D crops
+            # Add slim gray frame border to 2D crops (matching main image style)
             for spine in ax.spines.values():
                 spine.set_visible(True)
-                spine.set_color('white')
-                spine.set_linewidth(0.5)
+                spine.set_color('#555555')
+                spine.set_linewidth(0.8)
         
         # Render 3D intensity profiles if enabled
         if show_3d_profile and axes_3d:
