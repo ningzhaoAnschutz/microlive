@@ -1418,6 +1418,44 @@ The manual colocalization validation generates a similar structure in `df_manual
 | `threshold value` | NaN | Not applicable for manual method |
 | `method` | str | Always "Manual" |
 
+#### Distance Colocalization DataFrame
+
+The Distance colocalization analysis exports per-cell classification summary via the "Export Data" button:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `cell_id` | int | Cell identifier |
+| `n_ch0_spots` | int | Total spots in reference channel |
+| `n_ch1_spots` | int | Total spots in target channel |
+| `n_colocalized` | int | Number of colocalized spots |
+| `n_ch0_only` | int | Spots only in reference channel |
+| `n_ch1_only` | int | Spots only in target channel |
+| `coloc_pct` | float | Colocalization percentage |
+| `method` | str | Always "distance" |
+| `threshold_px` | float | Distance threshold in pixels |
+| `threshold_nm` | float | Distance threshold in nanometers |
+| `use_3d` | bool | Whether 3D distance was used |
+| `channel_0` | int | Reference channel index |
+| `channel_1` | int | Target channel index |
+
+**Note:** Counts are based on individual frame observations (all spot detections across all time frames).
+
+#### Verify Distance DataFrame
+
+The Verify Distance manual verification exports per-track classification via the "Export Data" button:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `spot_index` | int | Index of the unique particle track (0, 1, 2...) |
+| `colocalized_manual` | bool | User-verified colocalization status |
+| `method` | str | Always "distance" |
+| `threshold_px` | float | Distance threshold in pixels |
+| `threshold_nm` | float | Distance threshold in nanometers |
+| `use_3d` | bool | Whether 3D distance was used |
+| `image_name` | str | Name of the analyzed image |
+
+**Note:** Counts are based on unique particle tracks, not individual frame observations. A track is marked colocalized if ANY of its frame observations met the distance threshold.
+
 ### Data Export and Integration
 
 #### CSV Export Format
