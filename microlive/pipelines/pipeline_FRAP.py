@@ -482,7 +482,7 @@ def segment_image(image_TXY, step_size=5, pretrained_model_segmentation='auto', 
 
 
 
-def create_image_arrays(list_concatenated_images, selected_image=0, FRAP_channel_to_quantify=0,pretrained_model_segmentation='auto',frap_time=None, starting_changing_frame=40, step_size_increase=5,min_diameter=10):
+def create_image_arrays(list_concatenated_images, selected_image=0, FRAP_channel_to_quantify=0,pretrained_model_segmentation='auto',frap_time=None, starting_changing_frame=40, step_size_increase=5,min_diameter=10, segmentation_step_size=5):
     image_TZXYC = list_concatenated_images[selected_image] # shape (T Z Y X C)
     print('Image with shape (T Z Y X C):\n ' ,list_concatenated_images[selected_image].shape) # TZYXC
     print('Original Image pixel ', 'min: {:.2f}, max: {:.2f}, mean: {:.2f}, std: {:.2f}'.format(np.min(image_TZXYC), np.max(image_TZXYC), np.mean(image_TZXYC), np.std(image_TZXYC)) )
@@ -499,7 +499,7 @@ def create_image_arrays(list_concatenated_images, selected_image=0, FRAP_channel
     image_TXY_stable_FRAP = image_TZXYC[:,0,:,:,stable_FRAP_channel] # shape (T X Y)
     image_TXY_stable_FRAP_8bit = (image_TXY_stable_FRAP - np.min(image_TXY_stable_FRAP)) / (np.max(image_TXY_stable_FRAP) - np.min(image_TXY_stable_FRAP)) * 255
 
-    masks_TXY, background_mask, pseudo_cytosol_masks_TXY = segment_image(image_TXY_stable_FRAP_8bit, step_size=5, pretrained_model_segmentation=pretrained_model_segmentation,frap_time=frap_time,stable_FRAP_channel=FRAP_channel_to_quantify,min_diameter=min_diameter)
+    masks_TXY, background_mask, pseudo_cytosol_masks_TXY = segment_image(image_TXY_stable_FRAP_8bit, step_size=segmentation_step_size, pretrained_model_segmentation=pretrained_model_segmentation,frap_time=frap_time,stable_FRAP_channel=FRAP_channel_to_quantify,min_diameter=min_diameter)
    
     if masks_TXY is None:
         return None, None, None, None, None, None, None
