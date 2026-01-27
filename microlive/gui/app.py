@@ -10710,7 +10710,7 @@ class GUI(QMainWindow):
         }
         
         if display_crop is not None and display_flags is not None:
-            self.display_colocalization_results(display_crop, crop_size, display_flags, ch1, ch2)
+            self.display_colocalization_results(display_crop, crop_size, display_flags, ch1, ch2, auto_columns=True)
         self.extract_colocalization_data(save_df=False)
     
     def _compute_coloc_flags(self, mean_crop, crop_size, ch2, method, threshold):
@@ -10795,20 +10795,34 @@ class GUI(QMainWindow):
 
 
 
-    def display_colocalization_results(self, mean_crop, crop_size, flag_vector, ch1, ch2):
-        """Display the colocalization result using provided crop data."""
+    def display_colocalization_results(self, mean_crop, crop_size, flag_vector, ch1, ch2, auto_columns=False):
+        """Display the colocalization result using provided crop data.
+        
+        Args:
+            mean_crop: Cropped spot images
+            crop_size: Size of each crop
+            flag_vector: Boolean vector indicating colocalization status
+            ch1: Reference channel index
+            ch2: Colocalize channel index
+            auto_columns: If True, auto-calculate optimal columns and update spinbox.
+                         If False (default), use current spinbox value.
+        """
         self.figure_colocalization.clear()
         title = f"Colocalization: {self.colocalization_results['colocalization_percentage']:.2f}%"
         
-        # Auto-calculate optimal number of columns based on spot count
-        n_spots = len(flag_vector) if flag_vector is not None else 0
-        optimal_cols = self._calculate_optimal_coloc_columns(n_spots)
-        
-        # Update the spinbox to reflect the auto-calculated value
-        if hasattr(self, 'columns_spinbox'):
-            self.columns_spinbox.blockSignals(True)
-            self.columns_spinbox.setValue(optimal_cols)
-            self.columns_spinbox.blockSignals(False)
+        # Determine number of columns to use
+        if auto_columns:
+            # Auto-calculate optimal number of columns based on spot count
+            n_spots = len(flag_vector) if flag_vector is not None else 0
+            num_cols = self._calculate_optimal_coloc_columns(n_spots)
+            # Update the spinbox to reflect the auto-calculated value
+            if hasattr(self, 'columns_spinbox'):
+                self.columns_spinbox.blockSignals(True)
+                self.columns_spinbox.setValue(num_cols)
+                self.columns_spinbox.blockSignals(False)
+        else:
+            # Use user's current spinbox value
+            num_cols = self.columns_spinbox.value() if hasattr(self, 'columns_spinbox') else 20
         
         self.plots.plot_matrix_pair_crops(
             mean_crop=mean_crop,
@@ -10817,7 +10831,7 @@ class GUI(QMainWindow):
             selected_channels=(ch1, ch2),
             figure=self.figure_colocalization,
             crop_spacing=5,
-            number_columns=optimal_cols,
+            number_columns=num_cols,
             plot_title=title
         )
         try:
@@ -10864,6 +10878,26 @@ class GUI(QMainWindow):
             optimal = min(200, 120 + int((n_spots - 5000) * 80 / 10000))
         
         return optimal
+    
+    def _on_coloc_columns_changed(self, value):
+        """Handle user change to the Crop Columns spinbox.
+        
+        Redraws the colocalization display with the new column count.
+        Only triggers if colocalization results exist.
+        """
+        if not self.colocalization_results:
+            return
+        
+        # Redraw with user's selected column count (auto_columns=False by default)
+        self.display_colocalization_results(
+            self.colocalization_results['mean_crop_filtered'],
+            self.colocalization_results['crop_size'],
+            self.colocalization_results['flag_vector'],
+            self.colocalization_results['ch1_index'],
+            self.colocalization_results['ch2_index'],
+            auto_columns=False
+        )
+        self.canvas_colocalization.draw()
 
 
     # Note: display_colocalization_manual() removed - replaced by separate 
@@ -11395,8 +11429,9 @@ class GUI(QMainWindow):
         columnsLayout.addWidget(QLabel("Columns:"))
         self.columns_spinbox = QSpinBox()
         self.columns_spinbox.setRange(4, 200)
-        self.columns_spinbox.setValue(20)  # Auto-adjusted when running
-        self.columns_spinbox.setToolTip("Auto-adjusted based on spot count (larger = wider image)")
+        self.columns_spinbox.setValue(20)  # Auto-adjusted on first run, then user-controlled
+        self.columns_spinbox.setToolTip("Adjust number of columns in crop display. Auto-set on first run.")
+        self.columns_spinbox.valueChanged.connect(self._on_coloc_columns_changed)
         columnsLayout.addWidget(self.columns_spinbox)
         top_layout.addWidget(columnsGroup)
         actionsGroup = QGroupBox("Actions")

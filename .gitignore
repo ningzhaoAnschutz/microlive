@@ -24,6 +24,7 @@ build/
 .backup_before_pip_packaging/
 .gemini/
 scripts/
+instructions/
 modeling/TASEP/test_*.py
 *_executed.ipynb
 
