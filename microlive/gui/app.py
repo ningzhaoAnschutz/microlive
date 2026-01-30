@@ -4183,6 +4183,19 @@ class GUI(QMainWindow):
         if hasattr(self, 'label_nuc_mask_status'):
             self.label_nuc_mask_status.setText("No nucleus mask loaded")
             self.label_nuc_mask_status.setStyleSheet("color: gray;")
+        # Reset Improve Segmentation checkboxes
+        if hasattr(self, 'chk_remove_border_cells'):
+            self.chk_remove_border_cells.blockSignals(True)
+            self.chk_remove_border_cells.setChecked(False)
+            self.chk_remove_border_cells.blockSignals(False)
+        if hasattr(self, 'chk_remove_unpaired_cells'):
+            self.chk_remove_unpaired_cells.blockSignals(True)
+            self.chk_remove_unpaired_cells.setChecked(False)
+            self.chk_remove_unpaired_cells.blockSignals(False)
+        if hasattr(self, 'chk_keep_center_cell'):
+            self.chk_keep_center_cell.blockSignals(True)
+            self.chk_keep_center_cell.setChecked(False)
+            self.chk_keep_center_cell.blockSignals(False)
         self.plot_cellpose_results()
 
     def clear_imported_masks(self):
@@ -4599,6 +4612,142 @@ class GUI(QMainWindow):
         for new_id, old_id in enumerate(unique_labels, start=1):
             new_masks[masks == old_id] = new_id
         return new_masks
+
+    def get_closest_cell_to_center(self, mask):
+        """Find the cell ID whose centroid is closest to the image center.
+        
+        Args:
+            mask: 2D array [Y, X] with cell labels (0=background, 1,2,3...=cells)
+        
+        Returns:
+            int: Cell ID closest to center, or None if no cells
+        """
+        if mask is None or np.max(mask) == 0:
+            return None
+        
+        # Get image center
+        center_y, center_x = mask.shape[0] / 2, mask.shape[1] / 2
+        
+        # Get unique cell IDs (exclude background)
+        cell_ids = np.unique(mask)
+        cell_ids = cell_ids[cell_ids > 0]
+        
+        if len(cell_ids) == 0:
+            return None
+        
+        min_distance = float('inf')
+        closest_cell_id = None
+        
+        for cell_id in cell_ids:
+            # Find centroid of this cell
+            coords = np.argwhere(mask == cell_id)
+            centroid_y = np.mean(coords[:, 0])
+            centroid_x = np.mean(coords[:, 1])
+            
+            # Calculate distance to image center
+            distance = np.sqrt((centroid_y - center_y)**2 + (centroid_x - center_x)**2)
+            
+            if distance < min_distance:
+                min_distance = distance
+                closest_cell_id = cell_id
+        
+        return closest_cell_id
+
+    def on_keep_center_cell_changed(self, state):
+        """Handle checkbox state change for keeping only the center cell.
+        
+        For TYX masks: Uses the FIRST frame to identify the center cell,
+        then keeps that cell ID across ALL frames for consistent tracking.
+        """
+        from PyQt5.QtCore import Qt
+        
+        if state == Qt.Checked:
+            # Check if we have any masks
+            has_cyto = False
+            has_nuc = False
+            
+            if getattr(self, 'use_tyx_masks', False):
+                has_cyto = self.cellpose_masks_cyto_tyx is not None and np.max(self.cellpose_masks_cyto_tyx) > 0
+                has_nuc = self.cellpose_masks_nuc_tyx is not None and np.max(self.cellpose_masks_nuc_tyx) > 0
+            else:
+                has_cyto = self.cellpose_masks_cyto is not None and np.max(self.cellpose_masks_cyto) > 0
+                has_nuc = self.cellpose_masks_nuc is not None and np.max(self.cellpose_masks_nuc) > 0
+            
+            if not has_cyto and not has_nuc:
+                QMessageBox.warning(self, "No Masks", 
+                    "No segmentation masks available to filter.")
+                self.chk_keep_center_cell.blockSignals(True)
+                self.chk_keep_center_cell.setChecked(False)
+                self.chk_keep_center_cell.blockSignals(False)
+                return
+            
+            # Determine which mask to use for finding center cell
+            # Prefer cytosol mask, fall back to nucleus
+            if getattr(self, 'use_tyx_masks', False):
+                # TYX mode: use first frame to find center cell
+                if has_cyto:
+                    reference_mask = self.cellpose_masks_cyto_tyx[0]
+                else:
+                    reference_mask = self.cellpose_masks_nuc_tyx[0]
+            else:
+                # Standard YX mode
+                if has_cyto:
+                    reference_mask = self.cellpose_masks_cyto
+                else:
+                    reference_mask = self.cellpose_masks_nuc
+            
+            # Find the cell closest to center
+            center_cell_id = self.get_closest_cell_to_center(reference_mask)
+            
+            if center_cell_id is None:
+                QMessageBox.warning(self, "No Cells", 
+                    "Could not find any cells in the mask.")
+                self.chk_keep_center_cell.blockSignals(True)
+                self.chk_keep_center_cell.setChecked(False)
+                self.chk_keep_center_cell.blockSignals(False)
+                return
+            
+            # Remove all cells except the center cell
+            if getattr(self, 'use_tyx_masks', False):
+                # TYX mode: remove from all frames
+                if self.cellpose_masks_cyto_tyx is not None:
+                    all_cyto_ids = set(np.unique(self.cellpose_masks_cyto_tyx))
+                    all_cyto_ids.discard(0)
+                    ids_to_remove = all_cyto_ids - {center_cell_id}
+                    if ids_to_remove:
+                        self.cellpose_masks_cyto_tyx = self._remove_labels_from_tyx(
+                            self.cellpose_masks_cyto_tyx, ids_to_remove)
+                    # Update current frame YX mask
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.segmentation_current_frame]
+                
+                if self.cellpose_masks_nuc_tyx is not None:
+                    all_nuc_ids = set(np.unique(self.cellpose_masks_nuc_tyx))
+                    all_nuc_ids.discard(0)
+                    ids_to_remove = all_nuc_ids - {center_cell_id}
+                    if ids_to_remove:
+                        self.cellpose_masks_nuc_tyx = self._remove_labels_from_tyx(
+                            self.cellpose_masks_nuc_tyx, ids_to_remove)
+                    # Update current frame YX mask
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.segmentation_current_frame]
+            else:
+                # Standard YX mode
+                if self.cellpose_masks_cyto is not None:
+                    all_cyto_ids = set(np.unique(self.cellpose_masks_cyto))
+                    all_cyto_ids.discard(0)
+                    ids_to_remove = all_cyto_ids - {center_cell_id}
+                    if ids_to_remove:
+                        self.cellpose_masks_cyto = self.remove_labels_and_reindex(
+                            self.cellpose_masks_cyto, ids_to_remove)
+                
+                if self.cellpose_masks_nuc is not None:
+                    all_nuc_ids = set(np.unique(self.cellpose_masks_nuc))
+                    all_nuc_ids.discard(0)
+                    ids_to_remove = all_nuc_ids - {center_cell_id}
+                    if ids_to_remove:
+                        self.cellpose_masks_nuc = self.remove_labels_and_reindex(
+                            self.cellpose_masks_nuc, ids_to_remove)
+        
+        self.plot_cellpose_results()
 
     def plot_cellpose_results(self):
         """Plot Cellpose segmentation results on the shared segmentation canvas."""
@@ -5702,7 +5851,7 @@ class GUI(QMainWindow):
             cellpose_cyto_* and cellpose_nuc_* inputs (model, channel, diameter)
             btn_run_cyto, btn_run_nuc (QPushButton)
             num_masks_slider, min_frames_slider, cell_expansion_slider, cell_shrink_slider
-            chk_remove_border_cells, chk_remove_unpaired_cells (QCheckBox)
+            chk_remove_border_cells, chk_remove_unpaired_cells, chk_keep_center_cell (QCheckBox)
             btn_clear_cellpose (QPushButton)
             cellpose_masks_cyto, cellpose_masks_nuc (Optional[np.ndarray])
             cellpose_masks_cyto_tyx, cellpose_masks_nuc_tyx (Optional[np.ndarray])
@@ -5722,7 +5871,7 @@ class GUI(QMainWindow):
             run_cellpose_cyto, run_cellpose_nuc, clear_cellpose_masks
             _on_num_masks_slider_changed, _on_min_frames_slider_changed
             _on_expansion_slider_changed, _on_shrink_slider_changed
-            on_remove_border_cells_changed, on_remove_unpaired_cells_changed
+            on_remove_border_cells_changed, on_remove_unpaired_cells_changed, on_keep_center_cell_changed
         """
 
         self.segmentation_current_frame = 0
@@ -6163,6 +6312,16 @@ class GUI(QMainWindow):
         self.chk_remove_unpaired_cells.setChecked(False)
         self.chk_remove_unpaired_cells.stateChanged.connect(self.on_remove_unpaired_cells_changed)
         improve_layout.addRow(self.chk_remove_unpaired_cells)
+        
+        self.chk_keep_center_cell = QCheckBox("Keep only center cell")
+        self.chk_keep_center_cell.setChecked(False)
+        self.chk_keep_center_cell.setToolTip(
+            "Keep only the cell whose centroid is closest to the image center.\n"
+            "Useful for single-cell analysis when multiple cells are detected.\n"
+            "Note: This filter is applied after 'Remove border' and 'Remove unpaired' filters."
+        )
+        self.chk_keep_center_cell.stateChanged.connect(self.on_keep_center_cell_changed)
+        improve_layout.addRow(self.chk_keep_center_cell)
         
         improve_group.setLayout(improve_layout)
         cellpose_layout.addWidget(improve_group)
@@ -15946,6 +16105,8 @@ class GUI(QMainWindow):
             self.chk_remove_border_cells.setChecked(False)
         if hasattr(self, 'chk_remove_unpaired_cells'):
             self.chk_remove_unpaired_cells.setChecked(False)
+        if hasattr(self, 'chk_keep_center_cell'):
+            self.chk_keep_center_cell.setChecked(False)
         
         # Refresh the shared segmentation display
         # (Cellpose now shares the segmentation canvas, so just refresh it)

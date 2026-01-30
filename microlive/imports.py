@@ -23,7 +23,11 @@ from numba import njit, types
 from numba.typed import List as TypedList
 import cv2
 import io
-import fpdf
+# Optional PDF generation support
+try:
+    from fpdf import FPDF
+except ImportError:
+    FPDF = None  # PDF generation will be skipped if fpdf not installed
 import json
 
 # Import third-party libraries

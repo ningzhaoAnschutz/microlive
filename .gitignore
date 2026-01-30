@@ -23,6 +23,7 @@ build/
 *.log
 .backup_before_pip_packaging/
 .gemini/
+.agent/
 scripts/
 instructions/
 modeling/TASEP/test_*.py

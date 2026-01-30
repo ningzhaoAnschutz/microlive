@@ -1140,7 +1140,25 @@ def plot_frap_quantification_all_images(df_tracking_all, save_plot=False, plot_n
     return  np.array(frames),  np.array(mean_values), np.array(std_values)
 
 
-def create_pdf(list_combined_image_paths,pdf_name, remove_original_images=False):
+def create_pdf(list_combined_image_paths, pdf_name, remove_original_images=False):
+    """Create a PDF document from a list of images.
+    
+    Args:
+        list_combined_image_paths: List of Path objects to images.
+        pdf_name: Output PDF file path.
+        remove_original_images: If True, delete original images after adding to PDF.
+    
+    Returns:
+        None
+    
+    Note:
+        Requires fpdf/fpdf2 package. If not installed, prints a warning and skips PDF creation.
+    """
+    if FPDF is None:
+        print(f"Warning: fpdf not installed. Skipping PDF creation: {pdf_name}")
+        print("Install with: pip install fpdf2")
+        return None
+    
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.set_font("Arial", size=12)

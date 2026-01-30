@@ -239,31 +239,35 @@ def pipeline_folding_efficiency(original_lif_name, list_images,list_images_names
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     plt.savefig(path_summary_wisker_plot, dpi=300, bbox_inches='tight')
     plt.show()
-    # Create PDF with images and quality text
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
-    for i, image_path in enumerate(list_image_paths_for_pdf):
-        pdf.add_page()
-        pdf.set_xy(10, 10)
-        pdf.cell(0, 10, list_quality_text[i], 0, 1, 'L')
-        if low_quality_pdf:
-            img = Image.open(image_path)
-            base_width = 150  # Desired width in mm in the PDF
-            w_percent = (base_width / float(img.size[0]))
-            h_size = int((float(img.size[1]) * float(w_percent)))  # Height in mm to maintain aspect ratio
-            # Temporarily save resized image for quality adjustment
-            temp_path = Path(image_path).with_name(Path(image_path).stem + '_temp').with_suffix('.jpg')
-            img.save(temp_path, 'JPEG', quality=85)  # You can adjust quality to manage file size
-            pdf.image(str(temp_path), x=25, y=25, w=base_width, h=h_size)  # Now specifying both width and height
-            temp_path.unlink()  # Delete the temporary file
-        else:
-            # Directly embed the image at specified dimensions without resizing beforehand
-            img = Image.open(image_path)
-            w_percent = (150 / float(img.size[0]))
-            h_size = int((float(img.size[1]) * float(w_percent)))  # Calculate height to maintain aspect ratio
-            pdf.image(str(image_path), x=25, y=25, w=150, h=h_size)
-    pdf.output(path_summary_pdf)
+    # Create PDF with images and quality text (optional - requires fpdf)
+    if FPDF is not None:
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_font("Arial", size=12)
+        for i, image_path in enumerate(list_image_paths_for_pdf):
+            pdf.add_page()
+            pdf.set_xy(10, 10)
+            pdf.cell(0, 10, list_quality_text[i], 0, 1, 'L')
+            if low_quality_pdf:
+                img = Image.open(image_path)
+                base_width = 150  # Desired width in mm in the PDF
+                w_percent = (base_width / float(img.size[0]))
+                h_size = int((float(img.size[1]) * float(w_percent)))  # Height in mm to maintain aspect ratio
+                # Temporarily save resized image for quality adjustment
+                temp_path = Path(image_path).with_name(Path(image_path).stem + '_temp').with_suffix('.jpg')
+                img.save(temp_path, 'JPEG', quality=85)  # You can adjust quality to manage file size
+                pdf.image(str(temp_path), x=25, y=25, w=base_width, h=h_size)  # Now specifying both width and height
+                temp_path.unlink()  # Delete the temporary file
+            else:
+                # Directly embed the image at specified dimensions without resizing beforehand
+                img = Image.open(image_path)
+                w_percent = (150 / float(img.size[0]))
+                h_size = int((float(img.size[1]) * float(w_percent)))  # Calculate height to maintain aspect ratio
+                pdf.image(str(image_path), x=25, y=25, w=150, h=h_size)
+        pdf.output(path_summary_pdf)
+    else:
+        print(f"Warning: fpdf not installed. Skipping PDF creation: {path_summary_pdf}")
+        print("Install with: pip install fpdf2")
     
     # save metadata
     metadata_folding_efficiency(
