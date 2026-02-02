@@ -7859,8 +7859,11 @@ class GUI(QMainWindow):
                 z_spot_size_in_px=z_spot_size,
                 use_3d=use_3d
             )
-            threshold = auto_thresh.calculate()
+            threshold_raw = auto_thresh.calculate()
             method_used = auto_thresh.method_used
+            
+            # Reduce threshold by 10% to improve spot coverage (auto-threshold tends to overestimate)
+            threshold = threshold_raw * 0.9
             
             # Store per-channel
             self.auto_threshold_per_channel[channel] = threshold
