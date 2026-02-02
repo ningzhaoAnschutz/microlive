@@ -4870,21 +4870,43 @@ class GUI(QMainWindow):
             self.segmentation_channel_buttons.append(btn)
 
     def update_segmentation_channel(self, channel_index):
+        # Don't clear mask when in Edit mode (we're editing, not creating new)
+        current_subtab = getattr(self, 'segmentation_method_tabs', None)
+        if current_subtab is not None and current_subtab.currentIndex() == 4:
+            # Just update channel for viewing, don't clear mask
+            self.segmentation_current_channel = channel_index
+            self.plot_edit_mode()
+            return
+        
         # Clear old mask when changing channel
         self.segmentation_mask = None
         self.segmentation_current_channel = channel_index
         
         # Refresh display based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
-            current_subtab = self.segmentation_method_tabs.currentIndex()
-            if current_subtab == 1 or current_subtab == 3:  # Cellpose or Import sub-tab
+            current_index = self.segmentation_method_tabs.currentIndex()
+            if current_index == 1 or current_index == 3:  # Cellpose or Import sub-tab
                 self.plot_cellpose_results()
+            elif current_index == 4:  # Edit sub-tab
+                self.plot_edit_mode()
             else:
                 self.plot_segmentation()
         else:
             self.plot_segmentation()
 
     def update_segmentation_frame(self, value):
+        # Don't clear mask when in Edit mode (we're editing, not creating new)
+        current_subtab = getattr(self, 'segmentation_method_tabs', None)
+        if current_subtab is not None and current_subtab.currentIndex() == 4:
+            # Just update frame for viewing, don't clear mask
+            self.segmentation_current_frame = value
+            # Update frame label
+            total_frames = getattr(self, 'total_frames', 1)
+            if hasattr(self, 'frame_label_segmentation'):
+                self.frame_label_segmentation.setText(f"{value}/{total_frames - 1}")
+            self.plot_edit_mode()
+            return
+        
         # Clear old manual/watershed mask when changing frame
         self.segmentation_mask = None
         self.segmentation_current_frame = value
@@ -4903,9 +4925,11 @@ class GUI(QMainWindow):
         
         # Refresh display based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
-            current_subtab = self.segmentation_method_tabs.currentIndex()
-            if current_subtab == 1 or current_subtab == 3:  # Cellpose or Import sub-tab
+            current_index = self.segmentation_method_tabs.currentIndex()
+            if current_index == 1 or current_index == 3:  # Cellpose or Import sub-tab
                 self.plot_cellpose_results()
+            elif current_index == 4:  # Edit sub-tab
+                self.plot_edit_mode()
             else:
                 self.plot_segmentation()
         else:
@@ -5887,7 +5911,7 @@ class GUI(QMainWindow):
         main_layout = QHBoxLayout(self.segmentation_tab)
         # LEFT PANEL: Segmentation Figure & Controls
         left_layout = QVBoxLayout()
-        main_layout.addLayout(left_layout, stretch=3)
+        main_layout.addLayout(left_layout, stretch=5)
         
         # Create canvas + Z-slider layout (horizontal: canvas on left, Z-slider on right)
         canvas_z_layout = QHBoxLayout()
@@ -5970,12 +5994,15 @@ class GUI(QMainWindow):
         
         # RIGHT PANEL: Segmentation Methods & Source Toggle
         right_layout = QVBoxLayout()
-        main_layout.addLayout(right_layout, stretch=1)
+        main_layout.addLayout(right_layout, stretch=2)
         
         # =====================================================================
         # SEGMENTATION METHOD SUB-TABS
         # =====================================================================
         self.segmentation_method_tabs = QTabWidget()
+        # Enable scrollable tabs so all tabs are accessible when panel is narrow
+        self.segmentation_method_tabs.setUsesScrollButtons(True)
+        self.segmentation_method_tabs.setElideMode(Qt.ElideNone)
         
         # --- Manual Segmentation Tab ---
         manual_tab = QWidget()
@@ -6393,8 +6420,153 @@ class GUI(QMainWindow):
         # Add Manual tab (Index 2) before Import
         self.segmentation_method_tabs.addTab(manual_tab, "Manual")
         
-        # Add Import tab last (Index 3)
+        # Add Import tab (Index 3)
         self.segmentation_method_tabs.addTab(import_tab, "Import")
+        
+        # =====================================================================
+        # EDIT TAB (Index 4) - Edit existing masks from any method
+        # =====================================================================
+        edit_tab = QWidget()
+        edit_tab_layout = QVBoxLayout(edit_tab)
+        edit_tab_layout.setContentsMargins(10, 10, 10, 10)
+        edit_tab_layout.setSpacing(8)
+        
+        # Create scrollable area for edit controls
+        edit_scroll = QScrollArea()
+        edit_scroll.setWidgetResizable(True)
+        edit_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        edit_scroll_widget = QWidget()
+        edit_scroll_layout = QVBoxLayout(edit_scroll_widget)
+        edit_scroll_layout.setSpacing(8)
+        
+        # Instructions label
+        edit_instructions = QLabel(
+            "Edit existing masks from any segmentation method.\n"
+            "Select a mask and tool, then draw on the image.\n"
+            "Cell labels are preserved (erasing sets pixels to background)."
+        )
+        edit_instructions.setWordWrap(True)
+        edit_instructions.setStyleSheet("color: gray; font-size: 11px;")
+        edit_scroll_layout.addWidget(edit_instructions)
+        
+        # --- Mask to Edit Group ---
+        mask_select_group = QGroupBox("Mask to Edit")
+        mask_select_layout = QVBoxLayout()
+        
+        self.edit_mask_selector = QComboBox()
+        self.edit_mask_selector.addItem("-- Select Mask --")
+        self.edit_mask_selector.currentIndexChanged.connect(self.on_edit_mask_selector_changed)
+        mask_select_layout.addWidget(self.edit_mask_selector)
+        
+        self.edit_mask_info_label = QLabel("No mask selected")
+        self.edit_mask_info_label.setStyleSheet("color: gray; font-size: 10px;")
+        mask_select_layout.addWidget(self.edit_mask_info_label)
+        
+        mask_select_group.setLayout(mask_select_layout)
+        edit_scroll_layout.addWidget(mask_select_group)
+        
+        # --- Instructions Panel (shown when mask is selected) ---
+        self.edit_instructions_group = QGroupBox("How to Edit")
+        instructions_layout = QVBoxLayout()
+        
+        self.edit_instructions_label = QLabel(
+            "🖱️ Click and drag on the mask to erase regions.\n"
+            "   Erased areas become background (0).\n\n"
+            "💾 Click 'Apply & Save' when finished."
+        )
+        self.edit_instructions_label.setWordWrap(True)
+        self.edit_instructions_label.setStyleSheet("color: #88ccff; font-size: 11px;")
+        instructions_layout.addWidget(self.edit_instructions_label)
+        
+        self.edit_instructions_group.setLayout(instructions_layout)
+        self.edit_instructions_group.setVisible(False)  # Hidden until mask selected
+        edit_scroll_layout.addWidget(self.edit_instructions_group)
+        
+        # --- TYX Info Panel (shown for time-varying masks) ---
+        self.edit_tyx_info_group = QGroupBox("Time-Varying Mask")
+        tyx_info_layout = QVBoxLayout()
+        
+        self.edit_tyx_info_label = QLabel(
+            "ℹ️ Editing combined view (max projection).\n"
+            "Edits will apply to ALL frames when saved."
+        )
+        self.edit_tyx_info_label.setWordWrap(True)
+        self.edit_tyx_info_label.setStyleSheet("color: #6699ff; font-size: 10px;")
+        tyx_info_layout.addWidget(self.edit_tyx_info_label)
+        
+        self.edit_tyx_info_group.setLayout(tyx_info_layout)
+        self.edit_tyx_info_group.setVisible(False)  # Hidden until TYX mask selected
+        edit_scroll_layout.addWidget(self.edit_tyx_info_group)
+        
+        # --- Action Buttons Group ---
+        action_group = QGroupBox("Actions")
+        action_layout = QVBoxLayout()
+        
+        action_btn_layout = QHBoxLayout()
+        self.btn_undo_edit = QPushButton("Undo")
+        self.btn_undo_edit.setToolTip("Restore mask to state before last edit (max 10 steps)")
+        self.btn_undo_edit.clicked.connect(self.undo_edit)
+        self.btn_undo_edit.setEnabled(False)
+        action_btn_layout.addWidget(self.btn_undo_edit)
+        
+        self.btn_reset_edits = QPushButton("Reset")
+        self.btn_reset_edits.setToolTip("Discard all edits and restore the mask to its original state")
+        self.btn_reset_edits.clicked.connect(self.reset_edits)
+        self.btn_reset_edits.setEnabled(False)
+        action_btn_layout.addWidget(self.btn_reset_edits)
+        action_layout.addLayout(action_btn_layout)
+        
+        self.btn_apply_edits = QPushButton("Apply && Save")
+        self.btn_apply_edits.setToolTip("Apply edits to the active mask and use for downstream analysis")
+        self.btn_apply_edits.setStyleSheet("background-color: #336633; font-weight: bold;")
+        self.btn_apply_edits.clicked.connect(self.apply_and_save_edits)
+        self.btn_apply_edits.setEnabled(False)
+        action_layout.addWidget(self.btn_apply_edits)
+        
+        action_group.setLayout(action_layout)
+        edit_scroll_layout.addWidget(action_group)
+        
+        # --- Status Panel ---
+        status_group = QGroupBox("Edit Status")
+        status_layout = QVBoxLayout()
+        
+        self.edit_status_label = QLabel("⚠ Select a mask to begin editing")
+        self.edit_status_label.setWordWrap(True)
+        self.edit_status_label.setStyleSheet("color: #ffcc00;")
+        status_layout.addWidget(self.edit_status_label)
+        
+        status_group.setLayout(status_layout)
+        edit_scroll_layout.addWidget(status_group)
+        
+        edit_scroll_layout.addStretch()
+        edit_scroll.setWidget(edit_scroll_widget)
+        edit_tab_layout.addWidget(edit_scroll)
+        
+        # Add Edit tab (Index 4)
+        self.segmentation_method_tabs.addTab(edit_tab, "Edit")
+        
+        # =====================================================================
+        # EDIT MODE STATE VARIABLES
+        # =====================================================================
+        # Edit mode state
+        self.edit_mode_active = False
+        self.edit_current_mask_key = None  # 'watershed', 'cellpose_cyto', 'cellpose_nuc'
+        self.edit_working_mask = None  # 2D working copy (Y, X) - always 2D for editing
+        self.edit_original_mask = None  # Original mask before edits (for reset)
+        self.edit_original_2d = None  # Max projection of original (for computing diffs)
+        self.edit_source_is_tyx = False  # True if source mask is TYX (3D)
+        
+        # Undo system
+        self.edit_undo_stack = []
+        self.EDIT_MAX_UNDO_DEPTH = 10
+        
+        # Eraser brush state (only tool)
+        self.edit_brush_size = 10
+        self.edit_brush_shape = 'circle'
+        
+        # Mouse state for drawing
+        self.edit_last_mouse_pos = None
+        self.edit_is_drawing = False
         
         # Initialize Cellpose/imported mask state variables
         # NOTE: Uses segmentation_current_frame and segmentation_current_channel (shared)
@@ -6434,20 +6606,624 @@ class GUI(QMainWindow):
         self.plot_segmentation()
     
     def _on_segmentation_subtab_changed(self, index):
-        """Handle switching between segmentation method sub-tabs (Watershed, Cellpose, Manual, Import).
+        """Handle switching between segmentation method sub-tabs.
         
         Tab indices:
             0 = Watershed
             1 = Cellpose
             2 = Manual
             3 = Import (uses Cellpose-style display)
+            4 = Edit (edit existing masks)
         """
-        if index == 1 or index == 3:  # Cellpose or Import sub-tab
-            # Show Cellpose/imported masks on the shared segmentation canvas
+        if index == 4:  # Edit sub-tab
+            self.enter_edit_mode()
+        elif index == 1 or index == 3:  # Cellpose or Import sub-tab
+            self.exit_edit_mode()
             self.plot_cellpose_results()
         else:
-            # For Watershed and Manual, use the standard segmentation display
+            self.exit_edit_mode()
             self.plot_segmentation()
+
+    # =========================================================================
+    # EDIT TAB SIGNAL HANDLERS
+    # =========================================================================
+    
+    def enter_edit_mode(self):
+        """Initialize edit mode when Edit tab is selected."""
+        self.edit_mode_active = True
+        
+        # Connect mouse events for editing
+        self._connect_edit_mouse_events()
+        
+        # Populate mask selector with available masks
+        self._refresh_edit_mask_selector()
+        
+        # If a mask is already selected, load it
+        if self.edit_mask_selector.currentIndex() > 0:
+            self.on_edit_mask_selector_changed(self.edit_mask_selector.currentIndex())
+        else:
+            # Just show the current segmentation view
+            self.plot_edit_mode()
+    
+    def exit_edit_mode(self):
+        """Clean up edit mode when leaving Edit tab."""
+        if not self.edit_mode_active:
+            return
+            
+        # Check for unsaved edits
+        if self.edit_working_mask is not None and self.edit_undo_stack:
+            reply = QMessageBox.question(
+                self, "Unsaved Edits",
+                "You have unsaved edits. Discard them?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                # Switch back to Edit tab
+                self.segmentation_method_tabs.blockSignals(True)
+                self.segmentation_method_tabs.setCurrentIndex(4)
+                self.segmentation_method_tabs.blockSignals(False)
+                return
+        
+        # Clear edit state
+        self.edit_mode_active = False
+        self.edit_working_mask = None
+        self.edit_original_mask = None
+        self.edit_undo_stack = []
+        
+        # Disconnect mouse events
+        self._disconnect_edit_mouse_events()
+    
+    def _refresh_edit_mask_selector(self):
+        """Populate the mask selector dropdown with available masks."""
+        self.edit_mask_selector.blockSignals(True)
+        self.edit_mask_selector.clear()
+        self.edit_mask_selector.addItem("-- Select Mask --")
+        
+        # Check for Watershed/Manual mask
+        if self.segmentation_mask is not None:
+            n_cells = len(np.unique(self.segmentation_mask)) - 1  # Exclude 0
+            shape = self.segmentation_mask.shape
+            self.edit_mask_selector.addItem(
+                f"Watershed Mask ({n_cells} cells, {shape[1]}×{shape[0]})",
+                "watershed"
+            )
+        
+        # Check for Cellpose cytosol mask
+        if self.cellpose_masks_cyto is not None:
+            mask = self.cellpose_masks_cyto
+            n_cells = len(np.unique(mask)) - 1
+            if mask.ndim == 3:
+                shape_str = f"TYX: {mask.shape[0]}×{mask.shape[2]}×{mask.shape[1]}"
+            else:
+                shape_str = f"{mask.shape[1]}×{mask.shape[0]}"
+            self.edit_mask_selector.addItem(
+                f"Cellpose Cytosol ({n_cells} cells, {shape_str})",
+                "cellpose_cyto"
+            )
+        
+        # Check for Cellpose nucleus mask
+        if self.cellpose_masks_nuc is not None:
+            mask = self.cellpose_masks_nuc
+            n_cells = len(np.unique(mask)) - 1
+            if mask.ndim == 3:
+                shape_str = f"TYX: {mask.shape[0]}×{mask.shape[2]}×{mask.shape[1]}"
+            else:
+                shape_str = f"{mask.shape[1]}×{mask.shape[0]}"
+            self.edit_mask_selector.addItem(
+                f"Cellpose Nucleus ({n_cells} cells, {shape_str})",
+                "cellpose_nuc"
+            )
+        
+        self.edit_mask_selector.blockSignals(False)
+        
+        # Update status based on availability
+        if self.edit_mask_selector.count() <= 1:
+            self.edit_status_label.setText("⚠ No masks available - run segmentation first")
+            self.edit_status_label.setStyleSheet("color: #ff6666;")
+        else:
+            self.edit_status_label.setText("⚠ Select a mask to begin editing")
+            self.edit_status_label.setStyleSheet("color: #ffcc00;")
+    
+    def on_edit_mask_selector_changed(self, index):
+        """Handle switching between masks to edit."""
+        if index <= 0:
+            # No mask selected
+            self.edit_working_mask = None
+            self.edit_original_mask = None
+            self.edit_current_mask_key = None
+            self.edit_mask_info_label.setText("No mask selected")
+            self.edit_tyx_info_group.setVisible(False)
+            self.edit_instructions_group.setVisible(False)  # Hide instructions
+            self._update_edit_buttons_state()
+            self.plot_edit_mode()
+            return
+        
+        # Get the mask key from the item data
+        mask_key = self.edit_mask_selector.itemData(index)
+        
+        # Load the selected mask
+        if mask_key == "watershed":
+            source_mask = self.segmentation_mask
+        elif mask_key == "cellpose_cyto":
+            source_mask = self.cellpose_masks_cyto
+        elif mask_key == "cellpose_nuc":
+            source_mask = self.cellpose_masks_nuc
+        else:
+            return
+        
+        # Create working copy
+        self.edit_working_mask, self.edit_original_2d, self.edit_source_is_tyx = \
+            self._create_edit_working_copy(source_mask)
+        self.edit_original_mask = source_mask.copy()
+        self.edit_current_mask_key = mask_key
+        
+        # Clear undo stack for new mask
+        self.edit_undo_stack = []
+        
+        # Update info label
+        n_cells = len(np.unique(self.edit_working_mask)) - 1
+        shape = self.edit_working_mask.shape
+        self.edit_mask_info_label.setText(f"{n_cells} cells, {shape[1]}×{shape[0]} px")
+        self.edit_mask_info_label.setStyleSheet("color: #88ff88; font-size: 10px;")
+        
+        # Show TYX info if applicable
+        self.edit_tyx_info_group.setVisible(self.edit_source_is_tyx)
+        if self.edit_source_is_tyx:
+            n_frames = source_mask.shape[0]
+            self.edit_tyx_info_label.setText(
+                f"ℹ️ Editing combined view of {n_frames} frames.\n"
+                "Edits will apply to ALL frames when saved."
+            )
+        
+        # Show instructions panel
+        self.edit_instructions_group.setVisible(True)
+        
+        # Update buttons
+        self._update_edit_buttons_state()
+        
+        # Update status
+        self.edit_status_label.setText(f"✓ Ready to edit {mask_key.replace('_', ' ').title()}")
+        self.edit_status_label.setStyleSheet("color: #88ff88;")
+        
+        # Update display
+        self.plot_edit_mode()
+    
+    def _create_edit_working_copy(self, source_mask):
+        """Create a 2D working copy for editing.
+        
+        Args:
+            source_mask: The source mask array (YX or TYX)
+        
+        Returns:
+            tuple: (working_mask_2d, original_2d, is_tyx)
+        """
+        if source_mask.ndim == 3:  # TYX
+            # Max projection for editing
+            working_mask = np.max(source_mask, axis=0).copy()
+            original_2d = working_mask.copy()
+            is_tyx = True
+        else:  # YX
+            working_mask = source_mask.copy()
+            original_2d = working_mask.copy()
+            is_tyx = False
+        
+        return working_mask, original_2d, is_tyx
+    
+    
+    
+    def _update_edit_buttons_state(self):
+        """Update enabled state of edit action buttons."""
+        has_mask = self.edit_working_mask is not None
+        has_edits = len(self.edit_undo_stack) > 0
+        
+        self.btn_undo_edit.setEnabled(has_edits)
+        self.btn_reset_edits.setEnabled(has_edits)
+        self.btn_apply_edits.setEnabled(has_mask)
+    
+    # =========================================================================
+    # UNDO/RESET/APPLY
+    # =========================================================================
+    
+    def _push_undo(self, description="Edit"):
+        """Push current mask state to undo stack."""
+        if self.edit_working_mask is None:
+            return
+        
+        self.edit_undo_stack.append((self.edit_working_mask.copy(), description))
+        
+        # Limit stack size
+        if len(self.edit_undo_stack) > self.EDIT_MAX_UNDO_DEPTH:
+            self.edit_undo_stack.pop(0)
+    
+    def undo_edit(self):
+        """Pop last state from undo stack and restore."""
+        if not self.edit_undo_stack:
+            self.edit_status_label.setText("Nothing to undo")
+            self.edit_status_label.setStyleSheet("color: gray;")
+            return
+        
+        # Pop the last state
+        mask, description = self.edit_undo_stack.pop()
+        self.edit_working_mask = mask
+        
+        self.edit_status_label.setText(f"↩ Undid: {description}")
+        self.edit_status_label.setStyleSheet("color: #88ff88;")
+        
+        # Refresh dropdown
+        self._refresh_cell_label_dropdown()
+        
+        # Update buttons and display
+        self._update_edit_buttons_state()
+        self.plot_edit_mode()
+    
+    def reset_edits(self):
+        """Restore mask to original state before editing began."""
+        if self.edit_original_mask is None:
+            return
+        
+        # Confirm if many edits
+        if len(self.edit_undo_stack) > 3:
+            reply = QMessageBox.question(
+                self, "Reset All Edits",
+                f"This will discard {len(self.edit_undo_stack)} edits. Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+        
+        # Restore original
+        self.edit_working_mask, self.edit_original_2d, _ = \
+            self._create_edit_working_copy(self.edit_original_mask)
+        
+        # Clear undo stack
+        self.edit_undo_stack = []
+        
+        self.edit_status_label.setText("↺ Reset to original mask")
+        self.edit_status_label.setStyleSheet("color: #88ff88;")
+        
+        # Refresh dropdown
+        self._refresh_cell_label_dropdown()
+        
+        # Update buttons and display
+        self._update_edit_buttons_state()
+        self.plot_edit_mode()
+    
+    def apply_and_save_edits(self):
+        """Apply edits back to the source mask and set as active for downstream workflow."""
+        if self.edit_working_mask is None or self.edit_current_mask_key is None:
+            return
+        
+        source_key = self.edit_current_mask_key
+        
+        if source_key == 'watershed':
+            # Watershed is always YX
+            self.segmentation_mask = self.edit_working_mask.copy()
+            self._active_mask_source = 'segmentation'
+            
+        elif source_key == 'cellpose_cyto':
+            if self.edit_source_is_tyx:
+                # Apply 2D edits to all frames
+                self.cellpose_masks_cyto = self._apply_edits_to_tyx(
+                    self.edit_original_mask,
+                    self.edit_working_mask,
+                    self.edit_original_2d
+                )
+            else:
+                self.cellpose_masks_cyto = self.edit_working_mask.copy()
+            self._active_mask_source = 'cellpose'
+            
+        elif source_key == 'cellpose_nuc':
+            if self.edit_source_is_tyx:
+                self.cellpose_masks_nuc = self._apply_edits_to_tyx(
+                    self.edit_original_mask,
+                    self.edit_working_mask,
+                    self.edit_original_2d
+                )
+            else:
+                self.cellpose_masks_nuc = self.edit_working_mask.copy()
+            self._active_mask_source = 'cellpose'
+        
+        # Invalidate downstream calculations
+        self.corrected_image = None
+        self.photobleaching_calculated = False
+        if hasattr(self, 'df_tracking'):
+            self.df_tracking = pd.DataFrame()
+        if hasattr(self, 'multi_channel_tracking_data'):
+            self.multi_channel_tracking_data = {}
+        
+        # Clear edit state
+        self.edit_undo_stack = []
+        self.edit_original_mask = self.edit_working_mask.copy()
+        self.edit_original_2d = self.edit_working_mask.copy()
+        
+        # Update status
+        self.edit_status_label.setText(f"✓ Saved! Re-run Photobleaching/Tracking if needed.")
+        self.edit_status_label.setStyleSheet("color: #88ff88; font-weight: bold;")
+        self.statusBar().showMessage(f"✓ Edited mask saved ({source_key})")
+        
+        # Update mask selector to reflect changes
+        self._refresh_edit_mask_selector()
+        # Re-select the mask we just edited
+        for i in range(self.edit_mask_selector.count()):
+            if self.edit_mask_selector.itemData(i) == source_key:
+                self.edit_mask_selector.blockSignals(True)
+                self.edit_mask_selector.setCurrentIndex(i)
+                self.edit_mask_selector.blockSignals(False)
+                break
+        
+        self._update_edit_buttons_state()
+        self.plot_edit_mode()
+    
+    def _apply_edits_to_tyx(self, original_tyx, edited_2d, original_2d):
+        """Apply 2D edits to all frames of a TYX mask.
+        
+        Args:
+            original_tyx: Original TYX mask (T, Y, X)
+            edited_2d: Edited 2D mask (Y, X)
+            original_2d: Original max projection (Y, X)
+        
+        Returns:
+            Modified TYX mask with edits applied to all frames
+        """
+        result = original_tyx.copy()
+        
+        # Find erased pixels (were non-zero in original, now zero)
+        erased = (original_2d > 0) & (edited_2d == 0)
+        
+        # Find painted pixels (changed label)
+        painted = (edited_2d > 0) & (edited_2d != original_2d)
+        
+        # Apply to all frames
+        for t in range(result.shape[0]):
+            # Erase: set to 0 where erased in 2D
+            result[t][erased] = 0
+            
+            # Paint: set to new label where painted in 2D
+            result[t][painted] = edited_2d[painted]
+        
+        return result
+    
+    # =========================================================================
+    # EDIT MODE DISPLAY
+    # =========================================================================
+    
+    def plot_edit_mode(self):
+        """Display the mask being edited overlaid on the selected channel.
+        
+        Uses the same display logic as plot_segmentation() to ensure
+        consistent appearance with channel colors and display parameters.
+        """
+        # Use the figure's subplot instead of clearing the whole figure
+        # to avoid issues with the figure layout
+        self.figure_segmentation.clear()
+        self.ax_segmentation = self.figure_segmentation.add_subplot(111)
+        self.ax_segmentation.set_facecolor('black')
+        
+        if self.image_stack is None:
+            self.ax_segmentation.text(
+                0.5, 0.5, 'No image loaded.',
+                horizontalalignment='center', verticalalignment='center',
+                fontsize=12, color='white', transform=self.ax_segmentation.transAxes
+            )
+            self.ax_segmentation.axis('off')
+            self.canvas_segmentation.draw()
+            return
+        
+        # Get current channel and frame
+        ch = self.segmentation_current_channel
+        
+        # Use registered image if available (same as plot_segmentation)
+        image_to_use = self.get_current_image_source()
+        
+        # Choose image to display (temporal max projection vs current frame, then Z selection)
+        if self.use_max_proj_for_segmentation and self.segmentation_maxproj is not None:
+            # Temporal max projection (already max over T and Z)
+            image_to_display = self.segmentation_maxproj[..., ch]
+        else:
+            # Get current time frame's Z-stack for this channel
+            image_channel = image_to_use[self.segmentation_current_frame, :, :, :, ch]
+            # Apply Z selection
+            if getattr(self, 'segmentation_current_z', -1) == -1:
+                # Max Z-projection (default)
+                image_to_display = np.max(image_channel, axis=0)
+            else:
+                # Specific Z-slice
+                z_idx = min(self.segmentation_current_z, image_channel.shape[0] - 1)
+                image_to_display = image_channel[z_idx, :, :]
+        
+        # Get display parameters for channel (same as plot_segmentation)
+        params = self.channelDisplayParams.get(ch, {
+            'min_percentile': self.display_min_percentile,
+            'max_percentile': self.display_max_percentile,
+            'sigma': self.display_sigma,
+            'low_sigma': self.low_display_sigma
+        })
+        
+        # Convert using per-channel percentiles
+        rescaled_image = mi.Utilities().convert_to_int8(
+            image_to_display,
+            rescale=True,
+            min_percentile=params['min_percentile'],
+            max_percentile=params['max_percentile']
+        )
+        if params['low_sigma'] > 0:
+            rescaled_image = gaussian_filter(rescaled_image, sigma=params['low_sigma'])
+        if params['sigma'] > 0:
+            rescaled_image = gaussian_filter(rescaled_image, sigma=params['sigma'])
+        rescaled_image = mi.Utilities().convert_to_int8(rescaled_image, rescale=False)
+        normalized_image = rescaled_image.astype(np.float32) / 255.0
+        
+        # Use channel colormap (same as plot_segmentation)
+        cmap_used = cmap_list_imagej[ch % len(cmap_list_imagej)]
+        self.ax_segmentation.imshow(normalized_image[..., 0], cmap=cmap_used, vmin=0, vmax=1)
+        
+        # Overlay the working mask with contours
+        if self.edit_working_mask is not None:
+            mask = self.edit_working_mask
+            unique_labels = np.unique(mask)
+            unique_labels = unique_labels[unique_labels > 0]
+            
+            if len(unique_labels) > 0:
+                # Create semi-transparent colored overlay for cells
+                overlay = np.zeros((*mask.shape, 4))
+                
+                # Use tab10 colormap for different cell labels
+                colors = plt.cm.tab10.colors
+                
+                for i, label in enumerate(unique_labels):
+                    color = colors[i % len(colors)]
+                    cell_mask = mask == label
+                    overlay[cell_mask, :3] = color[:3]
+                    overlay[cell_mask, 3] = 0.3  # Alpha (slightly transparent)
+                
+                self.ax_segmentation.imshow(overlay)
+                
+                # Draw white contours around each cell
+                self.ax_segmentation.contour(mask, levels=[0.5], colors='white', linewidths=1.5)
+        
+        # Add axis labels in pixels (same as plot_segmentation)
+        height, width = image_to_display.shape[:2]
+        self.ax_segmentation.set_xlabel('X (pixels)', color='white', fontsize=10)
+        self.ax_segmentation.set_ylabel('Y (pixels)', color='white', fontsize=10)
+        
+        num_x_ticks = 5
+        x_tick_positions = np.linspace(0, width - 1, num_x_ticks)
+        self.ax_segmentation.set_xticks(x_tick_positions)
+        self.ax_segmentation.set_xticklabels([f'{int(pos)}' for pos in x_tick_positions], color='white', fontsize=8)
+        
+        num_y_ticks = 5
+        y_tick_positions = np.linspace(0, height - 1, num_y_ticks)
+        self.ax_segmentation.set_yticks(y_tick_positions)
+        self.ax_segmentation.set_yticklabels([f'{int(pos)}' for pos in y_tick_positions], color='white', fontsize=8)
+        
+        self.ax_segmentation.tick_params(axis='both', colors='white', direction='out', length=4)
+        self.ax_segmentation.spines['bottom'].set_color('white')
+        self.ax_segmentation.spines['left'].set_color('white')
+        self.ax_segmentation.spines['top'].set_visible(False)
+        self.ax_segmentation.spines['right'].set_visible(False)
+        
+        # Add subtle grid lines
+        self.ax_segmentation.grid(True, linewidth=0.3, alpha=0.3, color='white')
+        
+        # Set title
+        if self.edit_current_mask_key:
+            title = f"Editing: {self.edit_current_mask_key.replace('_', ' ').title()}"
+            if self.edit_source_is_tyx:
+                title += " (Max Projection)"
+        else:
+            title = "Select a mask to edit"
+        self.ax_segmentation.set_title(title, color='white', fontsize=10)
+        
+        self.figure_segmentation.tight_layout()
+        self.canvas_segmentation.draw()
+    
+    def _connect_edit_mouse_events(self):
+        """Connect mouse event handlers for edit mode."""
+        # Disconnect any existing handlers
+        self._disconnect_edit_mouse_events()
+        
+        # Connect press, release, and motion events
+        self._edit_cid_press = self.canvas_segmentation.mpl_connect(
+            'button_press_event', self._on_edit_mouse_press)
+        self._edit_cid_release = self.canvas_segmentation.mpl_connect(
+            'button_release_event', self._on_edit_mouse_release)
+        self._edit_cid_motion = self.canvas_segmentation.mpl_connect(
+            'motion_notify_event', self._on_edit_mouse_motion)
+    
+    def _disconnect_edit_mouse_events(self):
+        """Disconnect mouse event handlers for edit mode."""
+        if hasattr(self, '_edit_cid_press') and self._edit_cid_press:
+            self.canvas_segmentation.mpl_disconnect(self._edit_cid_press)
+            self._edit_cid_press = None
+        if hasattr(self, '_edit_cid_release') and self._edit_cid_release:
+            self.canvas_segmentation.mpl_disconnect(self._edit_cid_release)
+            self._edit_cid_release = None
+        if hasattr(self, '_edit_cid_motion') and self._edit_cid_motion:
+            self.canvas_segmentation.mpl_disconnect(self._edit_cid_motion)
+            self._edit_cid_motion = None
+    
+    def _on_edit_mouse_press(self, event):
+        """Handle mouse button press in edit mode (eraser brush only)."""
+        if event.inaxes != self.ax_segmentation:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if not self.edit_mode_active or self.edit_working_mask is None:
+            return
+        
+        x, y = int(event.xdata), int(event.ydata)
+        
+        # Start erasing
+        self.edit_is_drawing = True
+        self.edit_last_mouse_pos = (x, y)
+        
+        # Push undo state at start of stroke
+        self._push_undo("Erase")
+        
+        # Apply first point
+        self._apply_eraser_at(x, y)
+        self.plot_edit_mode()
+    
+    def _on_edit_mouse_release(self, event):
+        """Handle mouse button release in edit mode."""
+        if self.edit_is_drawing:
+            self.edit_is_drawing = False
+            self.edit_last_mouse_pos = None
+            self._update_edit_buttons_state()
+    
+    def _on_edit_mouse_motion(self, event):
+        """Handle mouse motion in edit mode (for eraser drawing)."""
+        if not self.edit_is_drawing:
+            return
+        if event.inaxes != self.ax_segmentation:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if self.edit_working_mask is None:
+            return
+        
+        x, y = int(event.xdata), int(event.ydata)
+        
+        # Apply eraser at new position
+        self._apply_eraser_at(x, y)
+        
+        # Draw line between last position and current for smooth strokes
+        if self.edit_last_mouse_pos:
+            self._apply_eraser_line(self.edit_last_mouse_pos[0], self.edit_last_mouse_pos[1], x, y)
+        
+        self.edit_last_mouse_pos = (x, y)
+        self.plot_edit_mode()
+    
+    def _apply_eraser_at(self, x, y):
+        """Apply eraser brush at given position (sets pixels to background 0).
+        
+        Uses a fixed 10px circular brush.
+        """
+        if self.edit_working_mask is None:
+            return
+        
+        mask = self.edit_working_mask
+        h, w = mask.shape
+        size = 10  # Fixed brush size
+        
+        # Create circular brush mask
+        yy, xx = np.ogrid[:h, :w]
+        brush_mask = ((xx - x) ** 2 + (yy - y) ** 2) <= (size / 2) ** 2
+        
+        # Erase: set pixels to background (0)
+        mask[brush_mask] = 0
+    
+    def _apply_eraser_line(self, x0, y0, x1, y1):
+        """Apply eraser along a line between two points for smooth strokes."""
+        from skimage.draw import line
+        
+        rr, cc = line(y0, x0, y1, x1)
+        
+        for r, c in zip(rr, cc):
+            self._apply_eraser_at(c, r)
+
 
 # =============================================================================
 # =============================================================================
@@ -15326,6 +16102,21 @@ class GUI(QMainWindow):
             self.watershed_size_slider.blockSignals(False)
         if hasattr(self, 'watershed_size_label'):
             self.watershed_size_label.setText("0")
+        
+        # Reset Edit tab state
+        self.edit_mode_active = False
+        self.edit_working_mask = None
+        self.edit_original_mask = None
+        self.edit_current_mask_key = None
+        self.edit_undo_stack = []
+        if hasattr(self, '_disconnect_edit_mouse_events'):
+            self._disconnect_edit_mouse_events()
+        if hasattr(self, 'edit_mask_selector'):
+            self.edit_mask_selector.blockSignals(True)
+            self.edit_mask_selector.setCurrentIndex(0)
+            self.edit_mask_selector.blockSignals(False)
+        if hasattr(self, 'edit_instructions_group'):
+            self.edit_instructions_group.setVisible(False)
 
     def reset_photobleaching_tab(self):
         self.figure_photobleaching.clear()
