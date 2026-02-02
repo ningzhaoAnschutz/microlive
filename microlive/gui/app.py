@@ -1946,6 +1946,9 @@ class GUI(QMainWindow):
              self.cellpose_masks_nuc = None
              if hasattr(self, 'manual_segmentation_mask'):
                  del self.manual_segmentation_mask
+             # Reset segmentation tab to Watershed (index 0) since Edit tab is only relevant after segmentation
+             if hasattr(self, 'segmentation_method_tabs'):
+                 self.segmentation_method_tabs.setCurrentIndex(0)
         
         self.plot_image()
         self.plot_tracking()
