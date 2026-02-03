@@ -6683,14 +6683,17 @@ class GUI(QMainWindow):
         self.edit_mask_selector.clear()
         self.edit_mask_selector.addItem("-- Select Mask --")
         
-        # Check for Watershed/Manual mask
+        # Check for Watershed/Manual mask - label based on segmentation_mode
         if self.segmentation_mask is not None:
             n_cells = len(np.unique(self.segmentation_mask)) - 1  # Exclude 0
             shape = self.segmentation_mask.shape
-            self.edit_mask_selector.addItem(
-                f"Watershed Mask ({n_cells} cells, {shape[1]}×{shape[0]})",
-                "watershed"
-            )
+            # Check segmentation_mode to label correctly
+            mode = getattr(self, 'segmentation_mode', 'watershed')
+            if mode == 'manual':
+                label = f"Manual Mask ({n_cells} cells, {shape[1]}×{shape[0]})"
+            else:
+                label = f"Watershed Mask ({n_cells} cells, {shape[1]}×{shape[0]})"
+            self.edit_mask_selector.addItem(label, "watershed")
         
         # Check for Cellpose cytosol mask
         if self.cellpose_masks_cyto is not None:
@@ -6724,6 +6727,12 @@ class GUI(QMainWindow):
         if self.edit_mask_selector.count() <= 1:
             self.edit_status_label.setText("⚠ No masks available - run segmentation first")
             self.edit_status_label.setStyleSheet("color: #ff6666;")
+        elif self.edit_mask_selector.count() == 2:
+            # Single-Option Auto-Selection: only one mask available, select it automatically
+            self.edit_mask_selector.setCurrentIndex(1)
+            self.on_edit_mask_selector_changed(1)
+            self.edit_status_label.setText("✓ Single mask auto-selected for editing")
+            self.edit_status_label.setStyleSheet("color: #66ff66;")
         else:
             self.edit_status_label.setText("⚠ Select a mask to begin editing")
             self.edit_status_label.setStyleSheet("color: #ffcc00;")
@@ -7865,8 +7874,8 @@ class GUI(QMainWindow):
             threshold_raw = auto_thresh.calculate()
             method_used = auto_thresh.method_used
             
-            # Reduce threshold by 10% to improve spot coverage (auto-threshold tends to overestimate)
-            threshold = threshold_raw * 0.9
+            # Reduce threshold by 30% to improve spot coverage (auto-threshold tends to overestimate)
+            threshold = threshold_raw * 0.7
             
             # Store per-channel
             self.auto_threshold_per_channel[channel] = threshold
