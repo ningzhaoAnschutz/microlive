@@ -3373,133 +3373,242 @@ class GUI(QMainWindow):
 # =============================================================================
 
     def manual_segmentation(self):
-        """
-        Enter manual segmentation mode:
-        - Display the current frame (or max‐proj) with filtering and clipping
-        - Clear any old manual mask
-        - Reset selected points
-        - Connect a single click handler
+        """Activate manual segmentation mode with polygon drawing workflow.
+        
+        This method is called when the Manual tab is selected.
+        It sets up the click handler for placing polygon vertices.
         """
         if self.image_stack is None:
-            print("No image loaded")
+            if hasattr(self, 'manual_status_label'):
+                self.manual_status_label.setText("⚠️ No image loaded")
+                self.manual_status_label.setStyleSheet("color: #ffc107;")
             return
+        
+        # Enter manual mode
+        self.segmentation_mode = "manual"
+        
+        # Connect click handler
+        self._enter_manual_mode()
+        
+        # Refresh display
+        self._update_polygon_display()
+        
+        # Update status based on current state
+        self._update_polygon_status()
+
+    def _enter_manual_mode(self):
+        """Connect manual click handler when Manual tab is selected."""
+        # Disconnect any existing handler first
+        if hasattr(self, 'cid_manual') and self.cid_manual is not None:
+            try:
+                self.canvas_segmentation.mpl_disconnect(self.cid_manual)
+            except Exception:
+                pass
+        
+        # Connect click handler for polygon vertices
+        self.cid_manual = self.canvas_segmentation.mpl_connect(
+            'button_press_event', self.on_polygon_click
+        )
+        
+        # Initialize polygon points list if not exists
+        if not hasattr(self, 'manual_polygon_points'):
+            self.manual_polygon_points = []
+
+    def _exit_manual_mode(self):
+        """Disconnect manual click handler when leaving Manual tab."""
+        if hasattr(self, 'cid_manual') and self.cid_manual is not None:
+            try:
+                self.canvas_segmentation.mpl_disconnect(self.cid_manual)
+            except Exception:
+                pass
+            self.cid_manual = None
+
+    def on_polygon_click(self, event):
+        """Handle click in manual segmentation mode - add polygon vertex.
+        
+        Each click adds a vertex to the polygon. Points are connected with lines.
+        When finished, the polygon is closed and filled to create the mask.
+        """
+        if event.inaxes != self.ax_segmentation:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if event.button != 1:  # Left click only
+            return
+        
+        x, y = event.xdata, event.ydata
+        
+        # Get image dimensions to validate
+        image_to_use = self.get_current_image_source()
+        if image_to_use is None:
+            return
+        
         ch = self.segmentation_current_channel
         if self.use_max_proj_for_segmentation and self.segmentation_maxproj is not None:
             img = self.segmentation_maxproj[..., ch]
         else:
             fr = self.segmentation_current_frame
-            image_channel = self.image_stack[fr, :, :, :, ch]
-            img = np.max(image_channel, axis=0)
-        # smooth and clip for display
-        img_filtered = gaussian_filter(img, sigma=2)
-        lo, hi = np.percentile(img_filtered, [0.5, 99.0])
-        img_clipped = np.clip(img_filtered, lo, hi)
-        # redraw segmentation canvas
-        self.figure_segmentation.clear()
-        self.ax_segmentation = self.figure_segmentation.add_subplot(111)
-        self.ax_segmentation.imshow(img_clipped, cmap='Spectral')
-        self.ax_segmentation.axis('off')
-        self.figure_segmentation.tight_layout()
-        self.canvas_segmentation.draw()
-        # clear any previous manual mask
-        if hasattr(self, 'manual_segmentation_mask'):
-            del self.manual_segmentation_mask
-        # enter manual mode
-        self.selected_points = []
-        self.segmentation_mode = "manual"
-        # connect click handler exactly once
-        self.cid = self.canvas_segmentation.mpl_connect(
-            'button_press_event',
-            self.on_click_segmentation)
-    def on_click_segmentation(self, event):
-        if event.inaxes != self.ax_segmentation:
+            image_channel = image_to_use[fr, :, :, :, ch]
+            if getattr(self, 'segmentation_current_z', -1) == -1:
+                img = np.max(image_channel, axis=0)
+            else:
+                z_idx = min(self.segmentation_current_z, image_channel.shape[0] - 1)
+                img = image_channel[z_idx, :, :]
+        
+        # Validate click is within bounds
+        height, width = img.shape[:2]
+        if x < 0 or x >= width or y < 0 or y >= height:
             return
-        if event.xdata is not None and event.ydata is not None:
-            self.selected_points.append([int(event.xdata), int(event.ydata)])
-            ch = self.segmentation_current_channel
-            if self.use_max_proj_for_segmentation:
-                max_proj = np.max(self.image_stack, axis=(0, 1))[..., ch]
-            else:
-                fr = self.segmentation_current_frame
-                image_channel = self.image_stack[fr, :, :, :, ch]
-                max_proj = np.max(image_channel, axis=0)
-            max_proj = gaussian_filter(max_proj, sigma=2)
-            max_proj = np.clip(max_proj,
-                            np.percentile(max_proj, 0.5),
-                            np.percentile(max_proj, 99.))
-            self.ax_segmentation.clear()
-            self.ax_segmentation.imshow(max_proj, cmap='Spectral')
-            self.ax_segmentation.axis('off')
-            if len(self.selected_points) > 1:
-                polygon = np.array(self.selected_points)
-                self.ax_segmentation.plot(polygon[:, 0], polygon[:, 1], 'k-', lw=2)
-            self.ax_segmentation.plot(
-                [p[0] for p in self.selected_points],
-                [p[1] for p in self.selected_points],
-                'bo', markersize=6,
-            )
+        
+        # Add point to polygon
+        self.manual_polygon_points.append((x, y))
+        
+        # Update display
+        self._update_polygon_display()
+        self._update_polygon_status()
+
+    def _update_polygon_display(self):
+        """Update the display to show current polygon points and lines."""
+        # First draw the base image using plot_segmentation
+        self.plot_segmentation()
+        
+        # Then overlay polygon points and lines
+        if hasattr(self, 'manual_polygon_points') and len(self.manual_polygon_points) > 0:
+            points = self.manual_polygon_points
+            
+            # Draw lines between consecutive points
+            if len(points) > 1:
+                xs = [p[0] for p in points]
+                ys = [p[1] for p in points]
+                self.ax_segmentation.plot(xs, ys, 'c-', linewidth=2, alpha=0.8)
+            
+            # Draw points as markers
+            for i, (px, py) in enumerate(points):
+                if i == 0:
+                    # First point is special (green)
+                    self.ax_segmentation.plot(px, py, 'go', markersize=10, markeredgecolor='white', markeredgewidth=2)
+                else:
+                    # Other points (cyan)
+                    self.ax_segmentation.plot(px, py, 'co', markersize=8, markeredgecolor='white', markeredgewidth=1.5)
+            
             self.canvas_segmentation.draw()
 
-
-    def finish_segmentation(self):
-        """
-        Terminate manual segmentation by disconnecting the click callback.
-        """
-        if hasattr(self, 'selected_points') and self.selected_points:
-            fr = self.segmentation_current_frame
-            ch = self.segmentation_current_channel
-            image_channel = self.image_stack[fr, :, :, :, ch]
-            # Apply Z selection
-            current_z = getattr(self, 'segmentation_current_z', -1)
-            if current_z == -1:
-                # Max Z-projection
-                max_proj = np.max(image_channel, axis=0)
-                self.segmentation_z_used_for_mask = -1
+    def _update_polygon_status(self):
+        """Update status label and button states based on polygon drawing state."""
+        n_points = len(getattr(self, 'manual_polygon_points', []))
+        
+        # Update Finish button state
+        if hasattr(self, 'btn_finish_polygon'):
+            self.btn_finish_polygon.setEnabled(n_points >= 3)
+        
+        # Update status label
+        if hasattr(self, 'manual_status_label'):
+            if self.segmentation_mask is not None and n_points == 0:
+                n_pixels = np.sum(self.segmentation_mask > 0)
+                self.manual_status_label.setText(f"✓ Mask active: {n_pixels:,} pixels")
+                self.manual_status_label.setStyleSheet("color: #00cc66; font-weight: bold;")
+            elif n_points == 0:
+                self.manual_status_label.setText("ℹ️ Click on image to place polygon vertices")
+                self.manual_status_label.setStyleSheet("color: #888888; font-style: italic;")
+            elif n_points < 3:
+                self.manual_status_label.setText(f"🔷 {n_points} point(s) - need at least 3 for polygon")
+                self.manual_status_label.setStyleSheet("color: #17a2b8;")
             else:
-                # Specific Z-slice
-                z_idx = min(current_z, image_channel.shape[0] - 1)
-                max_proj = image_channel[z_idx, :, :]
-                self.segmentation_z_used_for_mask = z_idx
-            max_proj = gaussian_filter(max_proj, sigma=1)
-            max_proj = np.clip(max_proj, np.percentile(max_proj, 0.01), np.percentile(max_proj, 99.95))
-            # Create labeled mask with cell ID = 1 (not 255 which was incorrect)
-            # Use int32 dtype for proper labeled mask compatibility with tracking
-            mask = np.zeros(max_proj.shape[:2], dtype=np.int32)
-            polygon = np.array([self.selected_points], dtype=np.int32)
-            cv2.fillPoly(mask, polygon, 1)  # Fill with cell ID 1, not 255
-            self.segmentation_mask = mask
-            self._active_mask_source = 'segmentation'
-            # Clear Cellpose/imported masks since we're using manual segmentation now
-            self.cellpose_masks_cyto = None
-            self.cellpose_masks_nuc = None
-            self.cellpose_masks_cyto_tyx = None
-            self.cellpose_masks_nuc_tyx = None
-            self.use_tyx_masks = False
-            self.masks_imported = False
-            # Reset import status labels
-            if hasattr(self, 'label_cyto_mask_status'):
-                self.label_cyto_mask_status.setText("No cytosol mask loaded")
-                self.label_cyto_mask_status.setStyleSheet("color: gray;")
-            if hasattr(self, 'label_nuc_mask_status'):
-                self.label_nuc_mask_status.setText("No nucleus mask loaded")
-                self.label_nuc_mask_status.setStyleSheet("color: gray;")
-            self.ax_segmentation.clear()
-            cmap_imagej = cmap_list_imagej[ch % len(cmap_list_imagej)]
-            self.ax_segmentation.imshow(max_proj, cmap=cmap_imagej)
-            self.ax_segmentation.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
-            self.ax_segmentation.axis('off')
-            self.canvas_segmentation.draw()
-            self.photobleaching_calculated = False
-            self.segmentation_mode = "manual"
+                self.manual_status_label.setText(f"🔷 {n_points} points - click 'Finish Polygon' to create mask")
+                self.manual_status_label.setStyleSheet("color: #17a2b8; font-weight: bold;")
+
+    def finish_manual_polygon(self):
+        """Close the polygon and create the mask from the drawn points."""
+        if not hasattr(self, 'manual_polygon_points') or len(self.manual_polygon_points) < 3:
+            if hasattr(self, 'manual_status_label'):
+                self.manual_status_label.setText("⚠️ Need at least 3 points to create polygon")
+                self.manual_status_label.setStyleSheet("color: #ffc107;")
+            return
+        
+        # Get image dimensions
+        image_to_use = self.get_current_image_source()
+        if image_to_use is None:
+            return
+        
+        ch = self.segmentation_current_channel
+        if self.use_max_proj_for_segmentation and self.segmentation_maxproj is not None:
+            img = self.segmentation_maxproj[..., ch]
         else:
-            print("No points selected")
-        if hasattr(self, 'cid'):
-            try:
-                self.canvas_segmentation.mpl_disconnect(self.cid)
-            except Exception:
-                pass
-            del self.cid
-        self.selected_points = []
+            fr = self.segmentation_current_frame
+            image_channel = image_to_use[fr, :, :, :, ch]
+            if getattr(self, 'segmentation_current_z', -1) == -1:
+                img = np.max(image_channel, axis=0)
+            else:
+                z_idx = min(self.segmentation_current_z, image_channel.shape[0] - 1)
+                img = image_channel[z_idx, :, :]
+        
+        height, width = img.shape[:2]
+        
+        # Create mask using cv2.fillPoly
+        mask = np.zeros((height, width), dtype=np.int32)
+        pts = np.array([[int(round(x)), int(round(y))] for x, y in self.manual_polygon_points], dtype=np.int32)
+        cv2.fillPoly(mask, [pts], 1)
+        
+        # Set as active mask
+        self.segmentation_mask = mask
+        self._active_mask_source = 'segmentation'
+        
+        # Clear Cellpose/imported masks
+        self.cellpose_masks_cyto = None
+        self.cellpose_masks_nuc = None
+        self.cellpose_masks_cyto_tyx = None
+        self.cellpose_masks_nuc_tyx = None
+        self.use_tyx_masks = False
+        self.masks_imported = False
+        
+        if hasattr(self, 'label_cyto_mask_status'):
+            self.label_cyto_mask_status.setText("No cytosol mask loaded")
+            self.label_cyto_mask_status.setStyleSheet("color: gray;")
+        if hasattr(self, 'label_nuc_mask_status'):
+            self.label_nuc_mask_status.setText("No nucleus mask loaded")
+            self.label_nuc_mask_status.setStyleSheet("color: gray;")
+        
+        # Clear photobleaching
+        self.photobleaching_calculated = False
+        
+        # Clear polygon points (mask created)
+        n_pixels = np.sum(mask > 0)
+        self.manual_polygon_points = []
+        
+        # Update display
+        self.plot_segmentation()
+        
+        # Update status
+        if hasattr(self, 'manual_status_label'):
+            self.manual_status_label.setText(f"✓ Mask created: {n_pixels:,} pixels")
+            self.manual_status_label.setStyleSheet("color: #00cc66; font-weight: bold;")
+        
+        # Disable finish button
+        if hasattr(self, 'btn_finish_polygon'):
+            self.btn_finish_polygon.setEnabled(False)
+
+    def clear_manual_mask(self):
+        """Clear the current polygon points and mask, reset to ready state."""
+        # Clear polygon points
+        self.manual_polygon_points = []
+        
+        # Clear mask
+        self.segmentation_mask = None
+        self._active_mask_source = 'none'
+        
+        # Clear photobleaching
+        self.photobleaching_calculated = False
+        
+        # Update display
+        self.plot_segmentation()
+        
+        # Update status
+        self._update_polygon_status()
+        
+        # Disable finish button
+        if hasattr(self, 'btn_finish_polygon'):
+            self.btn_finish_polygon.setEnabled(False)
+
 
     def next_frame(self):
         if getattr(self, 'total_frames', 0) == 0:
@@ -5211,9 +5320,19 @@ class GUI(QMainWindow):
             cmap_used = cmap_list_imagej[ch % len(cmap_list_imagej)]
             self.ax_segmentation.imshow(normalized_image[..., 0], cmap=cmap_used, vmin=0, vmax=1)
             
-            # Draw contours for segmentation mask
+            # Draw mask overlay (semi-transparent, like Edit tab)
             if self.segmentation_mask is not None:
-                self.ax_segmentation.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1)
+                # Create RGBA overlay with 30% opacity
+                mask_rgba = np.zeros((*self.segmentation_mask.shape, 4), dtype=np.float32)
+                mask_region = self.segmentation_mask > 0
+                mask_rgba[mask_region, 0] = 0.0   # R
+                mask_rgba[mask_region, 1] = 0.8   # G (cyan)
+                mask_rgba[mask_region, 2] = 0.8   # B
+                mask_rgba[mask_region, 3] = 0.3   # Alpha (30% opacity)
+                self.ax_segmentation.imshow(mask_rgba, interpolation='nearest')
+                
+                # Draw white contour for clear boundary
+                self.ax_segmentation.contour(self.segmentation_mask, levels=[0.5], colors='white', linewidths=1.5)
             
             # Add axis labels in pixels (helpful for Cellpose diameter estimation)
             height, width = image_to_display.shape[:2]
@@ -5863,8 +5982,11 @@ class GUI(QMainWindow):
             segmentation_method_tabs (QTabWidget)
             use_max_proj_checkbox (QCheckBox)
             max_proj_status_label (QLabel)
-            segmentation_button (QPushButton)
-            finish_segmentation_button (QPushButton)
+            # Manual segmentation tab widgets:
+            btn_clear_manual_mask (QPushButton): Clear the manual mask
+            manual_status_label (QLabel): Shows current manual mode status
+            manual_instructions_label (QLabel): Rich text instructions
+            cid_manual (int): Matplotlib click handler connection ID
             watershed_threshold_slider (QSlider)
             watershed_threshold_label (QLabel)
             watershed_size_slider (QSlider)
@@ -5888,8 +6010,7 @@ class GUI(QMainWindow):
             export_segmentation_image
             export_mask_as_tiff
             update_segmentation_source
-            manual_segmentation
-            finish_segmentation
+            clear_manual_mask
             update_watershed_threshold_factor
             run_watershed_segmentation
             _on_segmentation_subtab_changed
@@ -6013,25 +6134,87 @@ class GUI(QMainWindow):
         manual_tab_layout.setContentsMargins(10, 10, 10, 10)
         manual_tab_layout.setSpacing(10)
         
-        # Instructions label
-        manual_instructions = QLabel(
-            "Draw a polygon by clicking points on the image.\n"
-            "Click 'Manual Segmentation' to start, then click to add vertices.\n"
-            "Click 'Finish Segmentation' to complete the polygon."
-        )
-        manual_instructions.setWordWrap(True)
-        manual_instructions.setStyleSheet("color: gray; font-size: 11px;")
-        manual_tab_layout.addWidget(manual_instructions)
+        # Instructions panel with rich styling
+        instructions_frame = QFrame()
+        instructions_frame.setStyleSheet("""
+            QFrame {
+                background-color: #2a2a3a;
+                border: 1px solid #444;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        instructions_layout = QVBoxLayout(instructions_frame)
+        instructions_layout.setContentsMargins(10, 8, 10, 8)
+        instructions_layout.setSpacing(4)
         
-        # Button row for manual segmentation
+        self.manual_instructions_label = QLabel(
+            "<b>🔷 Polygon Drawing Workflow:</b><br>"
+            "1. Click on the image to place polygon vertices<br>"
+            "2. Click 'Finish Polygon' to close and fill the mask<br>"
+            "3. Use 'Clear' to start over"
+        )
+        self.manual_instructions_label.setTextFormat(Qt.RichText)
+        self.manual_instructions_label.setWordWrap(True)
+        self.manual_instructions_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        instructions_layout.addWidget(self.manual_instructions_label)
+        manual_tab_layout.addWidget(instructions_frame)
+        
+        # Button row
         button_layout = QHBoxLayout()
-        self.segmentation_button = QPushButton("Manual Segmentation", self)
-        self.segmentation_button.clicked.connect(self.manual_segmentation)
-        button_layout.addWidget(self.segmentation_button)
-        self.finish_segmentation_button = QPushButton("Finish Segmentation", self)
-        self.finish_segmentation_button.clicked.connect(self.finish_segmentation)
-        button_layout.addWidget(self.finish_segmentation_button)
+        
+        # Finish Polygon button
+        self.btn_finish_polygon = QPushButton("✓ Finish Polygon")
+        self.btn_finish_polygon.setToolTip("Close the polygon and create the mask")
+        self.btn_finish_polygon.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+            }
+        """)
+        self.btn_finish_polygon.clicked.connect(self.finish_manual_polygon)
+        self.btn_finish_polygon.setEnabled(False)  # Disabled until at least 3 points
+        button_layout.addWidget(self.btn_finish_polygon)
+        
+        # Clear button
+        self.btn_clear_manual_mask = QPushButton("🗑️ Clear")
+        self.btn_clear_manual_mask.setToolTip("Clear all points and the mask")
+        self.btn_clear_manual_mask.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        self.btn_clear_manual_mask.clicked.connect(self.clear_manual_mask)
+        button_layout.addWidget(self.btn_clear_manual_mask)
+        
         manual_tab_layout.addLayout(button_layout)
+        
+        # Status label
+        self.manual_status_label = QLabel("ℹ️ Click on image to place polygon vertices")
+        self.manual_status_label.setStyleSheet("color: #888888; font-size: 11px; font-style: italic;")
+        manual_tab_layout.addWidget(self.manual_status_label)
+        
+        # Initialize polygon drawing state
+        self.manual_polygon_points = []  # List of (x, y) tuples
+        
         manual_tab_layout.addStretch()
         
         # Manual tab will be added last (after Cellpose)
@@ -6614,16 +6797,24 @@ class GUI(QMainWindow):
         Tab indices:
             0 = Watershed
             1 = Cellpose
-            2 = Manual
+            2 = Manual (polygon drawing workflow)
             3 = Import (uses Cellpose-style display)
             4 = Edit (edit existing masks)
         """
         if index == 4:  # Edit sub-tab
+            self._exit_manual_mode()
             self.enter_edit_mode()
+        elif index == 2:  # Manual sub-tab - polygon drawing
+            self.exit_edit_mode()
+            self._enter_manual_mode()
+            self._update_polygon_display()
+            self._update_polygon_status()
         elif index == 1 or index == 3:  # Cellpose or Import sub-tab
+            self._exit_manual_mode()
             self.exit_edit_mode()
             self.plot_cellpose_results()
-        else:
+        else:  # Watershed (index 0)
+            self._exit_manual_mode()
             self.exit_edit_mode()
             self.plot_segmentation()
 
@@ -7829,7 +8020,12 @@ class GUI(QMainWindow):
         self.update_threshold_histogram()
 
     def on_auto_threshold_clicked(self):
-        """Handle auto-threshold button click - calculate optimal threshold automatically."""
+        """Handle auto-threshold button click - calculate optimal threshold automatically.
+        
+        Calculates thresholds on multiple representative frames (beginning, middle, end)
+        and averages them for more robust detection across temporal variability.
+        Handles single-frame movies gracefully by using only the available frame.
+        """
         if self.image_stack is None:
             self.statusBar().showMessage("No image loaded")
             return
@@ -7843,14 +8039,10 @@ class GUI(QMainWindow):
             return
         
         # Show progress
-        self.statusBar().showMessage("Calculating optimal threshold...")
+        self.statusBar().showMessage("Calculating optimal threshold (multi-frame)...")
         QApplication.processEvents()
         
         try:
-            # Get current frame's image for this channel
-            # Shape: [Z, Y, X]
-            image_channel = image_to_use[self.current_frame, :, :, :, channel]
-            
             # Determine if using 3D or 2D mode
             use_3d = not self.use_maximum_projection
             
@@ -7862,17 +8054,61 @@ class GUI(QMainWindow):
             yx_spot_size = getattr(self, 'yx_spot_size_in_px', 5)
             z_spot_size = getattr(self, 'z_spot_size_in_px', 2)
             
-            # Calculate threshold using AutoThreshold class
-            auto_thresh = mi.AutoThreshold(
-                image=image_channel,
-                voxel_size_yx=voxel_yx,
-                voxel_size_z=voxel_z,
-                yx_spot_size_in_px=yx_spot_size,
-                z_spot_size_in_px=z_spot_size,
-                use_3d=use_3d
-            )
-            threshold_raw = auto_thresh.calculate()
-            method_used = auto_thresh.method_used
+            # --- Multi-frame threshold calculation ---
+            # Select representative frames: beginning, middle, end
+            total_frames = image_to_use.shape[0]
+            if total_frames <= 1:
+                frame_indices = [0]
+            elif total_frames == 2:
+                frame_indices = [0, 1]
+            else:
+                frame_indices = [0, total_frames // 2, total_frames - 1]
+            
+            # Calculate threshold for each representative frame
+            thresholds = []
+            methods = []
+            
+            for frame_idx in frame_indices:
+                try:
+                    # Extract image for this frame and channel [Z, Y, X]
+                    image_channel = image_to_use[frame_idx, :, :, :, channel]
+                    
+                    # Calculate threshold using AutoThreshold class
+                    auto_thresh = mi.AutoThreshold(
+                        image=image_channel,
+                        voxel_size_yx=voxel_yx,
+                        voxel_size_z=voxel_z,
+                        yx_spot_size_in_px=yx_spot_size,
+                        z_spot_size_in_px=z_spot_size,
+                        use_3d=use_3d
+                    )
+                    thresh = auto_thresh.calculate()
+                    
+                    # Only include valid thresholds
+                    if thresh is not None and thresh > 0:
+                        thresholds.append(thresh)
+                        methods.append(auto_thresh.method_used)
+                except Exception as frame_error:
+                    # Log but continue with other frames
+                    logging.debug(f"Auto-threshold failed for frame {frame_idx}: {frame_error}")
+                    continue
+            
+            # Check if any valid thresholds were calculated
+            if not thresholds:
+                self.statusBar().showMessage("Auto-threshold failed: no valid frames")
+                return
+            
+            # Compute average threshold across all valid frames
+            threshold_raw = np.mean(thresholds)
+            n_frames_used = len(thresholds)
+            
+            # Determine method string for reporting
+            unique_methods = set(methods)
+            if len(unique_methods) == 1:
+                method_used = methods[0]
+            else:
+                # Mixed methods across frames
+                method_used = "multi-frame"
             
             # Reduce threshold by 30% to improve spot coverage (auto-threshold tends to overestimate)
             threshold = threshold_raw * 0.7
@@ -7903,10 +8139,16 @@ class GUI(QMainWindow):
             # Auto-run single frame detection
             self.detect_spots_in_current_frame()
             
-            # Show result
-            self.statusBar().showMessage(
-                f"Auto-threshold Ch{channel}: {int(threshold)} (method: {method_used})"
-            )
+            # Show result with frame count info
+            if n_frames_used == 1:
+                self.statusBar().showMessage(
+                    f"Auto-threshold Ch{channel}: {int(threshold)} (method: {method_used})"
+                )
+            else:
+                self.statusBar().showMessage(
+                    f"Auto-threshold Ch{channel}: {int(threshold)} "
+                    f"(avg of {n_frames_used} frames, method: {method_used})"
+                )
             
         except Exception as e:
             traceback.print_exc()
@@ -9918,7 +10160,10 @@ class GUI(QMainWindow):
         self.auto_threshold_btn = QPushButton("Auto")
         self.auto_threshold_btn.setFixedWidth(45)
         self.auto_threshold_btn.setFixedHeight(20)
-        self.auto_threshold_btn.setToolTip("Auto-detect optimal threshold")
+        self.auto_threshold_btn.setToolTip(
+            "Auto-detect optimal threshold\\n"
+            "(averages across beginning, middle, and end frames)"
+        )
         self.auto_threshold_btn.setStyleSheet("""
             QPushButton {
                 background-color: #00d4aa;
@@ -16033,6 +16278,21 @@ class GUI(QMainWindow):
             self.edit_mask_selector.blockSignals(False)
         if hasattr(self, 'edit_instructions_group'):
             self.edit_instructions_group.setVisible(False)
+        
+        # Reset Manual segmentation mode state
+        if hasattr(self, 'cid_manual') and self.cid_manual is not None:
+            try:
+                self.canvas_segmentation.mpl_disconnect(self.cid_manual)
+            except Exception:
+                pass
+            self.cid_manual = None
+        # Clear polygon points
+        self.manual_polygon_points = []
+        if hasattr(self, 'btn_finish_polygon'):
+            self.btn_finish_polygon.setEnabled(False)
+        if hasattr(self, 'manual_status_label'):
+            self.manual_status_label.setText("ℹ️ Click on image to place polygon vertices")
+            self.manual_status_label.setStyleSheet("color: #888888; font-style: italic;")
 
     def reset_photobleaching_tab(self):
         self.figure_photobleaching.clear()
