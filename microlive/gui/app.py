@@ -3405,6 +3405,13 @@ class GUI(QMainWindow):
             except Exception:
                 pass
         
+        # Clear any existing mask from other segmentation methods (e.g., watershed)
+        # This ensures the user starts with a clean canvas for manual drawing
+        current_mode = getattr(self, 'segmentation_mode', None)
+        if current_mode != 'manual' and self.segmentation_mask is not None:
+            self.segmentation_mask = None
+            self._original_watershed_mask = None  # Also clear the watershed backup
+        
         # Connect click handler for polygon vertices
         self.cid_manual = self.canvas_segmentation.mpl_connect(
             'button_press_event', self.on_polygon_click
@@ -6380,7 +6387,7 @@ class GUI(QMainWindow):
         
         self.cellpose_cyto_diameter_input = QDoubleSpinBox()
         self.cellpose_cyto_diameter_input.setRange(0, 1000)
-        self.cellpose_cyto_diameter_input.setValue(150)
+        self.cellpose_cyto_diameter_input.setValue(350)
         cyto_layout.addRow("Diameter (px):", self.cellpose_cyto_diameter_input)
         
         self.chk_optimize_cyto = QCheckBox("Optimize Parameters")
@@ -9665,11 +9672,8 @@ class GUI(QMainWindow):
             self.display_correlation_plot()
             self.channels_spots = [self.current_channel]
             self.populate_colocalization_channels()
-            # Reset verification subtabs
-            if hasattr(self, 'verify_visual_scroll_area'):
-                self.verify_visual_scroll_area.setWidget(QWidget())
-            if hasattr(self, 'verify_distance_scroll_area'):
-                self.verify_distance_scroll_area.setWidget(QWidget())
+            # Note: Verification subtabs (Verify Visual, Verify Distance) are already
+            # reset at the start of perform_particle_tracking() via reset_colocalization_tab()
             self.MIN_FRAMES_MSD = 20
             self.MIN_PARTICLES_MSD = 10
 
@@ -11778,7 +11782,7 @@ class GUI(QMainWindow):
             num_z = image.shape[1]
             max_proj = np.max(image, axis=1, keepdims=True)
             image = np.repeat(max_proj, num_z, axis=1)
-        crop_size = int(self.yx_spot_size_in_px) + 5
+        crop_size = int(self.yx_spot_size_in_px) + 7
         if crop_size % 2 == 0:
             crop_size += 1
         
@@ -12325,6 +12329,22 @@ class GUI(QMainWindow):
         if hasattr(self, 'dist_coloc_zoom_label'):
             self.dist_coloc_zoom_label.setText("🔍 Full View")
             self.dist_coloc_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        
+        # === Reset Verify Visual sub-tab ===
+        if hasattr(self, 'verify_visual_scroll_area'):
+            self.verify_visual_scroll_area.setWidget(QWidget())
+        if hasattr(self, 'verify_visual_checkboxes'):
+            self.verify_visual_checkboxes = []
+        if hasattr(self, 'verify_visual_stats_label'):
+            self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
+        
+        # === Reset Verify Distance sub-tab ===
+        if hasattr(self, 'verify_distance_scroll_area'):
+            self.verify_distance_scroll_area.setWidget(QWidget())
+        if hasattr(self, 'verify_distance_checkboxes'):
+            self.verify_distance_checkboxes = []
+        if hasattr(self, 'verify_distance_stats_label'):
+            self.verify_distance_stats_label.setText("Run Distance colocalization first, then click Populate")
         
         # === Reset Manual Verify sub-tab ===
         self.reset_manual_colocalization()
@@ -13937,7 +13957,7 @@ class GUI(QMainWindow):
             return
         
         # Create crops and determine colocalization status
-        crop_size = int(getattr(self, 'yx_spot_size_in_px', 5)) + 5
+        crop_size = int(getattr(self, 'yx_spot_size_in_px', 5)) + 7
         if crop_size % 2 == 0:
             crop_size += 1
         
@@ -14220,9 +14240,13 @@ class GUI(QMainWindow):
             for ch_idx, ch in enumerate(channels[:2]):
                 if ch < crop_block.shape[-1]:
                     channel_crop = crop_block[:, :, ch]
-                    cmin, cmax = np.nanmin(channel_crop), np.nanmax(channel_crop)
+                    # Use 1st-99th percentile for normalization to reduce noise amplification
+                    cmin = np.nanpercentile(channel_crop, 1)
+                    cmax = np.nanpercentile(channel_crop, 99)
                     if cmax > cmin:
-                        norm = ((channel_crop - cmin) / (cmax - cmin) * 255).astype(np.uint8)
+                        # Clip values outside the percentile range
+                        clipped = np.clip(channel_crop, cmin, cmax)
+                        norm = ((clipped - cmin) / (cmax - cmin) * 255).astype(np.uint8)
                     else:
                         norm = np.zeros_like(channel_crop, np.uint8)
                     h, w = norm.shape
