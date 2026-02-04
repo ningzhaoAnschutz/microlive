@@ -17078,7 +17078,7 @@ class GUI(QMainWindow):
             self.cellpose_cyto_model_input.setCurrentText('cyto3')
         # Note: Cellpose channel spinboxes removed - channel is determined by left panel selection
         if hasattr(self, 'cellpose_cyto_diameter_input'):
-            self.cellpose_cyto_diameter_input.setValue(120)
+            self.cellpose_cyto_diameter_input.setValue(350)
         if hasattr(self, 'chk_optimize_cyto'):
             self.chk_optimize_cyto.setChecked(False)
         
