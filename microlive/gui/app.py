@@ -44,7 +44,7 @@ from PyQt5.QtCore import (
     qInstallMessageHandler,
 )
 from skimage.segmentation import find_boundaries
-from scipy.ndimage import center_of_mass
+from scipy.ndimage import center_of_mass, label as ndimage_label
 import matplotlib.colors as mcolors
 from PyQt5.QtGui import (
     QFont,
@@ -3438,7 +3438,9 @@ class GUI(QMainWindow):
         """Handle click in manual segmentation mode - add polygon vertex.
         
         Each click adds a vertex to the polygon. Points are connected with lines.
-        When finished, the polygon is closed and filled to create the mask.
+        Auto-closes the polygon when:
+        - Double-click anywhere (with at least 3 points)
+        - Click near the first point (within 15 pixels, with at least 3 points)
         """
         if event.inaxes != self.ax_segmentation:
             return
@@ -3470,6 +3472,20 @@ class GUI(QMainWindow):
         height, width = img.shape[:2]
         if x < 0 or x >= width or y < 0 or y >= height:
             return
+        
+        # Check for auto-close conditions (need at least 3 points first)
+        if len(self.manual_polygon_points) >= 3:
+            # Double-click anywhere closes polygon
+            if event.dblclick:
+                self.finish_manual_polygon()
+                return
+            
+            # Click near first point (within 15 pixels) closes polygon
+            first_x, first_y = self.manual_polygon_points[0]
+            distance_to_first = np.sqrt((x - first_x)**2 + (y - first_y)**2)
+            if distance_to_first < 15:
+                self.finish_manual_polygon()
+                return
         
         # Add point to polygon
         self.manual_polygon_points.append((x, y))
@@ -6185,10 +6201,10 @@ class GUI(QMainWindow):
         instructions_layout.setSpacing(4)
         
         self.manual_instructions_label = QLabel(
-            "<b>🔷 Polygon Drawing Workflow:</b><br>"
-            "1. Click on the image to place polygon vertices<br>"
-            "2. Click 'Finish Polygon' to close and fill the mask<br>"
-            "3. Use 'Clear' to start over"
+            "<b>🔷 Polygon Drawing:</b><br>"
+            "1. Click to place polygon vertices<br>"
+            "2. Click near first point or double-click to close<br>"
+            "   (Mask saves automatically)"
         )
         self.manual_instructions_label.setTextFormat(Qt.RichText)
         self.manual_instructions_label.setWordWrap(True)
@@ -6687,13 +6703,56 @@ class GUI(QMainWindow):
         mask_select_group.setLayout(mask_select_layout)
         edit_scroll_layout.addWidget(mask_select_group)
         
+        # --- Tool Selection Group ---
+        tool_group = QGroupBox("Edit Tool")
+        tool_layout = QVBoxLayout()
+        
+        # Tool buttons
+        tool_btn_layout = QHBoxLayout()
+        
+        self.btn_tool_eraser = QPushButton("🖌️ Eraser")
+        self.btn_tool_eraser.setToolTip("Click and drag to erase mask regions")
+        self.btn_tool_eraser.setCheckable(True)
+        self.btn_tool_eraser.setChecked(True)  # Default tool
+        self.btn_tool_eraser.clicked.connect(lambda: self._set_edit_tool('eraser'))
+        tool_btn_layout.addWidget(self.btn_tool_eraser)
+        
+        self.btn_tool_knife = QPushButton("🔪 Knife")
+        self.btn_tool_knife.setToolTip("Click points to draw a cut path, then click Cut!")
+        self.btn_tool_knife.setCheckable(True)
+        self.btn_tool_knife.clicked.connect(lambda: self._set_edit_tool('knife'))
+        tool_btn_layout.addWidget(self.btn_tool_knife)
+        
+        tool_layout.addLayout(tool_btn_layout)
+        
+        # Knife hint (only visible when knife is selected)
+        self.knife_options_widget = QWidget()
+        knife_options_layout = QVBoxLayout(self.knife_options_widget)
+        knife_options_layout.setContentsMargins(0, 5, 0, 0)
+        
+        knife_info = QLabel("Click to add points.\nDouble-click to cut.")
+        knife_info.setStyleSheet("color: #ffcc66; font-size: 11px; font-weight: bold;")
+        knife_info.setWordWrap(True)
+        knife_options_layout.addWidget(knife_info)
+        
+        self.knife_options_widget.setVisible(False)  # Hidden until knife selected
+        tool_layout.addWidget(self.knife_options_widget)
+        
+        tool_group.setLayout(tool_layout)
+        edit_scroll_layout.addWidget(tool_group)
+        
+        # Initialize edit tool state
+        self.edit_current_tool = 'eraser'
+        self.knife_points = []  # List of (x, y) points for multipoint cut
+        self.knife_preview_lines = []  # For visual preview
+        
         # --- Instructions Panel (shown when mask is selected) ---
         self.edit_instructions_group = QGroupBox("How to Edit")
         instructions_layout = QVBoxLayout()
         
         self.edit_instructions_label = QLabel(
-            "🖱️ Click and drag on the mask to erase regions.\n"
-            "   Erased areas become background (0).\n\n"
+            "🖌️ <b>Eraser:</b> Click and drag to erase regions.<br>"
+            "🔪 <b>Knife:</b> Click to add points, double-click to cut.<br><br>"
             "💾 Click 'Apply & Save' when finished."
         )
         self.edit_instructions_label.setWordWrap(True)
@@ -6782,9 +6841,14 @@ class GUI(QMainWindow):
         self.edit_undo_stack = []
         self.EDIT_MAX_UNDO_DEPTH = 10
         
-        # Eraser brush state (only tool)
+        # Edit tool state (eraser and knife)
+        self.edit_current_tool = 'eraser'  # 'eraser' or 'knife'
         self.edit_brush_size = 10
         self.edit_brush_shape = 'circle'
+        
+        # Knife tool state
+        self.knife_cut_start = None  # Start point of knife line
+        self.knife_preview_line = None  # For visual preview
         
         # Mouse state for drawing
         self.edit_last_mouse_pos = None
@@ -6861,6 +6925,9 @@ class GUI(QMainWindow):
     def enter_edit_mode(self):
         """Initialize edit mode when Edit tab is selected."""
         self.edit_mode_active = True
+        
+        # Reset to eraser tool (default)
+        self._set_edit_tool('eraser')
         
         # Connect mouse events for editing
         self._connect_edit_mouse_events()
@@ -7089,9 +7156,6 @@ class GUI(QMainWindow):
         self.edit_status_label.setText(f"↩ Undid: {description}")
         self.edit_status_label.setStyleSheet("color: #88ff88;")
         
-        # Refresh dropdown
-        self._refresh_cell_label_dropdown()
-        
         # Update buttons and display
         self._update_edit_buttons_state()
         self.plot_edit_mode()
@@ -7121,9 +7185,6 @@ class GUI(QMainWindow):
         
         self.edit_status_label.setText("↺ Reset to original mask")
         self.edit_status_label.setStyleSheet("color: #88ff88;")
-        
-        # Refresh dropdown
-        self._refresh_cell_label_dropdown()
         
         # Update buttons and display
         self._update_edit_buttons_state()
@@ -7398,7 +7459,7 @@ class GUI(QMainWindow):
             self._edit_cid_motion = None
     
     def _on_edit_mouse_press(self, event):
-        """Handle mouse button press in edit mode (eraser brush only)."""
+        """Handle mouse button press in edit mode - routes to current tool."""
         if event.inaxes != self.ax_segmentation:
             return
         if event.xdata is None or event.ydata is None:
@@ -7406,48 +7467,53 @@ class GUI(QMainWindow):
         if not self.edit_mode_active or self.edit_working_mask is None:
             return
         
-        x, y = int(event.xdata), int(event.ydata)
+        # Route to appropriate tool
+        current_tool = getattr(self, 'edit_current_tool', 'eraser')
         
-        # Start erasing
-        self.edit_is_drawing = True
-        self.edit_last_mouse_pos = (x, y)
-        
-        # Push undo state at start of stroke
-        self._push_undo("Erase")
-        
-        # Apply first point
-        self._apply_eraser_at(x, y)
-        self.plot_edit_mode()
+        if current_tool == 'knife':
+            self._on_knife_click(event)  # Click to add point
+        else:  # eraser (default)
+            x, y = int(event.xdata), int(event.ydata)
+            self.edit_is_drawing = True
+            self.edit_last_mouse_pos = (x, y)
+            self._push_undo("Erase")
+            self._apply_eraser_at(x, y)
+            self.plot_edit_mode()
     
     def _on_edit_mouse_release(self, event):
         """Handle mouse button release in edit mode."""
-        if self.edit_is_drawing:
-            self.edit_is_drawing = False
-            self.edit_last_mouse_pos = None
-            self._update_edit_buttons_state()
+        current_tool = getattr(self, 'edit_current_tool', 'eraser')
+        
+        # Knife uses click-based interaction, no release handling needed
+        if current_tool == 'eraser':
+            if self.edit_is_drawing:
+                self.edit_is_drawing = False
+                self.edit_last_mouse_pos = None
+                self._update_edit_buttons_state()
     
     def _on_edit_mouse_motion(self, event):
-        """Handle mouse motion in edit mode (for eraser drawing)."""
-        if not self.edit_is_drawing:
-            return
-        if event.inaxes != self.ax_segmentation:
-            return
-        if event.xdata is None or event.ydata is None:
-            return
-        if self.edit_working_mask is None:
-            return
+        """Handle mouse motion in edit mode - routes to current tool."""
+        current_tool = getattr(self, 'edit_current_tool', 'eraser')
         
-        x, y = int(event.xdata), int(event.ydata)
-        
-        # Apply eraser at new position
-        self._apply_eraser_at(x, y)
-        
-        # Draw line between last position and current for smooth strokes
-        if self.edit_last_mouse_pos:
-            self._apply_eraser_line(self.edit_last_mouse_pos[0], self.edit_last_mouse_pos[1], x, y)
-        
-        self.edit_last_mouse_pos = (x, y)
-        self.plot_edit_mode()
+        # Knife uses click-based interaction, no motion handling needed
+        if current_tool == 'eraser':
+            if not self.edit_is_drawing:
+                return
+            if event.inaxes != self.ax_segmentation:
+                return
+            if event.xdata is None or event.ydata is None:
+                return
+            if self.edit_working_mask is None:
+                return
+            
+            x, y = int(event.xdata), int(event.ydata)
+            self._apply_eraser_at(x, y)
+            
+            if self.edit_last_mouse_pos:
+                self._apply_eraser_line(self.edit_last_mouse_pos[0], self.edit_last_mouse_pos[1], x, y)
+            
+            self.edit_last_mouse_pos = (x, y)
+            self.plot_edit_mode()
     
     def _apply_eraser_at(self, x, y):
         """Apply eraser brush at given position (sets pixels to background 0).
@@ -7474,6 +7540,157 @@ class GUI(QMainWindow):
         
         for r, c in zip(rr, cc):
             self._apply_eraser_at(c, r)
+    
+    # =========================================================================
+    # KNIFE TOOL - Cut/Split Mask
+    # =========================================================================
+    
+    def _set_edit_tool(self, tool_name):
+        """Switch between edit tools (eraser or knife)."""
+        self.edit_current_tool = tool_name
+        
+        # Update button states
+        self.btn_tool_eraser.setChecked(tool_name == 'eraser')
+        self.btn_tool_knife.setChecked(tool_name == 'knife')
+        
+        # Show/hide knife options
+        self.knife_options_widget.setVisible(tool_name == 'knife')
+        
+        # Clear any existing knife points when switching tools
+        self._clear_knife_points()
+        
+        # Update status
+        if tool_name == 'knife':
+            self.edit_status_label.setText("🔪 Knife: Click to add cut points, then Cut!")
+            self.edit_status_label.setStyleSheet("color: #ff9966;")
+        else:
+            self.edit_status_label.setText("🖌️ Eraser: Click and drag to erase")
+            self.edit_status_label.setStyleSheet("color: #88ff88;")
+    
+    def _clear_knife_points(self):
+        """Clear all knife cut points and preview lines."""
+        self.knife_points = []
+        
+        # Remove preview lines from plot
+        for line in getattr(self, 'knife_preview_lines', []):
+            try:
+                line.remove()
+            except Exception:
+                pass
+        self.knife_preview_lines = []
+        
+        # Remove point markers
+        for marker in getattr(self, 'knife_point_markers', []):
+            try:
+                marker.remove()
+            except Exception:
+                pass
+        self.knife_point_markers = []
+        
+        # Refresh display
+        if hasattr(self, 'canvas_segmentation'):
+            self.canvas_segmentation.draw_idle()
+    
+    def _on_knife_click(self, event):
+        """Handle click for knife tool - single click adds point, double-click cuts."""
+        if event.inaxes != self.ax_segmentation:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        if not self.edit_mode_active or self.edit_working_mask is None:
+            return
+        
+        x, y = int(event.xdata), int(event.ydata)
+        
+        # Check for double-click - execute cut if we have enough points
+        if event.dblclick:
+            if len(self.knife_points) >= 1:
+                # Add the double-click point as the final point
+                self.knife_points.append((x, y))
+                self._execute_multipoint_cut()
+            return
+        
+        # Single click - add point to list
+        self.knife_points.append((x, y))
+        
+        # Draw point marker
+        if not hasattr(self, 'knife_point_markers'):
+            self.knife_point_markers = []
+        marker = self.ax_segmentation.plot(x, y, 'ro', markersize=8, markeredgecolor='white')[0]
+        self.knife_point_markers.append(marker)
+        
+        # Draw line from previous point
+        if len(self.knife_points) > 1:
+            prev_x, prev_y = self.knife_points[-2]
+            line, = self.ax_segmentation.plot([prev_x, x], [prev_y, y], 'r-', linewidth=3, alpha=0.8)
+            self.knife_preview_lines.append(line)
+        
+        self.canvas_segmentation.draw_idle()
+    
+    def _execute_multipoint_cut(self):
+        """Execute the cut along all the multipoint path. Always keeps largest piece."""
+        if self.edit_working_mask is None:
+            return
+        if len(self.knife_points) < 2:
+            self.edit_status_label.setText("Need at least 2 points to cut")
+            self.edit_status_label.setStyleSheet("color: #ffcc00;")
+            return
+        
+        # Push undo state before cutting
+        self._push_undo("Knife cut")
+        
+        mask = self.edit_working_mask.copy()
+        h, w = mask.shape
+        cut_thickness = 3
+        
+        # Draw cut line along all segments
+        for i in range(len(self.knife_points) - 1):
+            x0, y0 = self.knife_points[i]
+            x1, y1 = self.knife_points[i + 1]
+            rr, cc = skimage_draw_line(y0, x0, y1, x1)
+            
+            # Apply cut along the line with thickness
+            for r, c in zip(rr, cc):
+                for dr in range(-cut_thickness//2, cut_thickness//2 + 1):
+                    for dc in range(-cut_thickness//2, cut_thickness//2 + 1):
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < h and 0 <= nc < w:
+                            mask[nr, nc] = 0
+        
+        # Find connected components after cutting
+        labeled_mask, num_features = ndimage_label(mask > 0)
+        
+        if num_features <= 1:
+            # Cut didn't split anything - still update mask (cut line is drawn)
+            self.edit_working_mask = mask
+            self.edit_status_label.setText("Cut applied (no pieces separated)")
+            self.edit_status_label.setStyleSheet("color: #ffcc00;")
+        else:
+            # Get sizes of each component
+            component_sizes = []
+            for i in range(1, num_features + 1):
+                size = np.sum(labeled_mask == i)
+                component_sizes.append((i, size))
+            
+            # Sort by size (largest first)
+            component_sizes.sort(key=lambda x: x[1], reverse=True)
+            
+            # Always keep only the largest component
+            largest_label = component_sizes[0][0]
+            new_mask = np.where(labeled_mask == largest_label, 1, 0)
+            kept_size = component_sizes[0][1]
+            discarded_sizes = sum(s[1] for s in component_sizes[1:])
+            
+            self.edit_working_mask = new_mask.astype(self.edit_working_mask.dtype)
+            self.edit_status_label.setText(f"✂️ Kept largest ({kept_size:,} px), removed {discarded_sizes:,} px")
+            self.edit_status_label.setStyleSheet("color: #88ff88; font-weight: bold;")
+        
+        # Clear knife points and refresh display
+        self._clear_knife_points()
+        self.plot_edit_mode()
+        
+        # Auto-save the mask immediately (no need to press Apply & Save)
+        self.apply_and_save_edits()
 
 
 # =============================================================================
