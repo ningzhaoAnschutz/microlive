@@ -3921,9 +3921,16 @@ class GUI(QMainWindow):
         return expanded
     
     def _shrink_labeled_mask(self, mask, shrink_pixels):
-        """Shrink each label in a mask by eroding from boundaries."""
+        """Shrink each label in a mask by eroding from boundaries.
+        
+        Safeguards:
+        - Cells are not shrunk below MIN_CELL_PIXELS (10) pixels to prevent disappearing
+        - If shrinking would eliminate a cell, the original cell is preserved
+        """
         if mask is None:
             return None
+        
+        MIN_CELL_PIXELS = 10  # Minimum pixels to keep a cell visible
         
         shrunk = np.zeros_like(mask)
         unique_labels = np.unique(mask)
@@ -3934,10 +3941,27 @@ class GUI(QMainWindow):
         
         for label_id in unique_labels:
             cell_mask = (mask == label_id)
+            
             # Distance from boundary (positive inside cell)
             dist_inside = distance_transform_edt(cell_mask)
+            
             # Keep only pixels that are more than shrink_pixels from edge
-            shrunk[dist_inside > shrink_pixels] = label_id
+            shrunk_cell = dist_inside > shrink_pixels
+            shrunk_size = np.sum(shrunk_cell)
+            
+            # Safeguard: if cell would shrink too much, preserve it or limit shrink
+            if shrunk_size < MIN_CELL_PIXELS:
+                # Try reducing shrink amount to preserve minimum size
+                for reduced_shrink in range(shrink_pixels - 1, 0, -1):
+                    test_shrunk = dist_inside > reduced_shrink
+                    if np.sum(test_shrunk) >= MIN_CELL_PIXELS:
+                        shrunk[test_shrunk] = label_id
+                        break
+                else:
+                    # Even minimal shrink eliminates cell - keep original
+                    shrunk[cell_mask] = label_id
+            else:
+                shrunk[shrunk_cell] = label_id
         
         return shrunk
 
@@ -6398,15 +6422,15 @@ class GUI(QMainWindow):
         self.btn_run_cyto.clicked.connect(self.run_cellpose_cyto)
         cyto_layout.addRow(self.btn_run_cyto)
         
-        # Cytosol Size Adjustment Slider (-20 to +20, centered at 0)
+        # Cytosol Size Adjustment Slider (-40 to +40, centered at 0)
         cyto_size_layout = QHBoxLayout()
         cyto_size_layout.addWidget(QLabel("Size Adjust:"))
         self.cyto_size_slider = QSlider(Qt.Horizontal)
-        self.cyto_size_slider.setMinimum(-20)
-        self.cyto_size_slider.setMaximum(20)
+        self.cyto_size_slider.setMinimum(-40)
+        self.cyto_size_slider.setMaximum(40)
         self.cyto_size_slider.setValue(0)
         self.cyto_size_slider.setTickPosition(QSlider.TicksBelow)
-        self.cyto_size_slider.setTickInterval(5)
+        self.cyto_size_slider.setTickInterval(10)
         self.cyto_size_slider.setToolTip(
             "Adjust cytosol mask size: 0 = original, + = expand, - = shrink (px)"
         )
@@ -6442,15 +6466,15 @@ class GUI(QMainWindow):
         self.btn_run_nuc.clicked.connect(self.run_cellpose_nuc)
         nuc_layout.addRow(self.btn_run_nuc)
         
-        # Nucleus Size Adjustment Slider (-20 to +20, centered at 0)
+        # Nucleus Size Adjustment Slider (-40 to +40, centered at 0)
         nuc_size_layout = QHBoxLayout()
         nuc_size_layout.addWidget(QLabel("Size Adjust:"))
         self.nuc_size_slider = QSlider(Qt.Horizontal)
-        self.nuc_size_slider.setMinimum(-20)
-        self.nuc_size_slider.setMaximum(20)
+        self.nuc_size_slider.setMinimum(-40)
+        self.nuc_size_slider.setMaximum(40)
         self.nuc_size_slider.setValue(0)
         self.nuc_size_slider.setTickPosition(QSlider.TicksBelow)
-        self.nuc_size_slider.setTickInterval(5)
+        self.nuc_size_slider.setTickInterval(10)
         self.nuc_size_slider.setToolTip(
             "Adjust nucleus mask size: 0 = original, + = expand, - = shrink (px)"
         )
