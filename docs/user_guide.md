@@ -229,17 +229,17 @@ Cellpose provides deep learning-based cell segmentation that can automatically i
 | **Model**            | Nucleus   | nuclei, cyto3, etc.| nuclei  | Nuclear segmentation model          |
 | **Diameter**         | Both      | 0-1000 px          | 150/60  | Expected cell/nucleus diameter      |
 | **Optimize Parameters** | Both   | Boolean            | False   | Auto-optimize diameter              |
-| **Size Adjust**      | Both      | -20 to +20 px      | 0       | Expand (+) or shrink (-) masks      |
+| **Size Adjust**      | Both      | -40 to +40 px      | 0       | Expand (+) or shrink (-) masks      |
 
 #### Size Adjustment Slider
 
 Each segmentation component (Cytosol and Nucleus) has an independent **Size Adjust** slider:
 
 - **Center (0)**: Original mask size as detected by Cellpose
-- **Positive values (+1 to +20)**: Expand the mask using Voronoi-like growth
-- **Negative values (-1 to -20)**: Shrink the mask using morphological erosion
+- **Positive values (+1 to +40)**: Expand the mask using Voronoi-like growth (safeguarded against exceeding image boundaries)
+- **Negative values (-1 to -40)**: Shrink the mask using morphological erosion (safeguarded to prevent masks from disappearing below 10 pixels)
 
-This allows you to independently adjust cytosol and nucleus masks. For example, you can expand the cytosol mask by 5 pixels to capture peripheral signals while keeping the nucleus mask at its original size.
+This allows you to independently adjust cytosol and nucleus masks. For example, you can expand the cytosol mask by 10 pixels to capture peripheral signals while keeping the nucleus mask at its original size.
 
 #### Improve Segmentation Options
 

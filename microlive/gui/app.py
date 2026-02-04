@@ -96,6 +96,7 @@ from PyQt5.QtWidgets import (
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib import patches
+from matplotlib.lines import Line2D
 from matplotlib.widgets import RectangleSelector
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
@@ -105,7 +106,10 @@ from mpl_toolkits.mplot3d import Axes3D  # For 3D intensity profile visualizatio
 from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass, distance_transform_edt
+from scipy.spatial.distance import cdist
 from scipy.stats import linregress
+from skimage.draw import line as skimage_draw_line
+import traceback
 import trackpy as tp
 from trackpy.linking.utils import SubnetOversizeException
 vispy_logging = None
@@ -4802,8 +4806,6 @@ class GUI(QMainWindow):
         For TYX masks: Uses the FIRST frame to identify the center cell,
         then keeps that cell ID across ALL frames for consistent tracking.
         """
-        from PyQt5.QtCore import Qt
-        
         if state == Qt.Checked:
             # Check if we have any masks
             has_cyto = False
@@ -5013,44 +5015,52 @@ class GUI(QMainWindow):
             self.segmentation_channel_buttons.append(btn)
 
     def update_segmentation_channel(self, channel_index):
-        # Don't clear mask when in Edit mode (we're editing, not creating new)
+        # Get current sub-tab
         current_subtab = getattr(self, 'segmentation_method_tabs', None)
-        if current_subtab is not None and current_subtab.currentIndex() == 4:
-            # Just update channel for viewing, don't clear mask
+        current_index = current_subtab.currentIndex() if current_subtab is not None else -1
+        
+        # Don't clear mask when in Edit mode (index 4) or Manual mode (index 2)
+        # In these modes, user is actively working on a mask - just update display channel
+        if current_index in (2, 4):
             self.segmentation_current_channel = channel_index
-            self.plot_edit_mode()
+            if current_index == 4:
+                self.plot_edit_mode()
+            else:  # Manual mode
+                self._update_polygon_display()
             return
         
-        # Clear old mask when changing channel
+        # Clear old mask when changing channel ONLY in creation modes (Watershed, Cellpose, Import)
+        # This is because these methods may produce different results for different channels
         self.segmentation_mask = None
         self.segmentation_current_channel = channel_index
         
         # Refresh display based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
-            current_index = self.segmentation_method_tabs.currentIndex()
             if current_index == 1 or current_index == 3:  # Cellpose or Import sub-tab
                 self.plot_cellpose_results()
-            elif current_index == 4:  # Edit sub-tab
-                self.plot_edit_mode()
             else:
                 self.plot_segmentation()
-        else:
-            self.plot_segmentation()
 
     def update_segmentation_frame(self, value):
-        # Don't clear mask when in Edit mode (we're editing, not creating new)
+        # Get current sub-tab
         current_subtab = getattr(self, 'segmentation_method_tabs', None)
-        if current_subtab is not None and current_subtab.currentIndex() == 4:
-            # Just update frame for viewing, don't clear mask
+        current_index = current_subtab.currentIndex() if current_subtab is not None else -1
+        
+        # Don't clear mask when in Edit mode (index 4) or Manual mode (index 2)
+        # In these modes, user is actively working on a mask - just update display frame
+        if current_index in (2, 4):
             self.segmentation_current_frame = value
             # Update frame label
             total_frames = getattr(self, 'total_frames', 1)
             if hasattr(self, 'frame_label_segmentation'):
                 self.frame_label_segmentation.setText(f"{value}/{total_frames - 1}")
-            self.plot_edit_mode()
+            if current_index == 4:
+                self.plot_edit_mode()
+            else:  # Manual mode
+                self._update_polygon_display()
             return
         
-        # Clear old manual/watershed mask when changing frame
+        # Clear old manual/watershed mask when changing frame in creation modes
         self.segmentation_mask = None
         self.segmentation_current_frame = value
         
@@ -5068,15 +5078,10 @@ class GUI(QMainWindow):
         
         # Refresh display based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
-            current_index = self.segmentation_method_tabs.currentIndex()
             if current_index == 1 or current_index == 3:  # Cellpose or Import sub-tab
                 self.plot_cellpose_results()
-            elif current_index == 4:  # Edit sub-tab
-                self.plot_edit_mode()
             else:
                 self.plot_segmentation()
-        else:
-            self.plot_segmentation()
 
     def run_watershed_segmentation(self):
         if self.image_stack is not None:
@@ -7177,6 +7182,14 @@ class GUI(QMainWindow):
         self.edit_status_label.setStyleSheet("color: #88ff88; font-weight: bold;")
         self.statusBar().showMessage(f"✓ Edited mask saved ({source_key})")
         
+        # Provide prominent visual feedback on the button itself
+        original_text = self.btn_apply_edits.text()
+        original_style = self.btn_apply_edits.styleSheet()
+        self.btn_apply_edits.setText("✓ Saved!")
+        self.btn_apply_edits.setStyleSheet("background-color: #228B22; font-weight: bold; color: white;")
+        # Restore button after 2 seconds
+        QTimer.singleShot(2000, lambda: self._restore_apply_button(original_text, original_style))
+        
         # Update mask selector to reflect changes
         self._refresh_edit_mask_selector()
         # Re-select the mask we just edited
@@ -7189,6 +7202,12 @@ class GUI(QMainWindow):
         
         self._update_edit_buttons_state()
         self.plot_edit_mode()
+    
+    def _restore_apply_button(self, original_text, original_style):
+        """Restore the Apply & Save button to its original state."""
+        if hasattr(self, 'btn_apply_edits'):
+            self.btn_apply_edits.setText(original_text)
+            self.btn_apply_edits.setStyleSheet(original_style)
     
     def _apply_edits_to_tyx(self, original_tyx, edited_2d, original_2d):
         """Apply 2D edits to all frames of a TYX mask.
@@ -7451,9 +7470,7 @@ class GUI(QMainWindow):
     
     def _apply_eraser_line(self, x0, y0, x1, y1):
         """Apply eraser along a line between two points for smooth strokes."""
-        from skimage.draw import line
-        
-        rr, cc = line(y0, x0, y1, x1)
+        rr, cc = skimage_draw_line(y0, x0, y1, x1)
         
         for r, c in zip(rr, cc):
             self._apply_eraser_at(c, r)
@@ -11656,7 +11673,6 @@ class GUI(QMainWindow):
         
         # Create timer if it doesn't exist
         if not hasattr(self, '_correlation_recompute_timer') or self._correlation_recompute_timer is None:
-            from PyQt5.QtCore import QTimer
             self._correlation_recompute_timer = QTimer()
             self._correlation_recompute_timer.setSingleShot(True)
             self._correlation_recompute_timer.timeout.connect(self._do_correlation_recompute)
@@ -11669,7 +11685,6 @@ class GUI(QMainWindow):
         try:
             self.compute_correlations()
         except Exception as e:
-            import logging
             logging.debug(f"Auto-recompute failed: {e}")
 
 # =============================================================================
@@ -13322,8 +13337,7 @@ class GUI(QMainWindow):
         
         # Run ColocalizationDistance
         try:
-            from microlive.microscopy import ColocalizationDistance
-            coloc = ColocalizationDistance(
+            coloc = mi.ColocalizationDistance(
                 df=df,
                 list_spot_type_to_compare=[ch0, ch1],
                 threshold_distance=threshold_px,
@@ -13340,7 +13354,6 @@ class GUI(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Distance colocalization failed:\n{str(e)}")
-            import traceback
             traceback.print_exc()
             return
         
@@ -13743,7 +13756,6 @@ class GUI(QMainWindow):
         ax.axis('off')
         
         # Add compact legend in upper right corner
-        from matplotlib.lines import Line2D
         legend_elements = [
             Line2D([0], [0], marker='s', color='w', markerfacecolor='none', markeredgecolor=color_ch0,
                    markersize=6, label=f'Ch{ch0} only ({len(spots_ch0_only)})', linestyle='None', markeredgewidth=1),
@@ -14108,7 +14120,6 @@ class GUI(QMainWindow):
                         spot_coord = np.array([[y_val, x_val]])
                         ch1_scaled = ch1_coords
                     
-                    from scipy.spatial.distance import cdist
                     distances = cdist(spot_coord, ch1_scaled, metric='euclidean')
                     obs_min_dist = float(np.min(distances))
                     if obs_min_dist < min_dist_all:
