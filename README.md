@@ -21,7 +21,7 @@
 - **Segmentation**: Cellpose (GPU), watershed, manual ROI, or external mask import
 - **Photobleaching correction**: Exponential decay modeling
 - **Particle tracking**: 2D (TrackPy) and 3D (Big-FISH) detection with multi-channel support
-- **Automated threshold detection**: Hybrid Big-FISH/TrueSpot method
+- **Automated threshold detection**: Hybrid Big-FISH/TrueSpot method with fixed-threshold mode for inhibitor experiments
 - **Trajectory linking**: Nearest-neighbor with memory and cluster analysis
 - **Intensity quantification**: Background subtraction, PSF fitting, SNR calculation
 - **Colocalization**: CNN-based, distance-based, and manual verification

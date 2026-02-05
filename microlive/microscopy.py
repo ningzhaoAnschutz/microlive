@@ -3639,10 +3639,10 @@ class TrackPyDetection:
         save_files: Save output plots. Defaults to False.
     """
 
-    def __init__(self, image, channels_spots, voxel_size_yx=150, yx_spot_size_in_px=5, 
+    def __init__(self, image, channels_spots, voxel_size_yx=150, yx_spot_size_in_px=5,
                  show_plot=False, image_name=None, save_all_images=False, spot_diameter=5,
                  display_spots_on_multiple_z_planes=False, use_max_projection=True,
-                 threshold_for_spot_detection=None, save_files=False):
+                 threshold_for_spot_detection=None, save_files=False, reference_threshold=None):
         # Validate image dimensions
         if len(image.shape) < 4:
             image = np.expand_dims(image, axis=0)  # Add Z dimension if missing
@@ -3657,6 +3657,7 @@ class TrackPyDetection:
         self.threshold_for_spot_detection = threshold_for_spot_detection
         self.save_files = save_files
         self.spot_diameter = spot_diameter
+        self.reference_threshold = reference_threshold
 
     def detect(self):
         """Run TrackPy spot detection.
@@ -3693,9 +3694,13 @@ class TrackPyDetection:
             rna_filtered = stack.remove_background_gaussian(spot_channel, sigma)
 
         # Determine threshold for spot detection
-        # The user-provided threshold is based on the RAW image histogram.
-        # We need to convert this to a percentile-based threshold on the FILTERED image.
-        if self.threshold_for_spot_detection is not None and self.threshold_for_spot_detection > 0:
+        # Fixed threshold mode: use pre-computed reference threshold directly
+        # (bypasses per-frame normalization for inhibitor/decreasing-signal experiments)
+        if self.reference_threshold is not None:
+            threshold = self.reference_threshold
+        elif self.threshold_for_spot_detection is not None and self.threshold_for_spot_detection > 0:
+            # The user-provided threshold is based on the RAW image histogram.
+            # We need to convert this to a percentile-based threshold on the FILTERED image.
             # Calculate the percentile of the user threshold in the raw image
             raw_max = np.percentile(spot_channel, 99.9)
             raw_min = np.percentile(spot_channel[spot_channel > 0], 1) if np.any(spot_channel > 0) else 0
@@ -3816,7 +3821,7 @@ class BigFISH():
         Returns raw coordinates; spot_type column is assigned by SpotDetection.
     """
     
-    def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False):
+    def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False, reference_threshold=None):
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
         self.image = image
@@ -3841,7 +3846,8 @@ class BigFISH():
         self.decompose_alpha = decompose_alpha  # impacts number of spots per candidate region (lower = more spots)
         self.decompose_beta = decompose_beta    # impacts number of candidate regions (higher = more regions)
         self.decompose_gamma = decompose_gamma  # filtering step to denoise
-        
+        self.reference_threshold = reference_threshold
+
     def detect(self):
         """Run Big-FISH spot detection with optional dense region decomposition.
         
@@ -3877,20 +3883,24 @@ class BigFISH():
         mask = detection.local_maximum_detection(rna_filtered, min_distance=sigma)
         
         # Threshold determination
-        # The user-provided threshold is based on the RAW image histogram.
-        # We need to convert this to a percentile-based threshold on the FILTERED image.
-        if self.threshold_for_spot_detection is not None and self.threshold_for_spot_detection > 0:
+        # Fixed threshold mode: use pre-computed reference threshold directly
+        # (bypasses per-frame normalization for inhibitor/decreasing-signal experiments)
+        if self.reference_threshold is not None:
+            threshold = self.reference_threshold
+        elif self.threshold_for_spot_detection is not None and self.threshold_for_spot_detection > 0:
+            # The user-provided threshold is based on the RAW image histogram.
+            # We need to convert this to a percentile-based threshold on the FILTERED image.
             # Calculate the percentile of the user threshold in the raw image
             raw_max = np.percentile(rna, 99.9)
             raw_min = np.percentile(rna[rna > 0], 1) if np.any(rna > 0) else 0
-            
+
             # Normalize user threshold to a 0-1 range based on raw image
             if raw_max > raw_min:
                 threshold_percentile = (self.threshold_for_spot_detection - raw_min) / (raw_max - raw_min)
                 threshold_percentile = np.clip(threshold_percentile, 0.01, 0.99)
             else:
                 threshold_percentile = 0.5
-            
+
             # Apply this percentile to the filtered image to get the actual threshold
             filtered_positive = rna_filtered[rna_filtered > 0]
             if len(filtered_positive) > 0:
@@ -4083,7 +4093,7 @@ class SpotDetection():
     def __init__(self,image,  channels_spots ,channels_cytosol,channels_nucleus, cluster_radius_nm=500,masks_complete_cells = None, masks_nuclei  = None, masks_cytosol_no_nuclei = None,
                 dataframe=None, image_counter=0, list_voxels=None, show_plot=True,image_name=None,save_all_images=True,display_spots_on_multiple_z_planes=False,
                 use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=True,yx_spot_size_in_px=None, z_spot_size_in_px=None, 
-                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True):
+                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True, reference_threshold=None):
         if list_voxels is None:
             list_voxels = [500, 160]
         if len(image.shape)<4:
@@ -4140,6 +4150,7 @@ class SpotDetection():
         self.calculate_intensity =calculate_intensity
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
         self.fast_gaussian_fit = fast_gaussian_fit
+        self.reference_threshold = reference_threshold
 
     def get_dataframe(self):
         list_images = []
@@ -4160,7 +4171,8 @@ class SpotDetection():
                                                                                 save_all_images=self.save_all_images,
                                                                                 display_spots_on_multiple_z_planes=self.display_spots_on_multiple_z_planes, 
                                                                                 spot_diameter=self.yx_spot_size_in_px,
-                                                                                threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files).detect()
+                                                                                threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files,
+                                                                                reference_threshold=self.reference_threshold).detect()
             else:
                 #print('Using BigFISH for spot detection')
                 clusters_and_spots, image_filtered, threshold = BigFISH(self.image, 
@@ -4174,7 +4186,8 @@ class SpotDetection():
                                                                         save_all_images=self.save_all_images,
                                                                         display_spots_on_multiple_z_planes=self.display_spots_on_multiple_z_planes,
                                                                         use_log_filter_for_spot_detection =self.use_log_filter_for_spot_detection,
-                                                                        threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files).detect()
+                                                                        threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files,
+                                                                        reference_threshold=self.reference_threshold).detect()
             list_thresholds_spot_detection.append(threshold)
             # converting the psf to pixles
             spot_diameter_for_intensity_px = int(np.max((self.spot_radius_px[1]*2, self.MINIMUM_SPOT_SIZE_IN_PX)))
@@ -4261,7 +4274,7 @@ class ParticleTracking:
                  maximum_range_search_pixels=10, link_using_3d_coordinates=False,
                  neighbor_strategy='KDTree', generate_random_particles=False,
                  number_of_random_particles_trajectories=None, step_size_in_sec=1.0, 
-                 fast_gaussian_fit=True, verbose=False):
+                 fast_gaussian_fit=True, verbose=False, use_fixed_threshold=False):
 
         self.verbose = verbose
         if len(image.shape) != 5:
@@ -4337,6 +4350,44 @@ class ParticleTracking:
         self.number_of_random_particles_trajectories = number_of_random_particles_trajectories
         self.step_size_in_sec = step_size_in_sec
         self.fast_gaussian_fit = fast_gaussian_fit
+        self.use_fixed_threshold = use_fixed_threshold
+
+    def _compute_reference_threshold(self):
+        """Compute detection threshold from frame 0 for fixed-threshold mode.
+
+        Runs spot detection on the first frame to determine the absolute
+        threshold on the filtered image. This threshold is then reused for
+        all subsequent frames, bypassing per-frame normalization.
+
+        Returns:
+            float: The absolute threshold on the LoG-filtered image.
+        """
+        frame0 = self.image[0]
+        mask_frame0 = self.masks_tyx[0] if self.masks_tyx is not None else None
+        mask_nuc_frame0 = self.masks_nuclei_tyx[0] if self.masks_nuclei_tyx is not None else None
+        mask_cyto_frame0 = self.masks_cytosol_no_nuclei_tyx[0] if self.masks_cytosol_no_nuclei_tyx is not None else None
+
+        _, _, thresholds = SpotDetection(
+            frame0,
+            channels_spots=self.channels_spots,
+            channels_cytosol=self.channels_cytosol,
+            channels_nucleus=self.channels_nucleus,
+            masks_complete_cells=mask_frame0,
+            masks_nuclei=mask_nuc_frame0,
+            masks_cytosol_no_nuclei=mask_cyto_frame0,
+            list_voxels=self.list_voxels,
+            show_plot=False,
+            save_files=False,
+            cluster_radius_nm=self.cluster_radius_nm,
+            threshold_for_spot_detection=self.threshold_for_spot_detection,
+            yx_spot_size_in_px=self.yx_spot_size_in_px,
+            z_spot_size_in_px=self.z_spot_size_in_px,
+            use_trackpy=self.use_trackpy,
+            use_maximum_projection=self.use_maximum_projection,
+            use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+        ).get_dataframe()
+        # Return the threshold from the first channel
+        return thresholds[0] if thresholds else None
 
     def _normalize_mask_to_tyx(self, mask, T):
         """
@@ -4564,12 +4615,19 @@ class ParticleTracking:
             df_complete['time'] = df_complete['frame'] * self.step_size_in_sec
             return [df_complete], self.image
         else:
+            # Compute reference threshold from frame 0 if fixed threshold mode is enabled
+            reference_threshold = None
+            if self.use_fixed_threshold and self.threshold_for_spot_detection is not None:
+                reference_threshold = self._compute_reference_threshold()
+                if self.verbose:
+                    print(f"[ParticleTracking] Fixed threshold mode: reference_threshold={reference_threshold}")
+
             def process_time_point(i):
                 # Get per-frame masks from TYX arrays
                 mask_frame = self.masks_tyx[i] if self.masks_tyx is not None else None
                 mask_nuc_frame = self.masks_nuclei_tyx[i] if self.masks_nuclei_tyx is not None else None
                 mask_cyto_no_nuc_frame = self.masks_cytosol_no_nuclei_tyx[i] if self.masks_cytosol_no_nuclei_tyx is not None else None
-                
+
                 # Diagnostic logging for frame-specific masks
                 if mask_frame is not None:
                     unique_ids = np.unique(mask_frame)
@@ -4579,7 +4637,7 @@ class ParticleTracking:
                 if mask_nuc_frame is not None:
                     unique_ids_nuc = np.unique(mask_nuc_frame)
                     n_nuc = len(unique_ids_nuc[unique_ids_nuc > 0])
-                
+
                 dataframe, imgs, _ = SpotDetection(
                     self.image[i],
                     channels_spots=self.channels_spots,
@@ -4598,6 +4656,7 @@ class ParticleTracking:
                     use_trackpy=self.use_trackpy,
                     use_maximum_projection=self.use_maximum_projection,
                     use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+                    reference_threshold=reference_threshold,
                 ).get_dataframe()
                 filtered_images = []
                 for ch in range(self.number_color_channels):

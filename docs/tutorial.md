@@ -292,6 +292,7 @@ Detect particles and link them into trajectories for dynamic analysis.
    - Aim for 3-5× background level
    - Balance sensitivity vs. false detections
    - **Alternatively**: Click the **"Auto"** button for automated threshold detection using a hybrid approach that combines methods from Big-FISH and TrueSpot
+   - **For inhibitor experiments**: Enable the **"Fixed"** button (next to Auto) to lock the threshold from frame 0 across all frames, preventing false detections when signal decreases over time
 
 ### Step 3: Detection Parameters
 

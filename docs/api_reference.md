@@ -85,6 +85,7 @@ z_spot_size_in_px: int           # Spot size in Z pixels (range: 1-10, default: 
 threshold_spot_detection: float  # Detection intensity threshold (image-dependent)
 user_selected_threshold: float   # User-defined threshold override
 use_maximum_projection: bool     # Use 2D projection for tracking (default: True)
+use_fixed_threshold: bool        # Use frame-0 threshold for all frames (default: False)
 
 # Trajectory Linking (consistent with User Guide)
 min_length_trajectory: int       # Minimum trajectory length (range: 1-200, default: 20)
@@ -551,10 +552,11 @@ class ParticleTracking:
                  use_trackpy=False, use_maximum_projection=False, separate_clusters_and_spots=False,
                  maximum_range_search_pixels=10, link_using_3d_coordinates=False,
                  neighbor_strategy='KDTree', generate_random_particles=False,
-                 number_of_random_particles_trajectories=None):
+                 number_of_random_particles_trajectories=None,
+                 use_fixed_threshold=False):
         """
         Initialize particle tracking with comprehensive parameter set.
-        
+
         Parameters
         ----------
         image : ndarray
@@ -579,6 +581,10 @@ class ParticleTracking:
             Use Z coordinates for trajectory linking
         generate_random_particles : bool
             Generate random control trajectories
+        use_fixed_threshold : bool
+            Use threshold computed from frame 0 for all frames.
+            Recommended for experiments where signal decreases over
+            time (e.g., inhibitor treatments). Default: False.
         """
     
     def run(self) -> list:

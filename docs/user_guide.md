@@ -527,6 +527,23 @@ When cluster detection is enabled, you get:
 
 MicroLive provides automated threshold detection using a hybrid approach that combines methods from Big-FISH and TrueSpot. The primary method generates a curve of spot counts versus threshold values and identifies the transition point where the curve changes from a steep decrease to a plateau. For images lacking a distinct transition, a fallback method analyzes the variability in the derivative of the spot count curve. Users can click the **"Auto"** button to calculate and apply the optimal threshold, with independent storage per channel for multi-channel experiments.
 
+### Fixed Threshold Mode
+
+By default, the detection threshold is normalized per-frame using percentile mapping, which adapts to each frame's intensity range. This works well when signal intensity is relatively constant across time. However, for experiments where signal genuinely decreases over time (e.g., after inhibitor treatment), this adaptive normalization can cause false positives in later frames by boosting sensitivity as intensity drops.
+
+The **"Fixed"** button (next to "Auto") enables fixed threshold mode. When active, the threshold is computed from **frame 0 only** and applied unchanged to all subsequent frames. This ensures that as signal decreases, fewer spots are detected — matching the expected biological behavior.
+
+**When to use Fixed Threshold:**
+
+- Inhibitor treatment experiments where spots decrease over time
+- Drug washout or degradation experiments
+- Any time-lapse where signal is expected to decrease monotonically
+
+**When to use default (adaptive) mode:**
+
+- Constant-signal experiments with minor intensity fluctuations
+- Photobleaching-corrected data (intensity already normalized)
+
 ### Linking Parameters
 
 - **Search Range**: Maximum distance for linking particles between frames
@@ -553,6 +570,7 @@ MicroLive provides automated threshold detection using a hybrid approach that co
 | **Z Spot Size** | 1-10 pixels | 2 | Expected spot extent in Z |
 | **Max Spots for Threshold** | 100-10000 | 3000 | Spots used for automatic threshold calculation |
 | **Random Spots** | Boolean | False | Generate control trajectories (see Quality Control section) |
+| **Fixed Threshold** | Boolean | False | Use frame-0 threshold for all frames (for decreasing-signal experiments) |
 
 #### Clustering Parameters (3D Mode Only)
 

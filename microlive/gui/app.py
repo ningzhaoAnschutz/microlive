@@ -21,7 +21,6 @@ import numpy as np
 import tifffile
 from pathlib import Path
 from PIL import Image
-#import multiprocessing
 import xml.etree.ElementTree as ET
 from joblib import Parallel, delayed, cpu_count
 NUMBER_OF_CORES = cpu_count()
@@ -966,6 +965,7 @@ class GUI(QMainWindow):
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
         self.fast_gaussian_fit = True  # Use fast moment-based PSF estimation by default
+        self.use_fixed_threshold = False  # Fixed threshold mode for decreasing-signal experiments
         # Registration state
         self.registered_image = None  # [T,Z,Y,X,C] registered image
         self.registration_roi = None  # (y_min, y_max, x_min, x_max)
@@ -2200,7 +2200,6 @@ class GUI(QMainWindow):
         # Determine the data axes order and reshape to standard [T, Z, Y, X, C] if needed
         if axes_str is not None:
             current_axes = list(axes_str)
-            #print(f"Detected axes: {current_axes}"  )
             data = raw
             # Add singleton dimensions for missing axes
             for ax in ["T", "Z", "Y", "X", "C"]:
@@ -8100,6 +8099,7 @@ class GUI(QMainWindow):
                 link_using_3d_coordinates=link_using_3d_coordinates,
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
                 fast_gaussian_fit=self.fast_gaussian_fit,
+                use_fixed_threshold=self.use_fixed_threshold,
             ).run()
         except SubnetOversizeException as e:
             QMessageBox.warning(
@@ -8534,6 +8534,9 @@ class GUI(QMainWindow):
         else:
             print("Random spots generation disabled.")
 
+    def update_use_fixed_threshold(self, checked):
+        self.use_fixed_threshold = checked
+
     def _set_tracking_mode(self, is_2d):
         """Set the tracking mode (2D projection or 3D volume) and update UI."""
         self.use_maximum_projection = is_2d
@@ -8762,6 +8765,7 @@ class GUI(QMainWindow):
             link_particles=False,
             step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
             fast_gaussian_fit=self.fast_gaussian_fit,
+            use_fixed_threshold=self.use_fixed_threshold,
         ).run()
         progress.close()
         # Store detection results - detection now properly stores data for export
@@ -9820,7 +9824,6 @@ class GUI(QMainWindow):
         try:
             results = self.track_particles(image_to_use, masks_complete, masks_nuc, masks_cyto_no_nuc, parameters, self.use_maximum_projection)
             self.on_tracking_finished_with_progress(results, progress)
-            #return
         except Exception as e:
             QMessageBox.critical(self, "Tracking Error", f"An error occurred while starting tracking:\n{str(e)}")
             self.tracking_button.setText(" Tracking")
@@ -10088,7 +10091,7 @@ class GUI(QMainWindow):
         self.plot_tracking()
 
     def _clear_all_tracking_data(self):
-        """Internal method to clear all tracking data (alias for clear_all_tracking)."""
+        """Internal method to clear all tracking data without refreshing the plot."""
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
@@ -10418,6 +10421,41 @@ class GUI(QMainWindow):
         
         slider_instruction_layout.addStretch()
         
+        # Fixed-threshold toggle button (light gray, before Auto)
+        self.fixed_threshold_btn = QPushButton("Fixed")
+        self.fixed_threshold_btn.setCheckable(True)
+        self.fixed_threshold_btn.setChecked(False)
+        self.fixed_threshold_btn.setFixedWidth(45)
+        self.fixed_threshold_btn.setFixedHeight(20)
+        self.fixed_threshold_btn.setToolTip(
+            "Use threshold from first frame for all frames.\n"
+            "Recommended for experiments where signal decreases\n"
+            "over time (e.g., inhibitor treatments)."
+        )
+        self.fixed_threshold_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #888888;
+                color: #1a1a1a;
+                border: none;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 2px 6px;
+            }
+            QPushButton:hover {
+                background-color: #999999;
+            }
+            QPushButton:checked {
+                background-color: #ff9800;
+                color: #1a1a1a;
+            }
+            QPushButton:checked:hover {
+                background-color: #ffad33;
+            }
+        """)
+        self.fixed_threshold_btn.toggled.connect(self.update_use_fixed_threshold)
+        slider_instruction_layout.addWidget(self.fixed_threshold_btn)
+
         # Auto-threshold button (compact, matching slider color)
         self.auto_threshold_btn = QPushButton("Auto")
         self.auto_threshold_btn.setFixedWidth(45)
@@ -10643,7 +10681,7 @@ class GUI(QMainWindow):
         hbox.addWidget(self.random_points_input)        
         # Add horizontal layout as a row in form layout (label empty since group title is descriptive)
         random_points_layout.addRow("", hbox)
-        
+
         tracking_right_main_layout.addStretch()
 
 
@@ -11059,7 +11097,6 @@ class GUI(QMainWindow):
         self.min_percentage_data_in_trajectory = value
 
     def update_de_correlation_threshold(self, value):
-        #self.de_correlation_threshold = value
         self.de_correlation_threshold = max(value, 0.0)
 
     def update_max_lag(self, value):
@@ -11687,20 +11724,6 @@ class GUI(QMainWindow):
     # =========================================================================
     # Correlation Tab Slider Handlers
     # =========================================================================
-    
-    def _on_decorr_slider_changed(self, value):
-        """Handle decorrelation threshold slider change (legacy, full update)."""
-        threshold = value / 1000.0
-        self.decorr_value_label.setText(f"{threshold:.3f}")
-        self.de_correlation_threshold = threshold
-        # Sync with spinbox
-        self.de_correlation_threshold_input.blockSignals(True)
-        self.de_correlation_threshold_input.setValue(threshold)
-        self.de_correlation_threshold_input.blockSignals(False)
-        # Update plot line in real-time
-        self._update_decorr_line_on_plot(threshold)
-        # Auto-recompute to update dwell time calculation
-        self._trigger_correlation_recompute()
     
     def _on_decorr_slider_label_update(self, value):
         """Update label and plot line only while dragging (no recompute)."""
@@ -15683,7 +15706,6 @@ class GUI(QMainWindow):
 
     def _export_time_course_image(self, file_path):
         try:
-            #self.figure_time_course.savefig(file_path, dpi=300)
             for ax in self.figure_time_course.axes:
                 ax.title.set_fontsize(18)
                 ax.xaxis.label.set_size(18)
@@ -15703,7 +15725,6 @@ class GUI(QMainWindow):
                 ax.tick_params(axis='both', labelsize=16)
             self.figure_correlation.tight_layout()
             self.figure_correlation.savefig(file_path, dpi=300)
-            #self.figure_correlation.savefig(file_path, dpi=300)
         except Exception as e:
             print(f"Failed to export correlation image: {e}")
 
@@ -16655,6 +16676,10 @@ class GUI(QMainWindow):
         if hasattr(self, 'fast_gaussian_fit_checkbox'):
             self.fast_gaussian_fit = True
             self.fast_gaussian_fit_checkbox.setChecked(True)
+        # Reset fixed threshold button to default (off)
+        if hasattr(self, 'fixed_threshold_btn'):
+            self.use_fixed_threshold = False
+            self.fixed_threshold_btn.setChecked(False)
         # Update 2D/3D mode toggle buttons to reflect current state
         if hasattr(self, 'btn_mode_2d') and hasattr(self, 'btn_mode_3d'):
             self._update_tracking_mode_buttons()
