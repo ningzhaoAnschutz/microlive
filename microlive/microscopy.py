@@ -4417,7 +4417,7 @@ class ParticleTracking:
             # YX [Y, X] -> tile to TYX [T, Y, X]
             if self.verbose:
                 print(f"[ParticleTracking] Expanding YX mask {mask.shape} to TYX [{T}, {mask.shape[0]}, {mask.shape[1]}] (static mask across all frames)")
-            return np.tile(mask[np.newaxis, :, :], (T, 1, 1))
+            return np.broadcast_to(mask[np.newaxis, :, :], (T, mask.shape[0], mask.shape[1]))
         elif mask.ndim == 3:
             # Handle edge case: 3D mask with unusual dimensions that suggest incorrect indexing
             # e.g., (1, 512, 3) or (512, 512, 3) where 3 is channels, not X dimension
@@ -4434,14 +4434,14 @@ class ParticleTracking:
                     mask_2d = np.max(mask, axis=-1)
                 if self.verbose:
                     print(f"[ParticleTracking] Reduced to 2D mask {mask_2d.shape}, expanding to TYX [{T}, {mask_2d.shape[0]}, {mask_2d.shape[1]}]")
-                return np.tile(mask_2d[np.newaxis, :, :], (T, 1, 1))
+                return np.broadcast_to(mask_2d[np.newaxis, :, :], (T, mask_2d.shape[0], mask_2d.shape[1]))
             
             # Handle edge case: (1, Y, X) where first dimension is singleton
             if mask.shape[0] == 1 and mask.shape[1] > 10 and mask.shape[2] > 10:
                 # Single frame mask, tile to T frames
                 if self.verbose:
                     print(f"[ParticleTracking] Expanding single-frame 3D mask {mask.shape} to TYX [{T}, {mask.shape[1]}, {mask.shape[2]}]")
-                return np.tile(mask, (T, 1, 1))
+                return np.broadcast_to(mask, (T, mask.shape[1], mask.shape[2]))
             
             # Standard TYX case: Check if first dim matches T
             if mask.shape[0] == T:
@@ -4658,24 +4658,14 @@ class ParticleTracking:
                     use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
                     reference_threshold=reference_threshold,
                 ).get_dataframe()
-                filtered_images = []
-                for ch in range(self.number_color_channels):
-                    filtered_image_ch = stack.log_filter(
-                        self.image[i, :, :, :, ch], sigma=self.spot_radius_px)
-                    filtered_images.append(filtered_image_ch)
                 dataframe['frame'] = i
-                return dataframe, filtered_images
+                return dataframe
 
-            results = Parallel(n_jobs=self.NUMBER_OF_CORES)(
+            dataframes = Parallel(n_jobs=self.NUMBER_OF_CORES)(
                 delayed(process_time_point)(i) for i in range(self.number_time_points)
             )
-            dataframes, list_filtered_images = zip(*results)
             df_all = pd.concat(dataframes, ignore_index=True)
             df_all['time'] = df_all['frame'] * self.step_size_in_sec
-            filtered_image_stack = np.zeros_like(self.image)
-            for i in range(self.number_time_points):
-                for ch in range(self.number_color_channels):
-                    filtered_image_stack[i, :, :, :, ch] = list_filtered_images[i][ch]
             
 
             
@@ -4737,24 +4727,73 @@ class ParticleTracking:
                 reference_mask = self.masks_tyx[0] if self.masks_tyx is not None else self.masks
                 number_masks = np.max(reference_mask)
                 if number_masks > 0:
+                    # --- Vectorized mask assignment (replaces per-frame per-mask loop) ---
+                    edge_exclusion_px = 2
                     mask_dfs = []
-                    for index_mask in range(1, int(number_masks) + 1):
-                        # Filter spots per-frame using time-varying masks
-                        frame_filtered_spots = []
-                        for frame_idx in df_spot['frame'].unique():
-                            df_frame = df_spot[df_spot['frame'] == frame_idx]
-                            # Get frame-specific mask slice from TYX array
-                            if self.masks_tyx is not None:
-                                mask_frame = self.masks_tyx[int(frame_idx)]
+                    if not df_spot.empty:
+                        spot_frames = df_spot['frame'].values.astype(int)
+                        spot_ys = np.round(df_spot['y'].values).astype(int)
+                        spot_xs = np.round(df_spot['x'].values).astype(int)
+                        mask_h, mask_w = reference_mask.shape[-2], reference_mask.shape[-1]
+
+                        # Bounds check (equivalent to spots_in_mask validation)
+                        in_bounds = ((spot_ys >= 0) & (spot_ys < mask_h) &
+                                     (spot_xs >= 0) & (spot_xs < mask_w))
+                        raw_cell_ids = np.zeros(len(df_spot), dtype=int)
+                        if self.masks_tyx is not None:
+                            raw_cell_ids[in_bounds] = self.masks_tyx[
+                                spot_frames[in_bounds], spot_ys[in_bounds], spot_xs[in_bounds]
+                            ].astype(int)
+                        else:
+                            raw_cell_ids[in_bounds] = self.masks[
+                                spot_ys[in_bounds], spot_xs[in_bounds]
+                            ].astype(int)
+
+                        # Pre-compute distance transforms for edge exclusion
+                        unique_cids = np.unique(raw_cell_ids[raw_cell_ids > 0])
+                        edge_valid = np.zeros(len(df_spot), dtype=bool)
+                        # Detect static masks (broadcast_to produces stride=0 on time axis)
+                        mask_is_static = (self.masks_tyx is not None and
+                                          hasattr(self.masks_tyx, 'strides') and
+                                          self.masks_tyx.strides[0] == 0)
+
+                        for cid in unique_cids:
+                            in_cell = raw_cell_ids == cid
+                            if not np.any(in_cell):
+                                continue
+                            cell_ys = spot_ys[in_cell]
+                            cell_xs = spot_xs[in_cell]
+                            if mask_is_static:
+                                # Static mask: single EDT, vectorized lookup
+                                dist_map = distance_transform_edt(
+                                    (self.masks_tyx[0] == cid).astype(np.uint8))
+                                edge_valid[in_cell] = dist_map[cell_ys, cell_xs] > edge_exclusion_px
                             else:
-                                mask_frame = self.masks
-                            mask_sel = (mask_frame == index_mask).astype(int)
-                            df_in_mask_frame = Utilities().spots_in_mask(df_frame, mask_sel)
-                            df_in_mask_frame = df_in_mask_frame[df_in_mask_frame['In Mask'] == True]
-                            frame_filtered_spots.append(df_in_mask_frame)
-                        
-                        if frame_filtered_spots:
-                            df_particles = pd.concat(frame_filtered_spots, ignore_index=True)
+                                # Time-varying: EDT per frame, cached
+                                cell_frames = spot_frames[in_cell]
+                                dists = np.zeros(np.sum(in_cell), dtype=float)
+                                edt_cache = {}
+                                for fidx in np.unique(cell_frames):
+                                    if fidx not in edt_cache:
+                                        mf = self.masks_tyx[fidx] if self.masks_tyx is not None else self.masks
+                                        edt_cache[fidx] = distance_transform_edt(
+                                            (mf == cid).astype(np.uint8))
+                                    fsel = cell_frames == fidx
+                                    dists[fsel] = edt_cache[fidx][cell_ys[fsel], cell_xs[fsel]]
+                                edge_valid[in_cell] = dists > edge_exclusion_px
+
+                        # Assign results to DataFrame copy
+                        df_spot = df_spot.copy()
+                        df_spot['_cell_id'] = raw_cell_ids
+                        df_spot['_edge_valid'] = edge_valid
+                        df_valid = df_spot[(df_spot['_cell_id'] > 0) & df_spot['_edge_valid']]
+                    else:
+                        df_valid = pd.DataFrame()
+
+                    for index_mask in range(1, int(number_masks) + 1):
+                        if not df_valid.empty:
+                            df_particles = df_valid[df_valid['_cell_id'] == index_mask].drop(
+                                columns=['_cell_id', '_edge_valid']).reset_index(drop=True)
                         else:
                             df_particles = pd.DataFrame()
                         if self.link_particles:
@@ -4815,7 +4854,7 @@ class ParticleTracking:
                     list_dfs_traj.append(df_traj)
                 else:
                     list_dfs_traj.append(pd.DataFrame())
-            return list_dfs_traj, filtered_image_stack
+            return list_dfs_traj, None
 
 
 class Registration:
@@ -5261,7 +5300,7 @@ class DataProcessing():
                 # If no arrays meet the conditions, initialize with zeros for structure
                 array_complete = np.zeros((1, number_columns))
             # Saves a dataframe with zeros when no spots are detected on the cell.
-            if array_complete.shape[0] ==1:
+            if not arrays_to_combine:
                 # if NO spots are detected populate  with -1
                 array_complete[:,2] = -1     # spot_id
                 array_complete[:,8:self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME] = -1
@@ -5474,13 +5513,8 @@ class DataProcessing():
                 tested_mask_for_border =  self.masks_nuclei[id_cell]
                 nuc_int = np.zeros( (self.number_color_channels ))
                 for k in range(self.number_color_channels ):
-                    # Image is 4D [Z, Y, X, C] - need to max-project Z and select channel k
-                    if self.use_maximum_projection:
-                        # When use_max_proj is True, image may already be [1, Y, X, C] or [Z, Y, X, C]
-                        # Max-project Z axis first, then select channel to get [Y, X]
-                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
-                    else:
-                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
+                    # Image is 4D [Z, Y, X, C] - max-project Z axis, then select channel to get [Y, X]
+                    temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
                     temp_masked_img = temp_img * self.masks_nuclei[id_cell]
                     temp_masked_img_pseudo_cytosol_mask = temp_img * pseudo_cytosol_mask
                     nuc_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5)
@@ -5498,13 +5532,8 @@ class DataProcessing():
                 complete_cell_int = np.zeros( (self.number_color_channels ))
                 cyto_int = np.zeros( (self.number_color_channels ))
                 for k in range(self.number_color_channels ):
-                    # Image is 4D [Z, Y, X, C] - need to max-project Z and select channel k
-                    if self.use_maximum_projection:
-                        # When use_max_proj is True, image may already be [1, Y, X, C] or [Z, Y, X, C]
-                        # Max-project Z axis first, then select channel to get [Y, X]
-                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
-                    else:
-                        temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
+                    # Image is 4D [Z, Y, X, C] - max-project Z axis, then select channel to get [Y, X]
+                    temp_img = np.max(self.image[:,:,:,k], axis=0)  # [Y, X]
                     # calculating cytosol intensity for complete cell mask
                     temp_masked_img = temp_img * self.masks_complete_cells[id_cell]
                     complete_cell_int[k] =  np.round( temp_masked_img[np.nonzero(temp_masked_img)].mean() , 5) 
@@ -5517,7 +5546,7 @@ class DataProcessing():
                         temp_masked_img_cyto_only = temp_img * self.masks_cytosol_no_nuclei[id_cell]
                         cyto_int[k]=  np.round( temp_masked_img_cyto_only[np.nonzero(temp_masked_img_cyto_only)].mean() , 5)
                     else:
-                        cyto_int[k] = None
+                        cyto_int[k] = np.nan
                         temp_masked_img_cyto_only= None
                     del temp_img, temp_masked_img, temp_masked_img_cyto_only
             else:
@@ -5532,7 +5561,7 @@ class DataProcessing():
             if not (self.channels_cytosol in (None, [None])) and not (self.channels_nucleus in  (None, [None])) and nuc_int is not None and cyto_int is not None:
                 for k in range(self.number_color_channels ):
                     # Guard against division by zero
-                    if cyto_int[k] != 0 and cyto_int[k] is not None:
+                    if not np.isnan(cyto_int[k]) and cyto_int[k] != 0:
                         nucleus_cytosol_intensity_ratio[k] = nuc_int[k] / cyto_int[k]
                     else:
                         nucleus_cytosol_intensity_ratio[k] = np.nan

@@ -752,6 +752,8 @@ class Metadata:
                         write_value(f'Channel {ch} Min Trajectory Length', f"{params.get('min_length_trajectory', 'N/A')}")
                         mode = '2D Projection' if params.get('use_maximum_projection', False) else '3D Volume'
                         write_value(f'Channel {ch} Tracking Mode', mode)
+                        fixed_thresh = 'Yes' if params.get('use_fixed_threshold', False) else 'No'
+                        write_value(f'Channel {ch} Fixed Threshold', fixed_thresh)
                         fd.write('\n')  # Blank line between channels
                 else:
                     # Fallback to current parameters if no per-channel data
@@ -787,6 +789,7 @@ class Metadata:
                 write_attr('Nucleus Channel', 'channels_nucleus')
                 
                 write_subsection('Options')
+                write_attr('Use Fixed Threshold', 'use_fixed_threshold')
                 write_attr('Use Fixed Spot Size for Intensity', 'use_fixed_size_for_intensity_calculation')
                 write_attr('Fast Gaussian Fit', 'fast_gaussian_fit')
                 if self.use_maximum_projection:
@@ -5033,22 +5036,26 @@ class GUI(QMainWindow):
         # Get current sub-tab
         current_subtab = getattr(self, 'segmentation_method_tabs', None)
         current_index = current_subtab.currentIndex() if current_subtab is not None else -1
-        
-        # Don't clear mask when in Edit mode (index 4) or Manual mode (index 2)
-        # In these modes, user is actively working on a mask - just update display channel
-        if current_index in (2, 4):
+
+        # Preserve mask in Watershed (0), Manual (2), and Edit (4) modes
+        # Watershed: keep outline visible; slider will recalculate on current channel
+        # Manual: user is drawing polygon
+        # Edit: user is editing existing mask
+        if current_index in (0, 2, 4):
             self.segmentation_current_channel = channel_index
             if current_index == 4:
                 self.plot_edit_mode()
-            else:  # Manual mode
+            elif current_index == 2:
                 self._update_polygon_display()
+            else:  # Watershed (0)
+                self.plot_segmentation()
             return
-        
-        # Clear old mask when changing channel ONLY in creation modes (Watershed, Cellpose, Import)
-        # This is because these methods may produce different results for different channels
+
+        # Clear mask in Cellpose (1) and Import (3) modes
+        # These have their own persistent mask variables (cellpose_masks_cyto/nuc)
         self.segmentation_mask = None
         self.segmentation_current_channel = channel_index
-        
+
         # Refresh display based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
             if current_index == 1 or current_index == 3:  # Cellpose or Import sub-tab
@@ -7600,7 +7607,12 @@ class GUI(QMainWindow):
             return
         
         x, y = int(event.xdata), int(event.ydata)
-        
+
+        # Skip spurious click that fires after a double-click cut completes
+        if getattr(self, '_knife_just_cut', False):
+            self._knife_just_cut = False
+            return
+
         # Check for double-click - execute cut if we have enough points
         if event.dblclick:
             if len(self.knife_points) >= 1:
@@ -7626,6 +7638,45 @@ class GUI(QMainWindow):
         
         self.canvas_segmentation.draw_idle()
     
+    def _extend_knife_point_to_border(self, inner_pt, edge_pt, h, w, margin=15):
+        """If edge_pt is within margin of any image border, extend the line
+        from inner_pt through edge_pt to the image boundary.
+        Returns the (possibly extended) point as (x, y) ints."""
+        ex, ey = edge_pt
+        # Check if the point is near any border
+        near_border = (ex < margin or ex >= w - margin or
+                       ey < margin or ey >= h - margin)
+        if not near_border:
+            return edge_pt
+
+        ix, iy = inner_pt
+        dx = ex - ix
+        dy = ey - iy
+        if dx == 0 and dy == 0:
+            return edge_pt
+
+        # Find t values for intersection with each border the direction points toward
+        candidates = []
+        if dx > 0:
+            candidates.append((w - 1 - ex) / dx)  # right border
+        elif dx < 0:
+            candidates.append(-ex / dx)            # left border
+        if dy > 0:
+            candidates.append((h - 1 - ey) / dy)  # bottom border
+        elif dy < 0:
+            candidates.append(-ey / dy)            # top border
+
+        # Take the smallest positive t (first border hit)
+        positive_t = [t for t in candidates if t > 0]
+        if not positive_t:
+            return edge_pt
+        t = min(positive_t)
+
+        # Compute extended point, clamped to image bounds
+        new_x = max(0, min(w - 1, int(round(ex + t * dx))))
+        new_y = max(0, min(h - 1, int(round(ey + t * dy))))
+        return (new_x, new_y)
+
     def _execute_multipoint_cut(self):
         """Execute the cut along all the multipoint path. Always keeps largest piece."""
         if self.edit_working_mask is None:
@@ -7641,7 +7692,17 @@ class GUI(QMainWindow):
         mask = self.edit_working_mask.copy()
         h, w = mask.shape
         cut_thickness = 3
-        
+
+        # Extend endpoints to image border if within 15px of edge
+        border_margin = 15
+        points = list(self.knife_points)
+        if len(points) >= 2:
+            points[0] = self._extend_knife_point_to_border(
+                points[1], points[0], h, w, border_margin)
+            points[-1] = self._extend_knife_point_to_border(
+                points[-2], points[-1], h, w, border_margin)
+            self.knife_points = points
+
         # Draw cut line along all segments
         for i in range(len(self.knife_points) - 1):
             x0, y0 = self.knife_points[i]
@@ -7690,6 +7751,9 @@ class GUI(QMainWindow):
         
         # Auto-save the mask immediately (no need to press Apply & Save)
         self.apply_and_save_edits()
+
+        # Prevent spurious click from double-click event from adding a ghost point
+        self._knife_just_cut = True
 
 
 # =============================================================================
@@ -8817,6 +8881,7 @@ class GUI(QMainWindow):
                 'use_maximum_projection': self.use_maximum_projection,
                 'cluster_radius_nm': self.cluster_radius_nm,
                 'maximum_spots_cluster': self.maximum_spots_cluster,
+                'use_fixed_threshold': self.use_fixed_threshold,
                 'detection_only': True,  # Flag to indicate detection without linking
             }
             
@@ -9917,6 +9982,7 @@ class GUI(QMainWindow):
                     'use_maximum_projection': self.use_maximum_projection,
                     'cluster_radius_nm': self.cluster_radius_nm,
                     'maximum_spots_cluster': self.maximum_spots_cluster,
+                    'use_fixed_threshold': self.use_fixed_threshold,
                 }
                 
                 # Rebuild combined df_tracking from all channels
