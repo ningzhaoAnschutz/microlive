@@ -75,6 +75,7 @@ dependencies = [
     
     # ML/Analysis - Cellpose pulls PyTorch automatically
     "cellpose==3.1.0",
+    "torchvision>=0.16",  # Required for ML spot detection (TrueSpot CNN)
     "trackpy>=0.6",
     "big-fish>=0.6",
     
