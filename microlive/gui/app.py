@@ -10141,10 +10141,10 @@ class GUI(QMainWindow):
         tracking_main_layout = QHBoxLayout(self.tracking_tab)
         # Left side: image display, time slider, play button, export buttons, etc.
         tracking_left_layout = QVBoxLayout()
-        tracking_main_layout.addLayout(tracking_left_layout)
+        tracking_main_layout.addLayout(tracking_left_layout, 3)
         # Right side: scroll area for tracking parameters
         tracking_right_layout = QVBoxLayout()
-        tracking_main_layout.addLayout(tracking_right_layout)
+        tracking_main_layout.addLayout(tracking_right_layout, 1)
         # Left side: Tracking Figure and Canvas
         self.figure_tracking, self.ax_tracking = plt.subplots(figsize=(8, 8))
         self.figure_tracking.patch.set_facecolor('black')
@@ -14953,7 +14953,7 @@ class GUI(QMainWindow):
         
         # Left panel: Plot and controls
         msd_left_layout = QVBoxLayout()
-        msd_main_layout.addLayout(msd_left_layout)
+        msd_main_layout.addLayout(msd_left_layout, 3)
         
         # MSD Plot Canvas
         self.figure_msd, self.ax_msd = plt.subplots(figsize=(8, 6))
@@ -14992,7 +14992,7 @@ class GUI(QMainWindow):
         
         # Right panel: Parameters and results
         msd_right_layout = QVBoxLayout()
-        msd_main_layout.addLayout(msd_right_layout)
+        msd_main_layout.addLayout(msd_right_layout, 1)
         
         # Tracking Channel group (first/prominent)
         tracking_group = QGroupBox("Tracking Channel")
@@ -15061,8 +15061,8 @@ class GUI(QMainWindow):
         tracking_vis_layout = QHBoxLayout(self.tracking_visualization_tab)
         left_layout = QVBoxLayout()
         right_layout = QVBoxLayout()
-        tracking_vis_layout.addLayout(left_layout)
-        tracking_vis_layout.addLayout(right_layout)
+        tracking_vis_layout.addLayout(left_layout, 3)
+        tracking_vis_layout.addLayout(right_layout, 1)
         # Left side: Video display and controls
         self.figure_tracking_vis, self.ax_tracking_vis = plt.subplots(figsize=(8, 8))
         self.figure_tracking_vis.patch.set_facecolor('black')
