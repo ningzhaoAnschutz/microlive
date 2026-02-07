@@ -14245,10 +14245,19 @@ class GUI(QMainWindow):
             
             results = self.colocalization_results if hasattr(self, 'colocalization_results') else {}
             
+            # Get the auto flag vector, re-ordered to match sorted checkbox order
+            auto_flags_original = results.get('flag_vector', [False] * total)
+            sort_indices = getattr(self, '_verify_visual_sort_indices', None)
+            if sort_indices is not None and len(sort_indices) == total:
+                # Re-order auto flags to match the sorted checkbox order
+                auto_flags = [bool(auto_flags_original[i]) for i in sort_indices]
+            else:
+                auto_flags = list(auto_flags_original[:total])
+            
             df = pd.DataFrame({
                 'spot_index': range(total),
                 'colocalized_manual': flags,
-                'colocalized_auto': results.get('flag_vector', [False] * total)[:total]
+                'colocalized_auto': auto_flags
             })
             df['method'] = 'visual'
             df['threshold'] = results.get('threshold_value', 'N/A')
