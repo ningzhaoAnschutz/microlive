@@ -3264,6 +3264,8 @@ class GUI(QMainWindow):
         self.figure_display, self.ax_display = plt.subplots(figsize=(8, 8))
         self.figure_display.patch.set_facecolor('black')
         self.canvas_display = FigureCanvas(self.figure_display)
+        self.canvas_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_display.setMinimumSize(0, 0)
         
         # Set up zoom feature: RectangleSelector for left-click drag
         self.display_zoom_selector = RectangleSelector(
@@ -10275,6 +10277,8 @@ class GUI(QMainWindow):
         self.figure_tracking, self.ax_tracking = plt.subplots(figsize=(8, 8))
         self.figure_tracking.patch.set_facecolor('black')
         self.canvas_tracking = FigureCanvas(self.figure_tracking)
+        self.canvas_tracking.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_tracking.setMinimumSize(0, 0)
         
         # Set up zoom feature: RectangleSelector for left-click drag
         self.tracking_zoom_selector = RectangleSelector(
@@ -10996,6 +11000,8 @@ class GUI(QMainWindow):
         left_layout = QVBoxLayout()
         self.figure_distribution, self.ax_intensity = plt.subplots()
         self.canvas_distribution = FigureCanvas(self.figure_distribution)
+        self.canvas_distribution.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_distribution.setMinimumSize(0, 0)
         self.toolbar_intensity = NavigationToolbar(self.canvas_distribution, self)
         left_layout.addWidget(self.canvas_distribution)
         bottom_export_layout = QHBoxLayout()
@@ -11188,6 +11194,8 @@ class GUI(QMainWindow):
         self.figure_time_course, self.ax_time_course = plt.subplots(figsize=(8, 10))
         self.figure_time_course.patch.set_facecolor('black')
         self.canvas_time_course = FigureCanvas(self.figure_time_course)
+        self.canvas_time_course.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_time_course.setMinimumSize(0, 0)
         time_course_layout.addWidget(self.canvas_time_course)
 
         # Navigation toolbar + export button at bottom
@@ -11589,9 +11597,10 @@ class GUI(QMainWindow):
         plot_row = QHBoxLayout()
         
         # Main figure
-        self.figure_correlation = Figure(figsize=(20, 20))
+        self.figure_correlation = Figure(figsize=(8, 6))
         self.canvas_correlation = FigureCanvas(self.figure_correlation)
         self.canvas_correlation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_correlation.setMinimumSize(0, 0)
         plot_row.addWidget(self.canvas_correlation, stretch=1)
         
         # Decorrelation threshold vertical slider (right of plot)
@@ -13035,7 +13044,9 @@ class GUI(QMainWindow):
     def setup_coloc_visual_subtab(self):
         """Setup Visual (ML/Intensity) colocalization sub-tab."""
         layout = QVBoxLayout(self.coloc_visual_widget)
-        top_layout = QHBoxLayout()
+        top_controls_layout = QVBoxLayout()
+        top_row_layout = QHBoxLayout()
+        second_row_layout = QHBoxLayout()
         
         # Tracking channel selector (single channel only)
         trackingChannelGroup = QGroupBox("Tracking Channel")
@@ -13043,7 +13054,7 @@ class GUI(QMainWindow):
         self.colocalization_tracking_channel_combo = QComboBox()
         # Will be populated on tab switch with tracked channels
         trackingChLayout.addWidget(self.colocalization_tracking_channel_combo)
-        top_layout.addWidget(trackingChannelGroup)
+        top_row_layout.addWidget(trackingChannelGroup)
         
         # Cell selector for multi-cell analysis
         cellGroup = QGroupBox("Cell Selection")
@@ -13052,7 +13063,7 @@ class GUI(QMainWindow):
         self.coloc_cell_combo.addItem("All Cells (pooled)", -1)
         self.coloc_cell_combo.addItem("All Cells (per-cell avg)", -2)
         cellLayout.addWidget(self.coloc_cell_combo)
-        top_layout.addWidget(cellGroup)
+        top_row_layout.addWidget(cellGroup)
         
         channelGroup = QGroupBox("Select Channels")
         chLayout = QHBoxLayout(channelGroup)
@@ -13064,7 +13075,7 @@ class GUI(QMainWindow):
         chLayout.addWidget(self.channel_combo_box_1)
         chLayout.addWidget(QLabel("Colocalize:"))
         chLayout.addWidget(self.channel_combo_box_2)
-        top_layout.addWidget(channelGroup)
+        top_row_layout.addWidget(channelGroup, 2)
         
         # Connect tracking channel change to auto-set Reference channel
         self.colocalization_tracking_channel_combo.currentIndexChanged.connect(
@@ -13077,7 +13088,7 @@ class GUI(QMainWindow):
         self.method_ml_radio.setChecked(True)
         methodLayout.addWidget(self.method_ml_radio)
         methodLayout.addWidget(self.method_intensity_radio)
-        top_layout.addWidget(methodGroup)
+        top_row_layout.addWidget(methodGroup)
         threshOptionsLayout = QHBoxLayout()
         mlGroup = QGroupBox("ML Options")
         mlLayout = QHBoxLayout(mlGroup)
@@ -13099,7 +13110,7 @@ class GUI(QMainWindow):
         self.snr_threshold_input.setValue(3.0)
         intensityLayout.addWidget(self.snr_threshold_input)
         threshOptionsLayout.addWidget(intensityGroup)
-        top_layout.addLayout(threshOptionsLayout)
+        second_row_layout.addLayout(threshOptionsLayout, 2)
         columnsGroup = QGroupBox("Crop Columns")
         columnsLayout = QHBoxLayout(columnsGroup)
         columnsLayout.addWidget(QLabel("Columns:"))
@@ -13109,7 +13120,7 @@ class GUI(QMainWindow):
         self.columns_spinbox.setToolTip("Adjust number of columns in crop display. Auto-set on first run.")
         self.columns_spinbox.valueChanged.connect(self._on_coloc_columns_changed)
         columnsLayout.addWidget(self.columns_spinbox)
-        top_layout.addWidget(columnsGroup)
+        second_row_layout.addWidget(columnsGroup)
         actionsGroup = QGroupBox("Actions")
         actionsGroup.setMinimumWidth(220)
         actionsLayout = QHBoxLayout(actionsGroup)
@@ -13120,9 +13131,12 @@ class GUI(QMainWindow):
         actionsLayout.addWidget(self.compute_colocalization_button, 1)
         self.export_colocalization_data_button = QPushButton("Export Data")
         self.export_colocalization_data_button.clicked.connect(lambda: self.extract_colocalization_data(True))
-        top_layout.addWidget(actionsGroup)
-        top_layout.addStretch()
-        layout.addLayout(top_layout, 1)
+        second_row_layout.addStretch()
+        second_row_layout.addWidget(actionsGroup)
+        top_row_layout.addStretch()
+        top_controls_layout.addLayout(top_row_layout)
+        top_controls_layout.addLayout(second_row_layout)
+        layout.addLayout(top_controls_layout, 1)
         self.colocalization_percentage_label = QLabel("")
         self.colocalization_percentage_label.setAlignment(Qt.AlignCenter)
         self.colocalization_percentage_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #00cc66;")
@@ -13142,6 +13156,8 @@ class GUI(QMainWindow):
         
         self.figure_colocalization = Figure()
         self.canvas_colocalization = FigureCanvas(self.figure_colocalization)
+        self.canvas_colocalization.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_colocalization.setMinimumSize(0, 0)
         layout.addWidget(self.canvas_colocalization, 8)
         bottom = QHBoxLayout()
         self.toolbar_colocalization = NavigationToolbar(self.canvas_colocalization, self)
@@ -13270,6 +13286,8 @@ class GUI(QMainWindow):
         # Matplotlib canvas with Z-slider (matching Tracking tab layout)
         self.figure_dist_coloc = Figure(facecolor='black')
         self.canvas_dist_coloc = FigureCanvas(self.figure_dist_coloc)
+        self.canvas_dist_coloc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_dist_coloc.setMinimumSize(0, 0)
         self.canvas_dist_coloc.setStyleSheet("background-color: black;")
         
         # Initialize axes for RectangleSelector
@@ -15167,6 +15185,8 @@ class GUI(QMainWindow):
         self.figure_msd, self.ax_msd = plt.subplots(figsize=(8, 6))
         self.figure_msd.patch.set_facecolor('black')
         self.canvas_msd = FigureCanvas(self.figure_msd)
+        self.canvas_msd.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_msd.setMinimumSize(0, 0)
         msd_left_layout.addWidget(self.canvas_msd)
         self.toolbar_msd = NavigationToolbar(self.canvas_msd, self.msd_tab)
         msd_left_layout.addWidget(self.toolbar_msd)
@@ -15285,6 +15305,7 @@ class GUI(QMainWindow):
         self.canvas_tracking_vis = FigureCanvas(self.figure_tracking_vis)
         left_layout.addWidget(self.canvas_tracking_vis)
         self.canvas_tracking_vis.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas_tracking_vis.setMinimumSize(0, 0)
         
         # Set up zoom feature: RectangleSelector for left-click drag
         self.tracking_vis_zoom_selector = RectangleSelector(
