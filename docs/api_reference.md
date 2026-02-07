@@ -324,6 +324,59 @@ def plot_segmentation(self) -> None:
     """Update segmentation display with current image and mask overlay."""
 ```
 
+##### Mask Editing Methods
+
+```python
+def _set_edit_tool(self, tool_name: str) -> None:
+    """Switch between edit tools.
+
+    Args:
+        tool_name: 'eraser' or 'knife'
+    """
+
+def _on_edit_mouse_press(self, event) -> None:
+    """Handle mouse press in edit mode - routes to current tool (eraser or knife)."""
+
+def _apply_eraser_at(self, x: int, y: int) -> None:
+    """Apply eraser brush at given position.
+
+    Uses a fixed 10px circular brush to set pixels to background (0).
+    """
+
+def _on_knife_click(self, event) -> None:
+    """Handle click for knife tool.
+
+    Single click adds a cut point. Double-click executes the cut
+    along all placed points.
+    """
+
+def _execute_multipoint_cut(self) -> None:
+    """Execute the cut along the multipoint path.
+
+    Draws a 3px-thick cut line along all segments, finds connected
+    components, and keeps only the largest piece. Endpoints within
+    15px of borders are automatically extended. Auto-saves the mask.
+    """
+
+def _extend_knife_point_to_border(
+    self, inner_pt: tuple, edge_pt: tuple, h: int, w: int, margin: int = 15
+) -> tuple:
+    """Extend a knife endpoint to the image border if near edge.
+
+    If edge_pt is within margin pixels of any border, extends the line
+    from inner_pt through edge_pt to the boundary.
+    """
+
+def apply_and_save_edits(self) -> None:
+    """Apply 2D edits to the underlying mask and save.
+
+    For TYX masks, propagates 2D changes to all frames.
+    """
+
+def _push_undo(self, description: str) -> None:
+    """Save current mask state for undo capability."""
+```
+
 ##### Tracking Methods
 
 ```python

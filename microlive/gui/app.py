@@ -22,7 +22,7 @@ import tifffile
 from pathlib import Path
 from PIL import Image
 import xml.etree.ElementTree as ET
-from joblib import Parallel, delayed, cpu_count
+from joblib import cpu_count
 NUMBER_OF_CORES = cpu_count()
 
 # Suppress macOS native warnings
@@ -57,7 +57,6 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QAbstractItemView, 
     QApplication,
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -101,7 +100,7 @@ from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar,)
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from mpl_toolkits.mplot3d import Axes3D  # For 3D intensity profile visualization
+
 from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, label, center_of_mass, distance_transform_edt

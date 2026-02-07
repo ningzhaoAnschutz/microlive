@@ -149,10 +149,62 @@ Each channel has independent intensity controls:
 
 ### Manual Segmentation
 
+Manual segmentation uses a polygon-based drawing workflow where you click to place vertices that define cell boundaries.
+
+#### Workflow
+
 1. **Select Channel**: Choose the most appropriate channel for segmentation
-2. **Start Segmentation**: Click "Manual Segmentation" button
-3. **Draw Polygon**: Click points to define the region boundary
-4. **Finish**: Click "Finish Segmentation" to complete the mask
+2. **Navigate to Manual Tab**: Select the "Manual" sub-tab in the Segmentation tab
+3. **Place Vertices**: Click on the image to place polygon vertices — each click adds a point connected by a line to the previous point
+4. **Close the Polygon**: Either **double-click** anywhere (with at least 3 points) or **click near the first point** (within 15 pixels) to close the polygon and create the mask
+5. **Add More Cells**: Continue clicking to define additional cell regions — each closed polygon is assigned a unique label
+6. **Finish**: Click "Finish Segmentation" to finalize all drawn masks
+
+> **Tip**: The polygon auto-closes when you click within 15 pixels of the first point, making it easy to complete the outline precisely.
+
+### Mask Editing (Edit Tab)
+
+After any segmentation (Watershed, Cellpose, Manual, or Imported), you can refine individual masks using the **Edit** sub-tab. This provides two specialized tools for correcting segmentation errors.
+
+#### Selecting a Mask to Edit
+
+1. Open the **Edit** sub-tab in the Segmentation panel
+2. Use the **Mask Selector** dropdown to choose which segmentation result to edit (e.g., "Watershed", "Cellpose Cyto", "Cellpose Nuc")
+3. The selected mask is displayed with colored overlays and white contours
+
+#### Eraser Tool
+
+The **Eraser** removes pixels from the mask by painting with a circular brush.
+
+- **Activate**: Click the "🖌️ Eraser" button (active by default)
+- **Use**: Click and drag on the image to erase pixels (sets them to background)
+- **Brush Size**: Fixed 10-pixel circular brush
+- **Undo**: Use the "↩ Undo" button to revert the last eraser stroke
+
+#### Knife Tool (Cut/Split)
+
+The **Knife** tool splits merged cells by drawing a multi-point cut line.
+
+- **Activate**: Click the "🔪 Knife" button
+- **Place Cut Points**: Click on the image to add cut points — red dots appear at each point, connected by red lines
+- **Execute Cut**: **Double-click** to finalize and execute the cut along all placed points
+- **Border Extension**: If an endpoint is within 15 pixels of the image border, the cut line automatically extends to the border edge for clean splits
+- **Result**: After cutting, only the **largest** piece is kept; smaller fragments are automatically removed
+- **Auto-Save**: The mask is automatically saved after each cut — no need to press "Apply & Save" manually
+
+##### Knife Tool Workflow Example
+
+1. Select a mask containing merged (touching) cells
+2. Switch to the Knife tool
+3. Click 2-4 points along the boundary between the merged cells
+4. Double-click to execute the cut
+5. The status bar shows how many pixels were kept vs. removed (e.g., "✂️ Kept largest (2,450 px), removed 1,230 px")
+
+#### Saving Edits
+
+- **Apply & Save**: Click to save all eraser edits to the underlying mask
+- Knife tool cuts are saved automatically after execution
+- All edits support **Undo** for easy correction
 
 ### Watershed Segmentation
 

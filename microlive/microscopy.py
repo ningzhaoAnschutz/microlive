@@ -6,31 +6,30 @@ Authors: Luis U. Aguilera
 '''
 
 # Importing Libraries
-import datetime
-import gc
+
+
 import getpass
 import glob
 import itertools
-from itertools import compress
+
 import math
 #import multiprocessing
 from joblib import Parallel, delayed, cpu_count
 import os
-from os import listdir
-from os.path import isfile, join
+
 import logging
 import pathlib
 from pathlib import Path
-import platform
+
 import re
 import shutil
-import socket
+
 import sys
 import warnings
 ### Third-party imports
 import pandas as pd
 import numpy as np
-import yaml
+
 import tifffile
 #import pkg_resources
 import joypy
@@ -42,12 +41,12 @@ import trackpy as tp
 tp.quiet(suppress=True)
 from PIL import Image, ImageDraw
 import imageio
-from functools import wraps,partial
+from functools import wraps
 import inspect
 import traceback
-import random
+
 ### Skimage imports
-from skimage import img_as_float64, img_as_uint, exposure, filters, morphology, exposure,measure, filters,feature
+from skimage import img_as_uint, exposure, filters, morphology, measure, feature
 from skimage.filters import gaussian, threshold_otsu
 from skimage.io import imread
 from skimage.morphology import erosion, binary_erosion, disk, remove_small_objects, remove_small_holes
@@ -58,7 +57,7 @@ from skimage.feature import peak_local_max, blob_log
 
 ### Scipy imports
 from scipy import signal, ndimage
-from scipy.ndimage import gaussian_filter, binary_dilation, gaussian_filter1d, distance_transform_edt
+from scipy.ndimage import gaussian_filter, binary_dilation, distance_transform_edt
 from scipy.optimize import curve_fit, linear_sum_assignment
 #import scipy.stats as stats
 from scipy.spatial.distance import cdist
@@ -86,14 +85,14 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 #import matplotlib.path as mpltPath
 from matplotlib.patches import Circle, Rectangle,Polygon
-from  matplotlib.ticker import FuncFormatter, MaxNLocator
+from  matplotlib.ticker import FuncFormatter
 from matplotlib_scalebar.scalebar import ScaleBar
 from matplotlib import cm
-from matplotlib.colors import to_rgb
+
 #from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+
 from matplotlib.figure import Figure
 from matplotlib.widgets import TextBox
 from matplotlib.colors import LinearSegmentedColormap
