@@ -1712,6 +1712,7 @@ class GUI(QMainWindow):
         }}
         """
         self.themeToggle.setStyleSheet(toggle_style)
+        self._apply_colocalization_run_button_style()
         # Enforce uniform spacing & margins on all tabs
         for tab in (
             self.display_tab, self.segmentation_tab, self.photobleaching_tab,
@@ -1723,6 +1724,52 @@ class GUI(QMainWindow):
             if layout:
                 layout.setContentsMargins(8, 8, 8, 8)
                 layout.setSpacing(8)
+
+    def _apply_colocalization_run_button_style(self):
+        """Apply the same green style used by Registration to the Visual Run button."""
+        if not hasattr(self, 'compute_colocalization_button') or self.compute_colocalization_button is None:
+            return
+        if hasattr(self, 'perform_registration_btn') and self.perform_registration_btn is not None:
+            reg_style = self.perform_registration_btn.styleSheet()
+            if reg_style:
+                self.compute_colocalization_button.setStyleSheet(reg_style)
+            else:
+                self.compute_colocalization_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #28a745;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 13px;
+                        border-radius: 6px;
+                        border: none;
+                    }
+                    QPushButton:hover {
+                        background-color: #34c759;
+                    }
+                    QPushButton:pressed {
+                        background-color: #1e7e34;
+                    }
+                """)
+        else:
+            self.compute_colocalization_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    font-weight: bold;
+                    font-size: 13px;
+                    border-radius: 6px;
+                    border: none;
+                }
+                QPushButton:hover {
+                    background-color: #34c759;
+                }
+                QPushButton:pressed {
+                    background-color: #1e7e34;
+                }
+            """)
+        self.compute_colocalization_button.style().unpolish(self.compute_colocalization_button)
+        self.compute_colocalization_button.style().polish(self.compute_colocalization_button)
+        self.compute_colocalization_button.update()
 
     def ask_for_metadata_from_user(self, missing_fields):
         """
@@ -3199,8 +3246,10 @@ class GUI(QMainWindow):
 
         # Open File button
         self.open_button = QPushButton("Open File", self)
+        self.open_button.setToolTip("Load image files to start analysis.")
+        self.open_button.setMinimumHeight(34)
+        self.open_button.setFlat(False)
         self.open_button.clicked.connect(self.open_image)
-        self.open_button.setFlat(True)
         display_left_layout.addWidget(self.open_button)
         # Display figure
         self.figure_display, self.ax_display = plt.subplots(figsize=(8, 8))
@@ -10985,7 +11034,23 @@ class GUI(QMainWindow):
         percentile_layout.addRow(QLabel("Max Percentile:"), self.intensity_max_percentile_spin)
         right_layout.addWidget(percentile_group)
         # Plot button
-        self.plot_intensity_button = QPushButton("Plot Histogram")
+        self.plot_intensity_button = QPushButton("Plot")
+        self.plot_intensity_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.plot_intensity_button.clicked.connect(self.plot_intensity_histogram)
         right_layout.addWidget(self.plot_intensity_button)
         right_layout.addStretch()
@@ -11083,6 +11148,22 @@ class GUI(QMainWindow):
 
         # Plot button
         self.plot_time_course_button = QPushButton("Plot", self)
+        self.plot_time_course_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.plot_time_course_button.clicked.connect(self.plot_intensity_time_course)
         controls_layout.addWidget(self.plot_time_course_button)
 
@@ -12999,13 +13080,15 @@ class GUI(QMainWindow):
         columnsLayout.addWidget(self.columns_spinbox)
         top_layout.addWidget(columnsGroup)
         actionsGroup = QGroupBox("Actions")
+        actionsGroup.setMinimumWidth(220)
         actionsLayout = QHBoxLayout(actionsGroup)
         self.compute_colocalization_button = QPushButton("Run")
+        self._apply_colocalization_run_button_style()
+        self.compute_colocalization_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.compute_colocalization_button.clicked.connect(self.compute_colocalization)
-        actionsLayout.addWidget(self.compute_colocalization_button)
+        actionsLayout.addWidget(self.compute_colocalization_button, 1)
         self.export_colocalization_data_button = QPushButton("Export Data")
         self.export_colocalization_data_button.clicked.connect(lambda: self.extract_colocalization_data(True))
-        actionsLayout.addWidget(self.export_colocalization_data_button)
         top_layout.addWidget(actionsGroup)
         top_layout.addStretch()
         layout.addLayout(top_layout, 1)
@@ -13032,6 +13115,8 @@ class GUI(QMainWindow):
         bottom = QHBoxLayout()
         self.toolbar_colocalization = NavigationToolbar(self.canvas_colocalization, self)
         bottom.addWidget(self.toolbar_colocalization)
+        bottom.addStretch()
+        bottom.addWidget(self.export_colocalization_data_button)
         self.export_colocalization_image_button = QPushButton("Export Image")
         self.export_colocalization_image_button.clicked.connect(self.export_colocalization_image)
         bottom.addWidget(self.export_colocalization_image_button)
@@ -13279,6 +13364,22 @@ class GUI(QMainWindow):
         top_bar.addStretch()
         
         self.verify_visual_populate_button = QPushButton("Populate")
+        self.verify_visual_populate_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         self.verify_visual_populate_button.clicked.connect(self.populate_verify_visual)
         top_bar.addWidget(self.verify_visual_populate_button)
         
@@ -16402,7 +16503,7 @@ class GUI(QMainWindow):
         # Instructions label
         instructions_label = QLabel(
             "Select which items you'd like to export.\n"
-            "Use the 'Export Selected Items' button below to export them into a new folder."
+            "Use the 'Export' button below to export them into a new folder."
         )
         layout.addWidget(instructions_label)
         # --- Predefined Comments Combo Box ---
@@ -16479,7 +16580,23 @@ class GUI(QMainWindow):
         deselect_all_btn.clicked.connect(self.deselect_all_exports)
         buttons_layout.addWidget(deselect_all_btn)
 
-        export_selected_btn = QPushButton("Export Selected Items")
+        export_selected_btn = QPushButton("Export")
+        export_selected_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         export_selected_btn.clicked.connect(self.export_selected_items)
         buttons_layout.addWidget(export_selected_btn)
 
@@ -18151,6 +18268,7 @@ class GUI(QMainWindow):
                     self.correlation_tracking_channel_combo.addItem("No tracked channels", -1)
             self.display_correlation_plot()
         elif index == 9:  # Colocalization (includes Visual, Distance, Manual sub-tabs)
+            self._apply_colocalization_run_button_style()
             # Update Visual (ML/Intensity) sub-tab tracking channel combo
             if hasattr(self, 'colocalization_tracking_channel_combo'):
                 self.colocalization_tracking_channel_combo.clear()
