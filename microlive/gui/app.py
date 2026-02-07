@@ -928,6 +928,15 @@ class GUI(QMainWindow):
         configure_logging_and_styles()
         self.setWindowTitle("MicroLive")
         self.setWindowIcon(QIcon(str(icon_path)))
+        # Adapt initial window size to the current monitor to avoid oversized layouts.
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            default_w = min(1350, int(available.width() * 0.88))
+            default_h = min(920, int(available.height() * 0.88))
+            self.resize(default_w, default_h)
+        else:
+            self.resize(1280, 860)
         self.loaded_lif_files = {}
         self.correct_baseline = False
         self.data_folder_path = None
@@ -3338,8 +3347,11 @@ class GUI(QMainWindow):
         display_left_layout.addLayout(zoom_info_layout)
         
         # Right side
-        display_right_layout = QVBoxLayout()
-        display_main_layout.addLayout(display_right_layout, 1)
+        display_right_widget = QWidget()
+        display_right_widget.setMinimumWidth(360)
+        display_right_layout = QVBoxLayout(display_right_widget)
+        display_right_layout.setContentsMargins(0, 0, 0, 0)
+        display_main_layout.addWidget(display_right_widget, 2)
         # Image selection tree
         display_right_layout.addWidget(QLabel("Select Image"))
         self.image_tree = QTreeWidget()
@@ -10258,7 +10270,7 @@ class GUI(QMainWindow):
         tracking_main_layout.addLayout(tracking_left_layout, 3)
         # Right side: scroll area for tracking parameters
         tracking_right_layout = QVBoxLayout()
-        tracking_main_layout.addLayout(tracking_right_layout, 1)
+        tracking_main_layout.addLayout(tracking_right_layout, 2)
         # Left side: Tracking Figure and Canvas
         self.figure_tracking, self.ax_tracking = plt.subplots(figsize=(8, 8))
         self.figure_tracking.patch.set_facecolor('black')
@@ -11054,7 +11066,7 @@ class GUI(QMainWindow):
         self.plot_intensity_button.clicked.connect(self.plot_intensity_histogram)
         right_layout.addWidget(self.plot_intensity_button)
         right_layout.addStretch()
-        intensity_layout.addLayout(right_layout, 1)
+        intensity_layout.addLayout(right_layout, 2)
 # =============================================================================
 # =============================================================================
 # TIME COURSE TAB
@@ -11858,7 +11870,22 @@ class GUI(QMainWindow):
         self.compute_correlations_button = QPushButton("Run")
         self.compute_correlations_button.clicked.connect(self.compute_correlations)
         self.compute_correlations_button.setMinimumHeight(40)
-        self.compute_correlations_button.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.compute_correlations_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 6px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #34c759;
+            }
+            QPushButton:pressed {
+                background-color: #1e7e34;
+            }
+        """)
         right_layout.addWidget(self.compute_correlations_button)
         
         right_layout.addStretch()
@@ -15169,7 +15196,7 @@ class GUI(QMainWindow):
         
         # Right panel: Parameters and results
         msd_right_layout = QVBoxLayout()
-        msd_main_layout.addLayout(msd_right_layout, 1)
+        msd_main_layout.addLayout(msd_right_layout, 2)
         
         # Tracking Channel group (first/prominent)
         tracking_group = QGroupBox("Tracking Channel")
@@ -15237,9 +15264,17 @@ class GUI(QMainWindow):
         """Create and configure the 'Tracking Visualization' tab layout."""
         tracking_vis_layout = QHBoxLayout(self.tracking_visualization_tab)
         left_layout = QVBoxLayout()
-        right_layout = QVBoxLayout()
         tracking_vis_layout.addLayout(left_layout, 3)
-        tracking_vis_layout.addLayout(right_layout, 1)
+        
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        right_controls_widget = QWidget()
+        right_controls_widget.setMinimumWidth(340)
+        right_layout = QVBoxLayout(right_controls_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_scroll.setWidget(right_controls_widget)
+        tracking_vis_layout.addWidget(right_scroll, 2)
         # Left side: Video display and controls
         self.figure_tracking_vis, self.ax_tracking_vis = plt.subplots(figsize=(8, 8))
         self.figure_tracking_vis.patch.set_facecolor('black')
