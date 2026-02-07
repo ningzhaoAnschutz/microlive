@@ -12343,6 +12343,10 @@ class GUI(QMainWindow):
         if hasattr(self, 'verify_visual_stats_label'):
             self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
 
+        self._verify_visual_sorted = False
+        self._verify_visual_sorted_crop = None
+        self._verify_visual_sort_indices = None
+
         self.colocalization_results = {
             'mean_crop_filtered': display_crop,
             'crop_size': crop_size,
@@ -15947,6 +15951,46 @@ class GUI(QMainWindow):
 
     def _export_colocalization_image(self, file_path):
         try:
+            # Check if we have sorting indices from manual verification to match sort order
+            sort_indices = getattr(self, '_verify_visual_sort_indices', None)
+            
+            if sort_indices is not None and self.colocalization_results:
+                mean_crop = self.colocalization_results.get('mean_crop_filtered')
+                flag_vector = self.colocalization_results.get('flag_vector')
+                crop_size = self.colocalization_results.get('crop_size')
+                ch1 = self.colocalization_results.get('ch1_index', 0)
+                ch2 = self.colocalization_results.get('ch2_index', 1)
+                
+                # Verify dimensions match
+                if mean_crop is not None and flag_vector is not None and len(sort_indices) == len(flag_vector):
+                    # Use stored sorted crops if available
+                    sorted_crop = getattr(self, '_verify_visual_sorted_crop', None)
+                    
+                    if sorted_crop is not None:
+                        # Sort flags to match the crop order
+                        flags_list = list(flag_vector)
+                        sorted_flags = [flags_list[i] for i in sort_indices]
+                        
+                        # Create new figure
+                        fig = Figure()
+                        # Add (Sorted) to title to indicate modification
+                        pct = self.colocalization_results.get('colocalization_percentage', 0.0)
+                        title = f"Colocalization: {pct:.2f}% (Sorted)"
+                        
+                        self.plots.plot_matrix_pair_crops(
+                            mean_crop=sorted_crop,
+                            crop_size=crop_size,
+                            flag_vector=sorted_flags,
+                            selected_channels=(ch1, ch2),
+                            figure=fig,
+                            crop_spacing=5,
+                            number_columns=self.columns_spinbox.value() if hasattr(self, 'columns_spinbox') else 20,
+                            plot_title=title
+                        )
+                        fig.savefig(file_path, dpi=300)
+                        return
+
+            # Default: Export the current figure (unsorted)
             self.figure_colocalization.savefig(file_path, dpi=300)
         except Exception as e:
             print(f"Failed to export colocalization image: {e}")
@@ -17533,6 +17577,7 @@ class GUI(QMainWindow):
             self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
         self._verify_visual_sorted = False
         self._verify_visual_sorted_crop = None
+        self._verify_visual_sort_indices = None
         
         # Reset Verify Distance
         if hasattr(self, 'verify_distance_scroll_area'):
