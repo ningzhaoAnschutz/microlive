@@ -14180,13 +14180,15 @@ class GUI(QMainWindow):
                 display_crop = sorted_crop
                 display_flags = sorted_flags
             
-            # Store sorted indices for potential export mapping
+            # Store sorted crop and indices for export mapping
             self._verify_visual_sort_indices = sorted_indices
+            self._verify_visual_sorted_crop = display_crop
             self._verify_visual_sorted = True
         else:
             # No prediction values available - keep original order
             self._verify_visual_sorted = False
             self._verify_visual_sort_indices = None
+            self._verify_visual_sorted_crop = None
         
         # Create spot crops with checkboxes (now in sorted order)
         self._create_verification_crops(
@@ -15695,7 +15697,12 @@ class GUI(QMainWindow):
             # Use visual checkboxes if available, otherwise distance
             if has_visual:
                 checkboxes = self.verify_visual_checkboxes
-                mean_crop = getattr(self, 'colocalization_results', {}).get('mean_crop_filtered')
+                # Use sorted crops if available (they match checkbox order)
+                sorted_crop = getattr(self, '_verify_visual_sorted_crop', None)
+                if sorted_crop is not None:
+                    mean_crop = sorted_crop
+                else:
+                    mean_crop = getattr(self, 'colocalization_results', {}).get('mean_crop_filtered')
                 crop_size = getattr(self, 'colocalization_results', {}).get('crop_size', 15)
             else:
                 checkboxes = self.verify_distance_checkboxes
@@ -17365,6 +17372,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'verify_visual_stats_label'):
             self.verify_visual_stats_label.setText("Run Visual colocalization first, then click Populate")
         self._verify_visual_sorted = False
+        self._verify_visual_sorted_crop = None
         
         # Reset Verify Distance
         if hasattr(self, 'verify_distance_scroll_area'):

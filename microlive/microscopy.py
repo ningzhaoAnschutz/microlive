@@ -4138,9 +4138,23 @@ class SpotDetection():
         self.save_all_images = save_all_images                                  # Displays all the z-planes
         self.display_spots_on_multiple_z_planes = display_spots_on_multiple_z_planes  # Displays the ith-z_plane and the detected spots in the planes ith-z_plane+1 and ith-z_plane
         self.use_log_filter_for_spot_detection =use_log_filter_for_spot_detection
-        if not isinstance(threshold_for_spot_detection, list):
-            threshold_for_spot_detection=[threshold_for_spot_detection]
-        self.threshold_for_spot_detection=threshold_for_spot_detection
+        # Normalize thresholds to one value per spot channel.
+        if isinstance(threshold_for_spot_detection, (list, tuple, np.ndarray)):
+            thresholds = list(threshold_for_spot_detection)
+        else:
+            thresholds = [threshold_for_spot_detection]
+
+        n_spot_channels = len(self.list_channels_spots)
+        if len(thresholds) == 0:
+            thresholds = [None] * n_spot_channels
+        elif len(thresholds) == 1 and n_spot_channels > 1:
+            thresholds = thresholds * n_spot_channels
+        elif len(thresholds) < n_spot_channels:
+            thresholds.extend([thresholds[-1]] * (n_spot_channels - len(thresholds)))
+        elif len(thresholds) > n_spot_channels:
+            thresholds = thresholds[:n_spot_channels]
+
+        self.threshold_for_spot_detection = thresholds
         self.save_files = save_files
         self.MINIMUM_SPOT_SIZE_IN_PX = 3
         self.use_maximum_projection = use_maximum_projection
@@ -8574,21 +8588,29 @@ class Utilities():
         return output_identification_string
     
     
-    def  create_list_thresholds(self,channels_spots,threshold_for_spot_detection=None):
-        # If more than one channel contain spots. This section will create a list of thresholds for spot detection and for each channel. 
-        if not(isinstance(channels_spots, list)):
-            channels_spots=Utilities().make_it_a_list(channels_spots)
-        list_threshold_for_spot_detection=[]
-        if not isinstance(threshold_for_spot_detection, list):
-            for i in range (len(channels_spots)):
-                list_threshold_for_spot_detection.append(threshold_for_spot_detection)
-        else:
-            list_threshold_for_spot_detection = threshold_for_spot_detection
-        # Lists for thresholds. If the list is smaller than the number of spot channels and it uses the same value for all channels.
-        if (isinstance(list_threshold_for_spot_detection, list)) and (len(list_threshold_for_spot_detection) < len(channels_spots)):
-            for i in range (len(channels_spots)):
-                list_threshold_for_spot_detection.append(list_threshold_for_spot_detection[0])
-        return list_threshold_for_spot_detection
+    # DEAD CODE: create_list_thresholds (Feb 2026)
+    # This method was never called. Threshold normalization is now handled inline
+    # in SpotDetection.__init__ (lines 4141-4157) with improved robustness:
+    # - NumPy array support
+    # - Truncation for oversized lists
+    # - Empty list handling
+    # - Uses last value for extension (more intuitive for progressive tuning)
+    #
+    # def  create_list_thresholds(self,channels_spots,threshold_for_spot_detection=None):
+    #     # If more than one channel contain spots. This section will create a list of thresholds for spot detection and for each channel. 
+    #     if not(isinstance(channels_spots, list)):
+    #         channels_spots=Utilities().make_it_a_list(channels_spots)
+    #     list_threshold_for_spot_detection=[]
+    #     if not isinstance(threshold_for_spot_detection, list):
+    #         for i in range (len(channels_spots)):
+    #             list_threshold_for_spot_detection.append(threshold_for_spot_detection)
+    #     else:
+    #         list_threshold_for_spot_detection = threshold_for_spot_detection
+    #     # Lists for thresholds. If the list is smaller than the number of spot channels and it uses the same value for all channels.
+    #     if (isinstance(list_threshold_for_spot_detection, list)) and (len(list_threshold_for_spot_detection) < len(channels_spots)):
+    #         for i in range (len(channels_spots)):
+    #             list_threshold_for_spot_detection.append(list_threshold_for_spot_detection[0])
+    #     return list_threshold_for_spot_detection
     
     # This function is intended to merge masks in a single image
     def merge_masks (self,list_masks):
@@ -13448,4 +13470,3 @@ class VideoTracking:
         ani = FuncAnimation(fig, update, frames=len(video_frames), blit=True, repeat=True)
         plt.close(fig)  # Prevent extra empty plot from showing in notebook
         return HTML(ani.to_jshtml())
-
