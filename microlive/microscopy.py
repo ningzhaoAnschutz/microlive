@@ -566,15 +566,6 @@ class Photobleaching:
         params = self.precalculated_list_decay_rates or self.calculate_photobleaching()
         T, Z, Y, X, C = self.image_TZYXC.shape
         time_array = np.arange(T, dtype=float) * self.time_interval_seconds
-        # Track the actual parameters used to build correction factors (per channel: [k, I0]).
-        applied_params = [0.0] * (2 * C)
-        if params is not None:
-            try:
-                params = list(params)
-            except Exception:
-                params = []
-        if len(params) >= 2 * C:
-            applied_params[: 2 * C] = params[: 2 * C]
         
         # Ensure mask exists
         if not hasattr(self, 'mask'):
@@ -625,15 +616,11 @@ class Photobleaching:
                 logging.debug(f"Photobleaching: Correction skipped for channel {ch} "
                       f"(initial intensity {initial_intensity:.2f} < {self.min_intensity_threshold}).")
                 correction_factors_per_ch[ch] = np.ones(T)  # No correction
-                applied_params[2 * ch] = 0.0
-                applied_params[2 * ch + 1] = float(initial_intensity)
                 continue
             
             if len(time_array) < 2:
                 logging.debug(f"Photobleaching: Skipping correction for channel {ch} (not enough data points).")
                 correction_factors_per_ch[ch] = np.ones(T)
-                applied_params[2 * ch] = 0.0
-                applied_params[2 * ch + 1] = float(initial_intensity)
                 continue
             
             intensity_decrease = (raw_intensities[0] - raw_intensities[-1]) / (raw_intensities[0] + 1e-9)
@@ -643,8 +630,6 @@ class Photobleaching:
                 if self.verbose:
                     logging.debug(f"Photobleaching: Correction not necessary for channel {ch}. No correction applied.")
                 correction_factors_per_ch[ch] = np.ones(T)
-                applied_params[2 * ch] = 0.0
-                applied_params[2 * ch + 1] = float(initial_intensity)
                 continue
             
             # Skip if intensity decays too much (> 95% decrease) - correction would be unreliable
@@ -653,35 +638,15 @@ class Photobleaching:
                 logging.debug(f"Photobleaching: Correction skipped for channel {ch} "
                       f"(extreme decay {intensity_decrease*100:.1f}% - correction would be unreliable).")
                 correction_factors_per_ch[ch] = np.ones(T)  # No correction
-                applied_params[2 * ch] = 0.0
-                applied_params[2 * ch + 1] = float(initial_intensity)
                 continue
             
-            # Calculate correction factors using the provided/external fit when available.
-            k_fit = None
-            I0_fit = None
-            if len(params) >= 2 * (ch + 1):
-                try:
-                    k_candidate = float(params[2 * ch])
-                    I0_candidate = float(params[2 * ch + 1])
-                    if np.isfinite(k_candidate) and np.isfinite(I0_candidate) and I0_candidate > 0:
-                        k_fit = max(k_candidate, 0.0)
-                        I0_fit = I0_candidate
-                except Exception:
-                    k_fit = None
-                    I0_fit = None
-
-            if k_fit is None or I0_fit is None:
-                eps = 1e-9
-                log_int = np.log(raw_intensities + eps)
-                slope, intercept = np.polyfit(time_array, log_int, 1)
-                k_fit = max(-slope, 0.0)
-                I0_fit = np.exp(intercept)
-
-            applied_params[2 * ch] = float(k_fit)
-            applied_params[2 * ch + 1] = float(I0_fit)
+            # Calculate correction factors
+            eps = 1e-9
+            log_int = np.log(raw_intensities + eps)
+            slope, intercept = np.polyfit(time_array, log_int, 1)
+            k_fit = -slope
+            I0_fit = np.exp(intercept)
             I_fit = I0_fit * np.exp(-k_fit * time_array)
-            I_fit = np.clip(I_fit, 1e-9, None)
             correction_factors_per_ch[ch] = I0_fit / I_fit  # exp(k_fit * time_array)
             channels_to_correct.append(ch)
         
@@ -735,8 +700,7 @@ class Photobleaching:
                 plt.close()
         
         photobleaching_data = {
-            'decay_rates': applied_params,
-            'decay_rates_requested': params,
+            'decay_rates': params,
             'time_array': time_array,
             'mean_intensities': self.mean_intensities if hasattr(self, 'mean_intensities') else np.zeros((T, C)),
             'err_intensities': self.err_intensities if hasattr(self, 'err_intensities') else np.zeros((T, C)),

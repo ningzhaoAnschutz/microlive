@@ -7913,15 +7913,39 @@ class GUI(QMainWindow):
         del correction_obj
         gc.collect()
         
-        # Preserve raw-image reference curves for audit, but keep the plotting defaults
-        # aligned with the actual image that was corrected and will be tracked.
-        self.photobleaching_data['mean_intensities_raw_reference'] = raw_mean_intensities
-        self.photobleaching_data['err_intensities_raw_reference'] = raw_err_intensities
-        self.photobleaching_data['decay_rates_raw_reference'] = decay_params
+        # Override mean_intensities in photobleaching_data with raw image values for accurate plot
+        # This shows the actual decay curve (from raw) as "Original" in the plot
+        self.photobleaching_data['mean_intensities'] = raw_mean_intensities
+        self.photobleaching_data['err_intensities'] = raw_err_intensities
+        
+        # Also compute corrected intensities from RAW intensities (not registered)
+        # This avoids registration edge artifacts in the "Corrected" line
+        T, C = raw_mean_intensities.shape
+        time_array = self.photobleaching_data['time_array']
+        params = decay_params
+        
+        # Calculate correction factors and apply to raw intensities
+        raw_intensities_corrected = np.zeros_like(raw_mean_intensities)
+        raw_err_corrected = np.zeros_like(raw_err_intensities)
+        
+        for ch in range(C):
+            k_fit = params[2*ch]
+            I0_fit = params[2*ch + 1]
+            
+            if k_fit > 0:
+                # Compute correction factor: I0 / I_fit(t) = exp(k*t)
+                correction_factors = np.exp(k_fit * time_array)
+                raw_intensities_corrected[:, ch] = raw_mean_intensities[:, ch] * correction_factors
+                raw_err_corrected[:, ch] = raw_err_intensities[:, ch] * correction_factors
+            else:
+                # No correction applied for this channel
+                raw_intensities_corrected[:, ch] = raw_mean_intensities[:, ch]
+                raw_err_corrected[:, ch] = raw_err_intensities[:, ch]
+        
+        self.photobleaching_data['mean_intensities_corrected'] = raw_intensities_corrected
+        self.photobleaching_data['err_intensities_corrected'] = raw_err_corrected
         
         self.photobleaching_calculated = True
-        self.photobleaching_applied_to_source = 'registered' if self.registered_image is not None else 'original'
-        self.photobleaching_fit_parameters_source = 'original'
 
         # Existing tracking-derived intensities are now stale because the image source changed.
         had_tracking_like_data = (
@@ -16825,6 +16849,7 @@ class GUI(QMainWindow):
         self.comments_combo.addItem("The cell goes out of focus.")
         self.comments_combo.addItem("Error during microscope acquisition.")
         self.comments_combo.addItem("Error during tracking. Spots not linked correctly.")
+        self.comments_combo.addItem("Image is too noisy.")
         self.comments_combo.addItem("Custom")
         self.comments_combo.currentIndexChanged.connect(self.on_comments_combo_changed)
         layout.addWidget(self.comments_combo)
