@@ -8080,9 +8080,11 @@ class Correlation:
         actual_start_lag_idx = np.where(lags >= 0)[0][0] + self.start_lag
 
         dwell_time = None
+        self.fit_params_ = None  # populated below if show_plot + exponential fit succeeds
         if self.show_plot:
             if self.secondary_data is None:
-                dwell_time = Plots().plot_autocorrelation(
+                plots_obj = Plots()
+                dwell_time = plots_obj.plot_autocorrelation(
                     mean_correlation=mean_correlation,
                     error_correlation=error_correlation,
                     lags=lags,
@@ -8103,6 +8105,7 @@ class Correlation:
                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
                     figsize=self.figsize,
                 )
+                self.fit_params_ = getattr(plots_obj, '_last_fit_params', None)  # exact A, tau_c, C
             else:
                 dwell_time = Plots().plot_crosscorrelation(
                     intensity_array_ch0=self.primary_data,
@@ -8386,14 +8389,30 @@ class Utilities():
         # Absolute internal-NaN criterion (between first & last valid)
         if max_missing_frames is not None:
             def count_internal_nans(row):
+                """Count NaN gaps strictly between the first and last valid frame.
+                Trailing/leading NaN padding (from stacking unequal-length traces
+                into a rectangular array) is intentionally excluded — only true
+                within-trajectory gaps are penalised."""
                 valid = np.where(~np.isnan(row))[0]
                 if valid.size == 0:
                     return np.inf  # removes fully-NaN rows
                 first, last = valid[0], valid[-1]
                 return int(np.isnan(row[first:last+1]).sum())
 
-            mask_absolute = np.array([count_internal_nans(r) <= max_missing_frames
-                                    for r in array_ch0], dtype=bool)
+            mask_absolute = np.array(
+                [count_internal_nans(r) <= max_missing_frames for r in array_ch0],
+                dtype=bool,
+            )
+            # In cross-correlation mode also enforce the threshold on ch1:
+            # a trace could have clean ch0 but gappy ch1 and would otherwise
+            # slip through.
+            if array_ch1 is not None:
+                mask_absolute_ch1 = np.array(
+                    [count_internal_nans(r) <= max_missing_frames for r in array_ch1],
+                    dtype=bool,
+                )
+                mask_absolute = mask_absolute & mask_absolute_ch1
+
             mask = mask_relative & mask_absolute
         else:
             mask = mask_relative
@@ -11080,6 +11099,7 @@ class Plots():
                         normalized_correlation[start_lag:] + error_correlation[start_lag:], 
                         color=line_color, alpha=0.1)
         dwell_time = 0
+        fit_params_ = None  # will be set to {'A','tau_c','C','taus'} on successful exponential fit
         
         # Ensure that the index_max_lag_for_fit is always equal or less than max_lag_index 
         if max_lag_index is not None:
@@ -11176,9 +11196,10 @@ class Plots():
                     if len(below_threshold) > 0:
                         dw_index = below_threshold[0]
                         dwell_time = taus[dw_index]
+                        fit_params_ = {'A': float(A_fitted), 'tau_c': float(tau_c_fitted),
+                                       'C': float(C_fitted), 'taus': taus}  # store for callers
                         ax.plot(taus, G_fitted, color=line_color_fit, linestyle='-', 
                                 label=f'Fit: tau_c={tau_c_fitted:.1f}, Decorr={dwell_time:.1f}', linewidth=3)
-                        #ax.plot(dwell_time, G_fitted[dw_index], 'o', color=self.line_color_fit, markersize=10, marker=self.line_color_fit)
                         ax.plot(dwell_time, G_fitted[dw_index], 'o', color=line_color_fit, markersize=10, linewidth=3)
                         ax.axhline(y=G_fitted[dw_index], color='dimgray', linestyle='--', linewidth=1)
                     else:
@@ -11228,6 +11249,7 @@ class Plots():
         if save_plots and plot_name is not None:
             plt.savefig(plot_name, dpi=300)
         plt.show()
+        self._last_fit_params = fit_params_  # accessible via instance; return value stays backward-compatible
         return dwell_time
     
 

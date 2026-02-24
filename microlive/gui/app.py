@@ -16874,6 +16874,11 @@ class GUI(QMainWindow):
             chk.setChecked(True)
             self.export_table.setCellWidget(row_idx, 1, chk)
             self.export_items_map[unique_key] = chk
+
+        # OME-TIF export is unchecked by default — the file is very large
+        # and is not needed in most routine exports. Users can opt in manually.
+        self.export_items_map["ome_tif"].setChecked(False)
+
         self.export_table.resizeColumnsToContents()
         self.export_table.verticalHeader().setDefaultSectionSize(28)
         layout.addWidget(self.export_table)
