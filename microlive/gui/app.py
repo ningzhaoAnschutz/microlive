@@ -795,8 +795,18 @@ class Metadata:
                     write_value('Projection Mode', '2D Maximum Projection (Trackpy)')
                 else:
                     write_value('Projection Mode', '3D (Big-FISH + Trackpy)')
-                combo_val = getattr(self, 'image_source_combo', '')
-                using_corrected = 'Yes' if 'Corrected' in str(combo_val) else 'No'
+                combo_widget = getattr(self, 'image_source_combo', None)
+                combo_text = combo_widget.currentText() if hasattr(combo_widget, 'currentText') else getattr(self, 'image_source_combo_value', '')
+                params_per_channel = getattr(self, 'tracking_parameters_per_channel', {}) or {}
+                used_flags = [
+                    bool(p.get('used_photobleaching_corrected_image'))
+                    for p in params_per_channel.values()
+                    if isinstance(p, dict) and 'used_photobleaching_corrected_image' in p
+                ]
+                if used_flags:
+                    using_corrected = 'Mixed' if any(used_flags) and not all(used_flags) else ('Yes' if all(used_flags) else 'No')
+                else:
+                    using_corrected = 'Yes' if 'Corrected' in str(combo_text) else 'No'
                 write_value('Using Photobleaching Corrected Image', using_corrected)
                 
                 # MSD Results (from dedicated MSD tab)
@@ -1010,6 +1020,8 @@ class GUI(QMainWindow):
         self.timer = self.timer_display
         self.playing = False
         self.photobleaching_calculated = False
+        self.photobleaching_applied_to_source = None
+        self.photobleaching_fit_parameters_source = None
         self.df_tracking = pd.DataFrame()
         self.has_tracked = False
         
@@ -1019,6 +1031,8 @@ class GUI(QMainWindow):
         self.tracking_thresholds = {}  # Dict: {channel_index: threshold_value}
         self.tracking_parameters_per_channel = {}  # Dict: {channel_index: parameters_dict}
         self.primary_tracking_channel = None  # First channel tracked (for default selection)
+        self._last_tracking_run_channel = None
+        self._last_tracking_run_source_info = {}
         
         self.df_random_spots = pd.DataFrame()
         self.min_percentage_data_in_trajectory = 0.3
@@ -6443,8 +6457,8 @@ class GUI(QMainWindow):
         size_layout.addWidget(size_label)
         
         self.watershed_size_slider = QSlider(Qt.Horizontal)
-        self.watershed_size_slider.setMinimum(-20)
-        self.watershed_size_slider.setMaximum(20)
+        self.watershed_size_slider.setMinimum(-40)
+        self.watershed_size_slider.setMaximum(40)
         self.watershed_size_slider.setValue(0)
         self.watershed_size_slider.setMaximumWidth(100)  # Compact slider
         self.watershed_size_slider.setToolTip("Fine-tune mask size: - = shrink, + = expand")
@@ -7899,43 +7913,43 @@ class GUI(QMainWindow):
         del correction_obj
         gc.collect()
         
-        # Override mean_intensities in photobleaching_data with raw image values for accurate plot
-        # This shows the actual decay curve (from raw) as "Original" in the plot
-        self.photobleaching_data['mean_intensities'] = raw_mean_intensities
-        self.photobleaching_data['err_intensities'] = raw_err_intensities
-        
-        # Also compute corrected intensities from RAW intensities (not registered)
-        # This avoids registration edge artifacts in the "Corrected" line
-        T, C = raw_mean_intensities.shape
-        time_array = self.photobleaching_data['time_array']
-        params = decay_params
-        
-        # Calculate correction factors and apply to raw intensities
-        raw_intensities_corrected = np.zeros_like(raw_mean_intensities)
-        raw_err_corrected = np.zeros_like(raw_err_intensities)
-        
-        for ch in range(C):
-            k_fit = params[2*ch]
-            I0_fit = params[2*ch + 1]
-            
-            if k_fit > 0:
-                # Compute correction factor: I0 / I_fit(t) = exp(k*t)
-                correction_factors = np.exp(k_fit * time_array)
-                raw_intensities_corrected[:, ch] = raw_mean_intensities[:, ch] * correction_factors
-                raw_err_corrected[:, ch] = raw_err_intensities[:, ch] * correction_factors
-            else:
-                # No correction applied for this channel
-                raw_intensities_corrected[:, ch] = raw_mean_intensities[:, ch]
-                raw_err_corrected[:, ch] = raw_err_intensities[:, ch]
-        
-        self.photobleaching_data['mean_intensities_corrected'] = raw_intensities_corrected
-        self.photobleaching_data['err_intensities_corrected'] = raw_err_corrected
+        # Preserve raw-image reference curves for audit, but keep the plotting defaults
+        # aligned with the actual image that was corrected and will be tracked.
+        self.photobleaching_data['mean_intensities_raw_reference'] = raw_mean_intensities
+        self.photobleaching_data['err_intensities_raw_reference'] = raw_err_intensities
+        self.photobleaching_data['decay_rates_raw_reference'] = decay_params
         
         self.photobleaching_calculated = True
+        self.photobleaching_applied_to_source = 'registered' if self.registered_image is not None else 'original'
+        self.photobleaching_fit_parameters_source = 'original'
+
+        # Existing tracking-derived intensities are now stale because the image source changed.
+        had_tracking_like_data = (
+            (hasattr(self, 'df_tracking') and self.df_tracking is not None and not self.df_tracking.empty)
+            or bool(getattr(self, 'multi_channel_tracking_data', {}))
+            or (hasattr(self, 'detected_spots_frame') and self.detected_spots_frame is not None)
+        )
+        if had_tracking_like_data:
+            self._clear_all_tracking_data()
+            self.df_random_spots = pd.DataFrame()
+            self.detected_spots_frame = None
+            self.correlation_results = []
+            self.current_total_plots = None
         
         # Auto-select "Photobleaching Corrected" in tracking tab image source
         if hasattr(self, 'image_source_combo'):
             self.image_source_combo.setCurrentIndex(1)  # "Photobleaching Corrected"
+
+        # Refresh tracking displays so the user sees the active source immediately.
+        if hasattr(self, 'figure_tracking'):
+            self.plot_tracking()
+        if hasattr(self, 'ax_threshold_hist'):
+            self.update_threshold_histogram()
+        if had_tracking_like_data:
+            self.statusBar().showMessage(
+                "Photobleaching updated the image source. Previous tracking/detection data were cleared; re-run tracking.",
+                8000,
+            )
         
         self.plot_photobleaching()
 
@@ -8260,6 +8274,56 @@ class GUI(QMainWindow):
         # Fall back to original
         return self.image_stack
 
+    def _resolve_tracking_image_source(self):
+        """Resolve the tracking-tab image source, honoring the dropdown when possible.
+
+        Returns
+        -------
+        tuple
+            (image, actual_source, requested_source)
+            actual_source is one of: 'photobleaching_corrected', 'registered', 'original', 'none'
+        """
+        requested_source = "Auto"
+        if hasattr(self, 'image_source_combo') and self.image_source_combo is not None:
+            try:
+                requested_source = self.image_source_combo.currentText()
+            except Exception:
+                requested_source = getattr(self, 'image_source_combo_value', "Auto")
+
+        if requested_source == "Original Image":
+            if self.image_stack is not None:
+                return self.image_stack, 'original', requested_source
+            if self.registered_image is not None:
+                return self.registered_image, 'registered', requested_source
+            if self.corrected_image is not None:
+                return self.corrected_image, 'photobleaching_corrected', requested_source
+            return None, 'none', requested_source
+
+        if requested_source == "Photobleaching Corrected":
+            if self.corrected_image is not None:
+                return self.corrected_image, 'photobleaching_corrected', requested_source
+            if self.registered_image is not None:
+                return self.registered_image, 'registered', requested_source
+            if self.image_stack is not None:
+                return self.image_stack, 'original', requested_source
+            return None, 'none', requested_source
+
+        image = self.get_current_image_source()
+        if image is None:
+            return None, 'none', requested_source
+        if image is self.corrected_image:
+            return image, 'photobleaching_corrected', requested_source
+        if image is self.registered_image:
+            return image, 'registered', requested_source
+        if image is self.image_stack:
+            return image, 'original', requested_source
+        return image, 'unknown', requested_source
+
+    def get_tracking_image_source(self):
+        """Return the image source used by tracking-tab display/detection/tracking."""
+        image, _, _ = self._resolve_tracking_image_source()
+        return image
+
     def update_threshold_histogram(self):
         if self.image_stack is None:
             self.ax_threshold_hist.clear()
@@ -8267,7 +8331,7 @@ class GUI(QMainWindow):
             self.ax_threshold_hist.axis('off')
             self.canvas_threshold_hist.draw_idle()
             return
-        image_to_use = self.get_current_image_source()
+        image_to_use = self.get_tracking_image_source()
         image_channel = image_to_use[self.current_frame, :, :, :, self.current_channel]
         mask_GUI = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
         # Compute maximum projection (across Z)
@@ -8345,7 +8409,7 @@ class GUI(QMainWindow):
         self.user_selected_threshold = value
         self.threshold_spot_detection = float(value)
         self.ax_threshold_hist.clear()
-        image_to_use = self.get_current_image_source()
+        image_to_use = self.get_tracking_image_source()
         image_channel = image_to_use[self.current_frame, :, :, :, self.current_channel]
         mask_GUI = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
         max_proj = np.max(image_channel, axis=0) * mask_GUI
@@ -8424,7 +8488,7 @@ class GUI(QMainWindow):
         channel = self.current_channel
         
         # Get current image source (follows pipeline: corrected > registered > original)
-        image_to_use = self.get_current_image_source()
+        image_to_use = self.get_tracking_image_source()
         if image_to_use is None:
             self.statusBar().showMessage("No image available")
             return
@@ -8548,6 +8612,7 @@ class GUI(QMainWindow):
     def on_image_source_changed(self):
         self.image_source_combo_value = self.image_source_combo.currentText()
         self.plot_tracking()
+        self.update_threshold_histogram()
 
     def update_min_length_trajectory(self, value):
         self.min_length_trajectory = value
@@ -8856,8 +8921,17 @@ class GUI(QMainWindow):
         dpi = screen.logicalDotsPerInch()
         pixels = int(2 * dpi)  # 2 inches
         progress.setStyleSheet(f"QProgressBar {{ min-width: {pixels}px; min-height: 20px; }}")
-        # Choose image source
-        image_to_use = self.get_current_image_source()
+        # Choose image source (tracking resolver honors the dropdown and records fallbacks)
+        image_to_use, tracking_source_actual, tracking_source_requested = self._resolve_tracking_image_source()
+        if image_to_use is None:
+            progress.close()
+            QMessageBox.warning(self, "No Image Source", "No image source is available for spot detection.")
+            return
+        if tracking_source_requested == "Photobleaching Corrected" and tracking_source_actual != 'photobleaching_corrected':
+            self.statusBar().showMessage(
+                f"Photobleaching-corrected image is unavailable; using {tracking_source_actual.replace('_', ' ')} image for detection.",
+                6000,
+            )
         # Compute threshold (user-selected or 99th percentile)
         threshold_value = self.user_selected_threshold if getattr(self, 'user_selected_threshold', None) is not None else np.percentile(image_to_use[:, :, :, :, self.current_channel].ravel(), 99)
         # Prepare masks for tracking (supports both Cellpose and Segmentation)
@@ -8919,6 +8993,33 @@ class GUI(QMainWindow):
                     return
                 # Clear all existing data
                 self._clear_all_tracking_data()
+
+            # Prevent silent mixing of channels tracked/detected from different image sources.
+            existing_source_keys = {
+                (
+                    params.get('actual_image_source'),
+                    params.get('photobleaching_applied_to_source'),
+                )
+                for ch, params in self.tracking_parameters_per_channel.items()
+                if ch != self.current_channel and isinstance(params, dict)
+            }
+            existing_source_keys.discard((None, None))
+            new_source_key = (
+                tracking_source_actual,
+                getattr(self, 'photobleaching_applied_to_source', None),
+            )
+            if existing_source_keys and new_source_key not in existing_source_keys:
+                reply = QMessageBox.question(
+                    self, "Image Source Mismatch",
+                    "Existing channel data were generated from a different image source "
+                    "(raw/registered/corrected) than the current detection run.\n\n"
+                    "Mixing channels from different sources can invalidate cross-channel comparisons.\n\n"
+                    "Clear all channel data and keep only the new detection results?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    return
+                self._clear_all_tracking_data()
             
             # Store in multi-channel tracking data (replaces any previous for this channel)
             self.multi_channel_tracking_data[self.current_channel] = df_detected.copy()
@@ -8945,6 +9046,11 @@ class GUI(QMainWindow):
                 'maximum_spots_cluster': self.maximum_spots_cluster,
                 'use_fixed_threshold': self.use_fixed_threshold,
                 'detection_only': True,  # Flag to indicate detection without linking
+                'requested_image_source': tracking_source_requested,
+                'actual_image_source': tracking_source_actual,
+                'used_photobleaching_corrected_image': tracking_source_actual == 'photobleaching_corrected',
+                'photobleaching_applied_to_source': getattr(self, 'photobleaching_applied_to_source', None),
+                'photobleaching_fit_parameters_source': getattr(self, 'photobleaching_fit_parameters_source', None),
             }
             
             # Rebuild combined df_tracking from all channels
@@ -9396,7 +9502,7 @@ class GUI(QMainWindow):
         self.ax_tracking.axis('off')
         
         SCALE_SPOTS = self.scale_spots()
-        image_to_use = self.get_current_image_source()
+        image_to_use = self.get_tracking_image_source()
         if image_to_use is None:
             self.canvas_tracking.draw_idle()
             return
@@ -9853,7 +9959,15 @@ class GUI(QMainWindow):
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
-        image_to_use = self.get_current_image_source()
+        image_to_use, tracking_source_actual, tracking_source_requested = self._resolve_tracking_image_source()
+        if image_to_use is None:
+            QMessageBox.warning(self, "No Image Source", "No image source is available for spot detection.")
+            return
+        if tracking_source_requested == "Photobleaching Corrected" and tracking_source_actual != 'photobleaching_corrected':
+            self.statusBar().showMessage(
+                f"Photobleaching-corrected image is unavailable; using {tracking_source_actual.replace('_', ' ')} image for spot preview.",
+                6000,
+            )
         image_channel = np.expand_dims(image_to_use[self.current_frame, :, :, :, self.current_channel], axis=3)
         list_voxels = self._get_validated_voxels()
         threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else np.percentile(image_channel, 99)
@@ -9908,16 +10022,26 @@ class GUI(QMainWindow):
         
         if masks_complete is None:
             masks_complete = np.ones(self.image_stack.shape[2:4], dtype=int)
-        image_to_use = self.get_current_image_source()
+        image_to_use, tracking_source_actual, tracking_source_requested = self._resolve_tracking_image_source()
+        if image_to_use is None:
+            QMessageBox.warning(self, "No Image Source", "No image source is available for tracking.")
+            return
+        if tracking_source_requested == "Photobleaching Corrected" and tracking_source_actual != 'photobleaching_corrected':
+            self.statusBar().showMessage(
+                f"Photobleaching-corrected image is unavailable; using {tracking_source_actual.replace('_', ' ')} image for tracking.",
+                6000,
+            )
         if self.use_maximum_projection:
             image_to_use = np.max(image_to_use, axis=1, keepdims=True)
         list_voxels = self._get_validated_voxels()
-        channels_spots = [self.current_channel]
+        tracking_channel_for_run = int(self.current_channel)
+        self._last_tracking_run_channel = tracking_channel_for_run
+        channels_spots = [tracking_channel_for_run]
         starting_threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else mi.Utilities().calculate_threshold_for_spot_detection(
             image_to_use,
             [self.z_spot_size_in_px, self.yx_spot_size_in_px],
             list_voxels,
-            [self.current_channel],
+            [tracking_channel_for_run],
             max_spots_for_threshold=self.max_spots_for_threshold,
             show_plot=False,
             plot_name=None
@@ -9947,6 +10071,18 @@ class GUI(QMainWindow):
             'list_voxels': list_voxels,
             'use_fixed_size_for_intensity_calculation': self.use_fixed_size_for_intensity_calculation,
             'link_using_3d_coordinates': self.link_using_3d_coordinates,
+            'requested_image_source': tracking_source_requested,
+            'actual_image_source': tracking_source_actual,
+            'used_photobleaching_corrected_image': tracking_source_actual == 'photobleaching_corrected',
+            'photobleaching_applied_to_source': getattr(self, 'photobleaching_applied_to_source', None),
+            'photobleaching_fit_parameters_source': getattr(self, 'photobleaching_fit_parameters_source', None),
+        }
+        self._last_tracking_run_source_info = {
+            'requested_image_source': tracking_source_requested,
+            'actual_image_source': tracking_source_actual,
+            'used_photobleaching_corrected_image': tracking_source_actual == 'photobleaching_corrected',
+            'photobleaching_applied_to_source': getattr(self, 'photobleaching_applied_to_source', None),
+            'photobleaching_fit_parameters_source': getattr(self, 'photobleaching_fit_parameters_source', None),
         }
         try:
             results = self.track_particles(image_to_use, masks_complete, masks_nuc, masks_cyto_no_nuc, parameters, self.use_maximum_projection)
@@ -9959,7 +10095,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'random_mode_enabled') and self.random_mode_enabled:
             random_tracking = mi.ParticleTracking(
                 image=image_to_use,
-                channels_spots=[self.current_channel],
+                channels_spots=[tracking_channel_for_run],
                 masks=masks_complete,
                 masks_nuclei=masks_nuc,
                 masks_cytosol_no_nuclei=masks_cyto_no_nuc,
@@ -9992,7 +10128,7 @@ class GUI(QMainWindow):
 
     def on_tracking_finished(self, list_dataframes_trajectories):
         try:
-            tracking_channel = self.current_channel  # Channel that was tracked
+            tracking_channel = getattr(self, '_last_tracking_run_channel', self.current_channel)
             
             if list_dataframes_trajectories and any(not df.empty for df in list_dataframes_trajectories):
                 df_tracking = pd.concat(list_dataframes_trajectories, ignore_index=True)
@@ -10022,6 +10158,33 @@ class GUI(QMainWindow):
                     if reply == QMessageBox.No:
                         return
                     self._clear_all_tracking_data()
+
+                last_source_info = getattr(self, '_last_tracking_run_source_info', {}) or {}
+                existing_source_keys = {
+                    (
+                        params.get('actual_image_source'),
+                        params.get('photobleaching_applied_to_source'),
+                    )
+                    for ch, params in self.tracking_parameters_per_channel.items()
+                    if ch != tracking_channel and isinstance(params, dict)
+                }
+                existing_source_keys.discard((None, None))
+                new_source_key = (
+                    last_source_info.get('actual_image_source'),
+                    last_source_info.get('photobleaching_applied_to_source'),
+                )
+                if existing_source_keys and new_source_key not in existing_source_keys:
+                    reply = QMessageBox.question(
+                        self, "Image Source Mismatch",
+                        "Existing channel data were generated from a different image source "
+                        "(raw/registered/corrected) than the current tracking run.\n\n"
+                        "Mixing channels from different sources can invalidate cross-channel comparisons.\n\n"
+                        "Clear all channel data and keep only the new tracking results?",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
+                    self._clear_all_tracking_data()
                 
                 # Store per-channel tracking data
                 self.multi_channel_tracking_data[tracking_channel] = df_tracking.copy()
@@ -10045,6 +10208,11 @@ class GUI(QMainWindow):
                     'cluster_radius_nm': self.cluster_radius_nm,
                     'maximum_spots_cluster': self.maximum_spots_cluster,
                     'use_fixed_threshold': self.use_fixed_threshold,
+                    'requested_image_source': last_source_info.get('requested_image_source'),
+                    'actual_image_source': last_source_info.get('actual_image_source'),
+                    'used_photobleaching_corrected_image': bool(last_source_info.get('used_photobleaching_corrected_image')),
+                    'photobleaching_applied_to_source': last_source_info.get('photobleaching_applied_to_source'),
+                    'photobleaching_fit_parameters_source': last_source_info.get('photobleaching_fit_parameters_source'),
                 }
                 
                 # Rebuild combined df_tracking from all channels
@@ -10201,6 +10369,14 @@ class GUI(QMainWindow):
             
             # Rebuild combined dataframe
             self._rebuild_combined_tracking_dataframe()
+            self.correlation_results = []
+            self.current_total_plots = None
+            if not self.tracked_channels:
+                self.df_random_spots = pd.DataFrame()
+                if hasattr(self, '_last_tracking_run_source_info'):
+                    self._last_tracking_run_source_info = {}
+                if hasattr(self, '_last_tracking_run_channel'):
+                    self._last_tracking_run_channel = None
             self._update_tracked_channels_list()
             self.plot_tracking()
 
@@ -10214,6 +10390,14 @@ class GUI(QMainWindow):
         self.primary_tracking_channel = None
         self.df_tracking = pd.DataFrame()
         self.has_tracked = False
+        self.detected_spots_frame = None
+        self.df_random_spots = pd.DataFrame()
+        self.correlation_results = []
+        self.current_total_plots = None
+        if hasattr(self, '_last_tracking_run_source_info'):
+            self._last_tracking_run_source_info = {}
+        if hasattr(self, '_last_tracking_run_channel'):
+            self._last_tracking_run_channel = None
         
         self._update_tracked_channels_list()
         self.plot_tracking()
@@ -10228,6 +10412,14 @@ class GUI(QMainWindow):
         self.primary_tracking_channel = None
         self.df_tracking = pd.DataFrame()
         self.has_tracked = False
+        self.detected_spots_frame = None
+        self.df_random_spots = pd.DataFrame()
+        self.correlation_results = []
+        self.current_total_plots = None
+        if hasattr(self, '_last_tracking_run_source_info'):
+            self._last_tracking_run_source_info = {}
+        if hasattr(self, '_last_tracking_run_channel'):
+            self._last_tracking_run_channel = None
         self._update_tracked_channels_list()
 
     def setup_tracking_tab(self):
@@ -11985,8 +12177,15 @@ class GUI(QMainWindow):
                 all_values.extend(result['mean_corr'])
         if not all_values:
             return
-        y_min = np.nanpercentile(all_values, min_pct)
-        y_max = np.nanpercentile(all_values, max_pct)
+        # Clamp percentiles to valid [0, 100] range for np.nanpercentile;
+        # use any negative min_pct as extra padding below the data range.
+        safe_min_pct = max(0.0, min_pct)
+        safe_max_pct = min(100.0, max_pct)
+        y_min = np.nanpercentile(all_values, safe_min_pct)
+        y_max = np.nanpercentile(all_values, safe_max_pct)
+        if min_pct < 0:
+            y_range = y_max - y_min if y_max > y_min else 1.0
+            y_min -= abs(min_pct) / 100.0 * y_range
         if y_min >= y_max:
             return
         for ax in self.figure_correlation.axes:
@@ -16058,6 +16257,15 @@ class GUI(QMainWindow):
         coloc_method = "ML" if is_ml else "Intensity"
         
         img_source = self.image_source_combo.currentText() if hasattr(self, 'image_source_combo') else self.image_source_combo_value
+        params_per_channel = getattr(self, 'tracking_parameters_per_channel', {}) or {}
+        actual_sources = sorted({
+            p.get('actual_image_source')
+            for p in params_per_channel.values()
+            if isinstance(p, dict) and p.get('actual_image_source')
+        })
+        if actual_sources:
+            actual_desc = ", ".join(actual_sources)
+            img_source = f"{img_source} (actual used: {actual_desc})"
 
         meta = Metadata(
             correct_baseline=self.correct_baseline,
@@ -17821,9 +18029,8 @@ class GUI(QMainWindow):
                         trace = corr_array[trace_idx]
                         if normalize and len(trace) > start_lag and trace[start_lag] != 0:
                             trace = trace / trace[start_lag]
-                        # Convert lags to time
-                        time_lags = lags * step_size
-                        ax.plot(time_lags, trace, color=color, alpha=0.15, linewidth=0.5)
+                        # lags already in seconds from Correlation.run()
+                        ax.plot(lags, trace, color=color, alpha=0.15, linewidth=0.5)
             
             # Now plot the mean curves on top
             for idx, r in enumerate(results):
@@ -17920,8 +18127,8 @@ class GUI(QMainWindow):
                             trace = corr_array[trace_idx]
                             if normalize and len(trace) > start_lag and trace[start_lag] != 0:
                                 trace = trace / trace[start_lag]
-                            time_lags = lags * step_size
-                            ax.plot(time_lags, trace, color=color, alpha=0.15, linewidth=0.5)
+                            # lags already in seconds from Correlation.run()
+                            ax.plot(lags, trace, color=color, alpha=0.15, linewidth=0.5)
                 
                 # Plot mean on top
                 self.plots.plot_autocorrelation(
