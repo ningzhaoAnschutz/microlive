@@ -1,1232 +1,1148 @@
-# API Reference - MicroLive GUI
+# API Reference — MicroLive
 
-## Overview
+## Scope
 
-This document provides comprehensive technical documentation for the MicroLive main classes, methods, and data structures. The application is built using PyQt5 and follows object-oriented design principles for live-cell microscopy image analysis and single-molecule measurements.
+Aligned to the current source tree. Only public symbols are listed (names starting with `_` are omitted).
+Full constructor signatures are shown for classes; method listings are grouped by purpose.
 
-## Architecture Overview
+## Primary Entry Points
 
-The application follows a modular design with the main `GUI` class coordinating between different functional modules:
+| Symbol | Description |
+| --- | --- |
+| `microlive.gui.main.main()` | Launch the GUI |
+| `microlive.microscopy` | Core analysis engine |
+| `microlive.ml_spot_detection` | CNN-based spot classification |
+| `microlive.pipelines.*` | End-to-end batch pipelines |
+| `microlive.utils` | Resource and device utilities |
 
-- **Image I/O & Management**: Multi-format loading (LIF, TIFF, OME-TIFF) with metadata extraction
-- **Display System**: Multi-channel visualization with custom colormaps and real-time parameter adjustment
-- **Analysis Pipeline**: Segmentation → Tracking → Statistical Analysis with comprehensive quality control
-- **Export System**: Comprehensive data and visualization export with metadata preservation
+---
 
-For a complete workflow walkthrough, see the [Tutorial](tutorial.md). For user-focused parameter explanations, see the [User Guide](user_guide.md).
+## `microlive` — `microlive/__init__.py`
 
-## Main Classes
+Package root. No public top-level functions or classes.
 
-### GUI Class
+---
 
-The main application window class inheriting from `QMainWindow`.
+## `microlive.gui.main` — `microlive/gui/main.py`
 
-```python
-class GUI(QMainWindow):
-    """
-    MicroLive is a comprehensive GUI application for microscopy image analysis.
-    A PyQt5 QMainWindow‐based application for interactive analysis of multi-dimensional 
-    microscopy image data organized into multiple tabs for end-to-end workflows.
-    """
-```
+Entry point for the GUI application.
 
-#### Key Attributes
+**Functions:** `main()`
 
-**Core Image Data:**
+---
 
-```python
-image_stack: np.ndarray           # 5D array [T, Z, Y, X, C] - main image data
-corrected_image: np.ndarray       # Photobleaching corrected image stack
-segmentation_mask: np.ndarray     # Binary segmentation mask (2D)
-total_frames: int                 # Number of time frames
-number_color_channels: int        # Number of imaging channels
-```
+## `microlive.gui.app` — `microlive/gui/app.py`
 
-**Metadata & Properties:**
+Main PyQt5 GUI module. Houses the `GUI` application window and supporting classes.
 
-```python
-voxel_yx_nm: float               # XY pixel size in nanometers
-voxel_z_nm: float                # Z voxel size in nanometers
-time_interval_value: float       # Time between frames in seconds
-bit_depth: int                   # Image bit depth
-channel_names: list              # Channel name labels
-selected_image_name: str         # Current image identifier
-```
+**Functions:** `configure_logging_and_styles()`
 
-**Analysis Results:**
+---
+
+### `Plots` *(gui)*
+
+Helper for rendering correlation/colocalization figures inside the GUI canvas.
 
 ```python
-df_tracking: pd.DataFrame         # Particle tracking results
-correlation_results: list        # Correlation analysis results
-colocalization_results: dict     # Colocalization analysis results
-df_random_spots: pd.DataFrame    # Random control spots data
-has_tracked: bool                # Flag indicating tracking completion
+__init__(gui)
 ```
 
-**Display & Navigation:**
+| Method | Description |
+| --- | --- |
+| `plot_autocorrelation(...)` | Render ACF curve with optional fit overlay |
+| `plot_crosscorrelation(...)` | Render cross-correlation curve |
+| `plot_matrix_pair_crops(...)` | Render paired crop matrix for colocalization |
+
+---
+
+### `Metadata`
+
+Stores and serializes experiment metadata.
 
 ```python
-current_frame: int                # Current time frame index (0-based)
-current_channel: int              # Current channel index (0-based)
-display_min_percentile: float     # Display intensity minimum (0.1)
-display_max_percentile: float     # Display intensity maximum (99.95)
-display_sigma: float              # Gaussian smoothing sigma (0.7)
-low_display_sigma: float          # Low-pass smoothing sigma (0.15)
-channelDisplayParams: dict        # Per-channel display settings
-merged_mode: bool                 # Channel merging state
+__init__(**kwargs)
 ```
 
-**Tracking Parameters:**
+| Method | Description |
+| --- | --- |
+| `write_metadata()` | Serialize metadata to disk |
+
+---
+
+### `GUI`
+
+Top-level application window. Manages all tabs and inter-tab state.
 
 ```python
-# Detection Parameters (consistent with User Guide ranges)
-yx_spot_size_in_px: int          # Spot size in XY pixels (range: 3-15, default: 5)
-z_spot_size_in_px: int           # Spot size in Z pixels (range: 1-10, default: 2)
-threshold_spot_detection: float  # Detection intensity threshold (image-dependent)
-user_selected_threshold: float   # User-defined threshold override
-use_maximum_projection: bool     # Use 2D projection for tracking (default: True)
-use_fixed_threshold: bool        # Use frame-0 threshold for all frames (default: False)
-
-# Trajectory Linking (consistent with User Guide)
-min_length_trajectory: int       # Minimum trajectory length (range: 1-200, default: 20)
-maximum_range_search_pixels: int # Linking search range (range: 1-50, default: 7)
-memory: int                      # Linking memory frames (range: 0-10, default: 1)
-link_using_3d_coordinates: bool  # Use Z coordinates for linking (default: True)
-
-# Clustering (3D mode only, consistent with User Guide)
-cluster_radius_nm: int           # Cluster radius in nm (range: 100-2000, default: 500)
-maximum_spots_cluster: int       # Max spots per cluster (range: 0-1000, default: None)
-separate_clusters_and_spots: bool # Separate cluster/spot analysis (default: False)
-
-# Automatic Threshold Detection
-auto_threshold_per_channel: dict  # {channel: threshold} - automatically detected thresholds per channel
+__init__(icon_path)
 ```
 
-**Segmentation Parameters:**
+**Properties:** `active_mask()`
+
+#### File I/O & Display
+
+| Method | Description |
+| --- | --- |
+| `open_image()` | Open file dialog and load image |
+| `load_tif_image(file_path)` | Load TIFF stack |
+| `load_lif_image(file_path, image_index)` | Load Leica LIF scene |
+| `convert_to_standard_format(image_stack)` | Normalize axis order |
+| `initUI()` | Build main window layout |
+| `applyTheme(useDarkTheme)` | Switch light/dark theme |
+| `ask_for_metadata_from_user(missing_fields)` | Prompt for missing metadata |
+| `open_dimension_mapping_dialog(file_shape)` | Map unknown axis order |
+| `setup_display_tab()` | Build display tab widgets |
+| `reset_display_tab()` | Restore display tab defaults |
+| `control_panel_image_properties(parent_layout)` | Add image property controls |
+| `create_channel_visualization_controls(channel_index, initial_params)` | Per-channel brightness/contrast sliders |
+| `create_channel_buttons()` | Channel selector button bar |
+| `set_display_controls_enabled(enabled)` | Enable/disable display controls |
+| `merge_color_channels()` | Merge selected channels into RGB |
+| `compute_merged_image(use_brightness_slider)` | Compute composite image array |
+| `plot_image()` | Render current frame to canvas |
+| `update_frame(value)` | Seek to time frame |
+| `update_channel(channel)` | Switch active channel |
+| `update_z(value)` | Seek to z-plane (display) |
+| `on_channel_tab_changed(index)` | Handle channel tab switch |
+| `on_tree_item_clicked(item, column)` | Handle file-tree click |
+| `on_tree_current_item_changed(current, previous)` | Handle file-tree selection change |
+| `onChannelParamsChanged(channel, params)` | Handle LUT parameter change |
+| `play_pause()` | Toggle global playback |
+| `play_pause_display()` | Toggle display-tab playback |
+| `stop_all_playback()` | Stop all running playback timers |
+| `next_frame()` | Advance one frame (global) |
+| `next_frame_display()` | Advance one frame (display tab) |
+| `close_selected_file()` | Remove selected file from session |
+| `close_all_files()` | Clear all loaded files |
+
+#### Registration
+
+| Method | Description |
+| --- | --- |
+| `setup_registration_tab()` | Build registration tab widgets |
+| `reset_registration_tab()` | Restore registration tab defaults |
+| `on_registration_mode_changed(mode)` | Switch rigid/affine/translation mode |
+| `on_registration_time_changed(value)` | Update reference time point |
+| `perform_registration()` | Run image registration |
+| `remove_registration()` | Undo applied registration |
+| `reset_registration_state()` | Clear registration state |
+| `update_registration_channel(idx)` | Switch registration channel |
+| `toggle_playback_registration()` | Toggle registration-tab playback |
+| `registration_next_frame()` | Advance one frame (registration tab) |
+| `plot_registration_panels()` | Render before/after panels |
+| `on_reg_mouse_press/move/release(event)` | ROI rubber-band interaction |
+
+#### Segmentation
+
+| Method | Description |
+| --- | --- |
+| `setup_segmentation_tab()` | Build segmentation tab widgets |
+| `reset_segmentation_tab()` | Restore segmentation tab defaults |
+| `run_watershed_segmentation()` | Run watershed on current frame |
+| `run_cellpose_cyto()` | Run Cellpose cytoplasm model |
+| `run_cellpose_nuc()` | Run Cellpose nucleus model |
+| `synchronize_and_plot_cellpose()` | Align cyto/nuc masks and display |
+| `clear_cellpose_masks()` | Discard Cellpose masks |
+| `clear_imported_masks()` | Discard imported masks |
+| `import_mask_from_tiff(mask_type)` | Load external TIFF mask |
+| `plot_cellpose_results()` | Render Cellpose overlay |
+| `plot_segmentation()` | Render segmentation overlay |
+| `update_watershed_threshold_factor(value)` | Adjust watershed threshold |
+| `update_segmentation_source(state)` | Switch max-proj / z-slice source |
+| `compute_max_proj_segmentation()` | Run segmentation on max projection |
+| `on_segmentation_z_changed(value)` | Seek to z-plane (segmentation) |
+| `reset_segmentation_z_slider()` | Reset z-slider to 0 |
+| `create_segmentation_channel_buttons()` | Segmentation channel selector |
+| `update_segmentation_channel(channel_index)` | Switch segmentation channel |
+| `update_segmentation_frame(value)` | Seek to frame (segmentation) |
+| `manual_segmentation()` | Enter polygon draw mode |
+| `on_polygon_click(event)` / `finish_manual_polygon()` / `clear_manual_mask()` | Polygon tool interactions |
+| `enter_edit_mode()` / `exit_edit_mode()` | Enter/leave mask edit mode |
+| `on_edit_mask_selector_changed(index)` | Switch mask layer to edit |
+| `undo_edit()` / `reset_edits()` / `apply_and_save_edits()` | Edit history controls |
+| `plot_edit_mode()` | Render mask edit overlay |
+| `on_remove_border_cells_changed(state)` | Toggle border-cell removal |
+| `on_remove_unpaired_cells_changed(state)` | Toggle unpaired-cell removal |
+| `on_keep_center_cell_changed(state)` | Toggle keep-center-cell mode |
+| `get_border_touching_labels(masks)` | Return labels touching image border |
+| `remove_labels_and_reindex(masks, labels_to_remove)` | Delete labels and reindex |
+| `reindex_masks(masks)` | Renumber mask labels sequentially |
+| `get_closest_cell_to_center(mask)` | Find label nearest image center |
+
+#### Photobleaching
+
+| Method | Description |
+| --- | --- |
+| `setup_photobleaching_tab()` | Build photobleaching tab widgets |
+| `reset_photobleaching_tab()` | Restore photobleaching tab defaults |
+| `compute_photobleaching()` | Fit and apply photobleaching correction |
+| `plot_photobleaching()` | Render decay and correction curves |
+
+#### Tracking & Spot Detection
+
+| Method | Description |
+| --- | --- |
+| `setup_tracking_tab()` | Build tracking tab widgets |
+| `reset_tracking_tab()` | Restore tracking tab defaults |
+| `detect_spots(image, threshold, list_voxels, masks_complete_cells, ...)` | Detect spots in a single frame |
+| `detect_spots_in_current_frame()` | Detect spots at current time point |
+| `detect_spots_all_frames()` | Detect spots across all frames |
+| `perform_particle_tracking()` | Link spots into trajectories |
+| `track_particles(corrected_image, masks_*, parameters, use_maximum_projection)` | Core tracking call |
+| `on_tracking_finished(list_dataframes_trajectories)` | Handle tracking completion |
+| `on_tracking_finished_with_progress(...)` | Handle tracking completion with progress dialog |
+| `clear_channel_tracking(channel)` | Clear trajectories for one channel |
+| `clear_all_tracking()` | Clear all trajectory data |
+| `plot_tracking()` | Render spot/trajectory overlay |
+| `scale_spots()` | Rescale spot display size |
+| `get_current_image_source()` | Return active image array |
+| `get_tracking_image_source()` | Return image used for tracking |
+| `update_threshold_histogram()` | Refresh threshold histogram |
+| `update_threshold_value(value)` | Update spot detection threshold |
+| `on_auto_threshold_clicked()` | Run auto-threshold |
+| `on_image_source_changed()` | Handle image-source combo change |
+| `on_tab_change(index)` | Handle main tab switch |
+| `update_min_length_trajectory(value)` | Set minimum trajectory length |
+| `update_yx_spot_size(value)` / `update_z_spot_size(value)` | Set spot detection radius |
+| `update_cluster_radius(value)` / `update_max_spots_cluster(value)` | Cluster detection parameters |
+| `update_use_maximum_projection(state)` | Toggle max-projection mode |
+| `update_max_range_search_pixels(value)` | Set particle linking search radius |
+| `update_memory(value)` | Set linking memory frames |
+| `update_use_fixed_size_intensity(state)` | Toggle fixed-aperture intensity |
+| `update_fast_gaussian_fit(state)` | Toggle fast Gaussian fit |
+| `update_tracking_sliders()` | Sync all tracking sliders to state |
+| `generate_random_spots(state)` | Toggle random-spot simulation |
+| `update_use_fixed_threshold(checked)` | Toggle fixed vs. auto threshold |
+| `select_tracking_vis_channel(channel_idx)` | Switch tracking-vis channel |
+| `merge_tracking_visualization()` | Merge multi-channel tracking views |
+
+#### MSD
+
+| Method | Description |
+| --- | --- |
+| `setup_msd_tab()` | Build MSD tab widgets |
+| `reset_msd_tab()` | Restore MSD tab defaults |
+| `calculate_msd_from_gui()` | Compute MSD from loaded trajectories |
+| `plot_msd()` | Render MSD curve |
+| `export_msd_dataframe()` | Save MSD results to CSV |
+| `export_msd_plot()` | Save MSD plot to file |
+
+#### Distributions & Time Course
+
+| Method | Description |
+| --- | --- |
+| `setup_distributions_tab()` | Build distributions tab |
+| `reset_distribution_tab()` | Restore distribution tab defaults |
+| `plot_distribution()` | Render intensity distribution |
+| `plot_intensity_histogram()` | Plot per-channel intensity histogram |
+| `on_data_type_changed(new_data_type)` | Switch distribution data type |
+| `setup_time_course_tab()` | Build time-course tab |
+| `reset_time_course_tab()` | Restore time-course tab defaults |
+| `plot_intensity_time_course()` | Render mean-intensity time course |
+
+#### Correlation
+
+| Method | Description |
+| --- | --- |
+| `setup_correlation_tab()` | Build correlation tab |
+| `reset_correlation_tab()` | Restore correlation tab defaults |
+| `compute_correlations()` | Run ACF/CCF computation |
+| `display_correlation_plot()` | Render correlation result |
+| `create_correlation_channel_checkboxes()` | Build channel selection checkboxes |
+| `on_channel_selection_changed()` | Handle channel checkbox toggle |
+| `update_fit_type()` | Switch exponential/linear fit |
+| `on_correlation_percentile_changed()` | Update trajectory percentile filter |
+| `update_snr_threshold_for_acf(value)` | Set SNR filter for ACF |
+| `update_correct_baseline(state)` | Toggle baseline correction |
+| `update_remove_outliers(state)` | Toggle outlier removal |
+| `update_field_name(text)` | Set correlation data field |
+| `update_min_percentage_data_in_trajectory(value)` | Set minimum data density |
+| `update_de_correlation_threshold(value)` | Set de-correlation threshold |
+| `update_max_lag(value)` | Set maximum lag time |
+| `update_multi_tau(state)` | Toggle multi-tau mode |
+
+#### Colocalization
+
+| Method | Description |
+| --- | --- |
+| `setup_colocalization_tab()` | Build colocalization tab |
+| `setup_coloc_visual_subtab()` / `setup_coloc_distance_subtab()` | Visual / distance sub-tabs |
+| `setup_coloc_verify_visual_subtab()` / `setup_coloc_verify_distance_subtab()` | Verification sub-tabs |
+| `reset_colocalization_tab()` / `reset_manual_colocalization()` | Restore colocalization state |
+| `compute_colocalization()` | Run colocalization analysis |
+| `display_colocalization_results(...)` | Render crop matrix result |
+| `display_colocalization_plot()` | Render summary plot |
+| `extract_colocalization_data(save_df)` | Export colocalization CSV |
+| `extract_manual_colocalization_data(save_df)` | Export manual colocalization CSV |
+| `on_colocalization_hover/leave(event)` | Hover tooltip interaction |
+| `update_colocalization_method()` | Switch colocalization algorithm |
+| `populate_colocalization_channels()` | Refresh channel combo boxes |
+| `on_colocalization_tracking_channel_changed(index)` | Handle channel combo change |
+| `populate_distance_channel_combos()` | Refresh distance-mode combos |
+| `run_distance_colocalization()` | Run distance-based colocalization |
+| `export_distance_colocalization_data/image()` | Export distance results |
+| `display_distance_colocalization()` | Render distance overlay |
+| `toggle_distance_playback()` / `advance_distance_frame()` / `on_distance_frame_changed(value)` | Playback controls |
+| `populate_verify_visual/distance()` | Load verification data |
+| `cleanup_verify_visual/distance()` | Clear verification state |
+| `export_verify_visual/distance_data()` | Export verification results |
+| `update_z_dist_coloc(value)` / `reset_dist_coloc_z_slider()` | Z-slider controls |
+| `update_distance_nm_label()` | Refresh distance label |
+
+#### Tracking Visualization
+
+| Method | Description |
+| --- | --- |
+| `setup_tracking_visualization_tab()` | Build tracking-vis tab |
+| `reset_tracking_visualization_tab()` | Restore tracking-vis state |
+| `display_tracking_visualization(selected_channelIndex, spot_coord)` | Render cell-zoom + time course |
+| `play_pause_tracking()` / `play_pause_tracking_vis()` | Playback toggles |
+| `next_frame_tracking()` / `next_frame_tracking_vis()` | Frame advance |
+| `update_z_tracking(value)` | Seek to z-plane (tracking) |
+
+#### Export
+
+| Method | Description |
+| --- | --- |
+| `setup_export_tab()` | Build export tab |
+| `export_selected_items()` | Export all checked items |
+| `select_all_exports()` / `deselect_all_exports()` | Bulk selection |
+| `get_default_export_filename(prefix, extension)` | Generate timestamped filename |
+| `on_comments_combo_changed(index)` | Handle comment combo change |
+| `reset_export_comment()` | Clear export comment |
+| `export_displayed_image_as_png()` | Save current canvas frame |
+| `export_displayed_video()` / `export_tracking_video()` | Save video MP4 |
+| `export_time_course_image()` | Save time-course plot |
+| `export_tracking_image()` / `export_tracking_data()` | Save tracking overlay / CSV |
+| `export_segmentation_image()` / `export_mask_as_tiff()` | Save segmentation outputs |
+| `export_intensity_image()` | Save intensity map |
+| `export_correlation_image()` | Save correlation plot |
+| `export_colocalization_image()` | Save colocalization plot |
+| `export_tracking_visualization_image()` / `export_tracking_visualization_video()` | Save tracking-vis outputs |
+
+#### Global Reset
+
+| Method | Description |
+| --- | --- |
+| `reset_all_state()` | Full application state reset |
+| `reset_cellpose_tab()` | Reset Cellpose parameters |
+
+---
+
+## `microlive.microscopy` — `microlive/microscopy.py`
+
+Core analysis engine. Import via `from microlive import microscopy as mi`.
+
+---
+
+### `PatchMPSFloat64`
+
+Context manager that monkeypatches `torch.zeros` for MPS float64 compatibility.
 
 ```python
-segmentation_mode: str           # "manual", "watershed", "cellpose", "None"
-use_max_proj_for_segmentation: bool # Use Z projection for segmentation
-segmentation_current_channel: int    # Channel used for segmentation
-segmentation_current_frame: int      # Frame used for segmentation
-segmentation_maxproj: np.ndarray     # Maximum projection for segmentation
-watershed_threshold_factor: float    # Watershed threshold factor
+__init__()
 ```
 
-**Correlation Parameters:**
+---
+
+### `Banner`
+
+Prints a formatted banner to stdout.
 
 ```python
-correlation_fit_type: str        # "linear" or "exponential"
-de_correlation_threshold: float  # Decorrelation threshold (default: 0.01)
-min_percentage_data_in_trajectory: float # Min data requirement (default: 0.3)
-correct_baseline: bool           # Apply baseline correction
-remove_outliers: bool            # Remove outlier trajectories
-correlation_min_percentile: float # Plot range minimum
-correlation_max_percentile: float # Plot range maximum
-selected_field_name_for_correlation: str # Field for correlation analysis
-index_max_lag_for_fit: int       # Maximum lag for fitting
+__init__(text=None, image=None, show=True, padding=5)
 ```
 
-**Photobleaching Parameters:**
+**Methods:** `print_banner()`
+
+---
+
+### `Photobleaching`
+
+Fit and apply exponential photobleaching correction to time-lapse images.
 
 ```python
-photobleaching_calculated: bool  # Correction applied flag
-photobleaching_mode: str         # "inside_cell", "outside_cell", "use_circular_region" , "entire_image"
-photobleaching_radius: int       # Circular region radius (default: 30)
-photobleaching_data: dict        # Photobleaching analysis results
+__init__(image_TZYXC, mask_YX=None, show_plot=True, mode='inside_cell',
+         precalulated_list_decay_rates=None, plot_name=None, radius=50,
+         time_interval_seconds=None, min_intensity_threshold=10, verbose=False)
 ```
 
-**Visualization Parameters:**
+**Methods:** `calculate_photobleaching()`, `apply_photobleaching_correction()`
+
+---
+
+### `AutoThreshold`
+
+Elbow-method automatic threshold selection for spot detection.
 
 ```python
-# Tracking Visualization
-tracking_vis_merged: bool        # Merged channel display mode
-tracking_vis_channels: list      # Channel selection states
-selected_particle_id: int       # Currently selected particle for visualization
-
-# Display Options
-tracking_remove_background_checkbox: bool # Remove background overlay
-tracking_time_text_checkbox: bool        # Show timestamp overlay
-show_trajectories_checkbox: bool         # Show particle trajectories
-show_cluster_size_checkbox: bool         # Show cluster size annotations
-show_particle_id_checkbox: bool          # Show particle ID labels
+__init__(image, voxel_size_yx=130, voxel_size_z=300,
+         yx_spot_size_in_px=5, z_spot_size_in_px=2, use_3d=None)
 ```
 
-#### Core Methods
+**Methods:** `calculate()`, `get_elbow_data()`
 
-##### Image Loading and Management
+---
+
+### `ReadLif`
+
+Read Leica `.lif` files and extract images with physical metadata.
 
 ```python
-def load_lif_image(self, file_path: str, image_index: int) -> None:
-    """
-    Load specific scene from Leica LIF file.
-    
-    Extracts metadata (voxel sizes, time intervals, channel names), converts to
-    standard 5D format, updates UI elements, and resets analysis state.
-    
-    Parameters
-    ----------
-    file_path : str
-        Path to .lif file
-    image_index : int
-        Scene index to load (0-based)
-    """
-
-def load_tif_image(self, file_path: str) -> None:
-    """
-    Load TIFF or OME-TIFF file with metadata parsing.
-    
-    Attempts to extract embedded metadata (OME-XML, ImageJ), prompts user
-    for missing fields, converts to standard format, and initializes GUI.
-    
-    Parameters
-    ----------
-    file_path : str
-        Path to TIFF file
-    """
-
-def convert_to_standard_format(self, image_stack: np.ndarray) -> np.ndarray:
-    """
-    Convert arbitrary-dimensional image to standard 5D [T, Z, Y, X, C] format.
-    
-    For non-5D inputs, opens dimension mapping dialog to assign file axes
-    to standard dimensions. Inserts singleton dimensions as needed.
-    
-    Parameters
-    ----------
-    image_stack : np.ndarray
-        Input image array of any dimensionality
-        
-    Returns
-    -------
-    np.ndarray
-        Standardized 5D image array
-    """
-
-def open_dimension_mapping_dialog(self, file_shape: tuple) -> list:
-    """
-    Open modal dialog for mapping file dimensions to [T, Z, Y, X, C].
-    
-    Parameters
-    ----------
-    file_shape : tuple
-        Shape of loaded image file
-        
-    Returns
-    -------
-    list or None
-        Mapping list [T_idx, Z_idx, Y_idx, X_idx, C_idx] or None if cancelled
-    """
-
-def on_tree_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-    """Handle file tree selection to load images or scenes."""
-
-def close_selected_file(self) -> None:
-    """Remove selected file from tree and free memory."""
+__init__(path, show_metadata=True, save_tif=False, save_png=False,
+         format='TZYXC', lazy=False)
 ```
 
-##### Display and Visualization
+**Methods:** `read()`, `read_scene(image_index)`, `get_laser_info(image_index)`
+
+---
+
+### `ConvertFormat`
+
+Transpose image arrays between axis orderings.
 
 ```python
-def plot_image(self) -> None:
-    """
-    Update main image display with current frame, channel, and Z-slice.
-    
-    Applies intensity scaling, smoothing, and colormap based on current
-    display parameters and channel settings.
-    """
-
-def update_frame(self, value: int) -> None:
-    """
-    Navigate to specific time frame and update all synchronized sliders.
-    
-    Parameters
-    ----------
-    value : int
-        Frame index (0-based)
-    """
-
-def update_channel(self, channel: int) -> None:
-    """
-    Switch to specific imaging channel and update displays.
-    
-    Parameters
-    ----------
-    channel : int
-        Channel index (0-based)
-    """
-
-def update_z(self, value: int) -> None:
-    """Handle Z-slider changes for 3D navigation."""
-
-def compute_merged_image(self) -> np.ndarray:
-    """
-    Generate RGB merged image from multiple channels.
-    
-    Applies channel-specific colormaps (green, magenta, yellow) and
-    combines up to 3 channels into single RGB display.
-    
-    Returns
-    -------
-    np.ndarray
-        RGB image array [Y, X, 3] with values in [0, 1]
-    """
-
-def merge_color_channels(self) -> None:
-    """Switch display to merged multi-channel mode."""
-
-def play_pause(self) -> None:
-    """Toggle time-lapse playback."""
-
-def next_frame(self) -> None:
-    """Advance to next frame with wraparound."""
+__init__(image, original_order, desired_order)
 ```
 
-##### Segmentation Methods
+**Methods:** `convert()`
+
+---
+
+### `GaussianFilter`
+
+Apply Gaussian smoothing to a time-lapse video.
 
 ```python
-def manual_segmentation(self) -> None:
-    """
-    Enter manual polygon segmentation mode.
-    
-    Displays current frame with preprocessing, clears previous mask,
-    and connects mouse click handler for polygon drawing.
-    """
-
-def on_click_segmentation(self, event) -> None:
-    """
-    Handle mouse clicks during manual segmentation.
-    
-    Adds polygon vertices on left click, updates display with current polygon.
-    """
-
-def finish_segmentation(self) -> None:
-    """
-    Complete manual segmentation and generate binary mask.
-    
-    Disconnects click handler, creates mask from polygon vertices,
-    and updates segmentation display.
-    """
-
-def run_watershed_segmentation(self) -> None:
-    """Execute watershed segmentation with current threshold factor."""
-
-def update_watershed_threshold_factor(self, value: int) -> None:
-    """Update watershed threshold (slider value / 100)."""
-
-def run_cellpose_segmentation(self) -> None:
-    """Execute Cellpose segmentation (if available)."""
-
-def update_segmentation_source(self, state: int) -> None:
-    """Toggle between single frame and maximum projection for segmentation."""
-
-def plot_segmentation(self) -> None:
-    """Update segmentation display with current image and mask overlay."""
+__init__(video, sigma=1)
 ```
 
-##### Mask Editing Methods
+**Methods:** `apply_filter()`
+
+---
+
+### `Intensity`
+
+Calculate spot intensities via disk-doughnut background subtraction or Gaussian fit.
 
 ```python
-def _set_edit_tool(self, tool_name: str) -> None:
-    """Switch between edit tools.
-
-    Args:
-        tool_name: 'eraser' or 'knife'
-    """
-
-def _on_edit_mouse_press(self, event) -> None:
-    """Handle mouse press in edit mode - routes to current tool (eraser or knife)."""
-
-def _apply_eraser_at(self, x: int, y: int) -> None:
-    """Apply eraser brush at given position.
-
-    Uses a fixed 10px circular brush to set pixels to background (0).
-    """
-
-def _on_knife_click(self, event) -> None:
-    """Handle click for knife tool.
-
-    Single click adds a cut point. Double-click executes the cut
-    along all placed points.
-    """
-
-def _execute_multipoint_cut(self) -> None:
-    """Execute the cut along the multipoint path.
-
-    Draws a 3px-thick cut line along all segments, finds connected
-    components, and keeps only the largest piece. Endpoints within
-    15px of borders are automatically extended. Auto-saves the mask.
-    """
-
-def _extend_knife_point_to_border(
-    self, inner_pt: tuple, edge_pt: tuple, h: int, w: int, margin: int = 15
-) -> tuple:
-    """Extend a knife endpoint to the image border if near edge.
-
-    If edge_pt is within margin pixels of any border, extends the line
-    from inner_pt through edge_pt to the boundary.
-    """
-
-def apply_and_save_edits(self) -> None:
-    """Apply 2D edits to the underlying mask and save.
-
-    For TYX masks, propagates 2D changes to all frames.
-    """
-
-def _push_undo(self, description: str) -> None:
-    """Save current mask state for undo capability."""
+__init__(original_image, spot_size=5, array_spot_location_z_y_x=None,
+         use_max_projection=False, optimize_spot_size=False,
+         allow_subpixel_repositioning=False, fast_gaussian_fit=True,
+         snr_method='peak')
 ```
 
-##### Tracking Methods
+**Methods:** `calculate_intensity()`, `fit_2D_gaussian(data)`,
+`two_dimensional_gaussian(xy, ...)`, `optimize_spot_size_method(...)`,
+`search_best_center(...)`
+
+---
+
+### `RemoveExtrema`
+
+Clip image intensity at percentile thresholds.
 
 ```python
-def detect_spots_all_frames(self) -> None:
-    """
-    Perform spot detection across all time frames without linking.
-    
-    Uses current threshold and spot size parameters. Shows progress dialog
-    and stores results for visualization and subsequent linking.
-    """
-
-def perform_particle_tracking(self) -> None:
-    """
-    Execute complete particle tracking workflow.
-    
-    Runs detection followed by trajectory linking with current parameters.
-    Handles progress display and error recovery.
-    """
-
-def detect_spots_in_current_frame(self) -> None:
-    """
-    Run spot detection on currently displayed frame only.
-    
-    Used for parameter testing and threshold visualization.
-    """
-
-def update_threshold_value(self, value: float) -> None:
-    """
-    Update detection threshold and refresh histogram visualization.
-    
-    Parameters
-    ----------
-    value : float
-        New intensity threshold value
-    """
-
-def update_threshold_histogram(self) -> None:
-    """
-    Generate and display intensity histogram for threshold selection.
-    
-    Computes histogram of current frame/channel within segmentation mask,
-    updates slider range, and displays current threshold line.
-    """
-
-def track_particles(self, corrected_image: np.ndarray, mask: np.ndarray, 
-                   parameters: dict, use_maximum_projection: bool) -> list:
-    """
-    Core particle tracking function with error handling.
-    
-    Parameters
-    ----------
-    corrected_image : np.ndarray
-        Image data for tracking
-    mask : np.ndarray
-        Segmentation mask
-    parameters : dict
-        Complete tracking parameter set
-    use_maximum_projection : bool
-        Whether to use 2D projection
-        
-    Returns
-    -------
-    list
-        List of trajectory DataFrames
-    """
-
-def detect_spots(self, image: np.ndarray, threshold: float, 
-                list_voxels: list, mask: np.ndarray) -> pd.DataFrame:
-    """
-    Low-level spot detection function.
-    
-    Parameters
-    ----------
-    image : np.ndarray
-        Single time point image
-    threshold : float
-        Detection threshold
-    list_voxels : list
-        [z_size, xy_size] in physical units
-    mask : np.ndarray
-        Binary segmentation mask
-        
-    Returns
-    -------
-    pd.DataFrame
-        Detected spots with coordinates and properties
-    """
-
-def generate_random_spots(self, state: int) -> None:
-    """Generate random control spots for validation."""
-
-def scale_spots(self) -> float:
-    """Determine platform-specific spot scaling factor."""
-
-# Tracking parameter update methods
-def update_yx_spot_size(self, value: int) -> None:
-    """Update XY spot size, ensuring odd values."""
-
-def update_z_spot_size(self, value: int) -> None:
-    """Update Z spot size parameter."""
-
-def update_min_length_trajectory(self, value: int) -> None:
-    """Update minimum trajectory length filter."""
-
-def update_max_range_search_pixels(self, value: int) -> None:
-    """Update maximum search range for particle linking."""
-
-def update_memory(self, value: int) -> None:
-    """Update memory parameter for trajectory linking."""
-
-def update_cluster_radius(self, value: int) -> None:
-    """Update cluster radius in nanometers."""
-
-def update_max_spots_cluster(self, value: int) -> None:
-    """Update maximum spots per cluster (0 for None)."""
-
-def update_use_maximum_projection(self, state: int) -> None:
-    """Toggle 2D projection mode for tracking."""
+__init__(image, min_percentile=1, max_percentile=99, selected_channels=None)
 ```
 
-##### Analysis Methods
+**Methods:** `remove_outliers()`
+
+---
+
+### `Cellpose`
+
+Single-frame cell segmentation using Cellpose deep-learning models.
 
 ```python
-def compute_photobleaching(self) -> None:
-    """
-    Apply photobleaching correction with selected model.
-    
-    Fits decay curve to intensity time course and generates corrected
-    image stack. Updates photobleaching_calculated flag and displays results.
-    """
-
-def plot_photobleaching(self) -> None:
-    """Display photobleaching analysis results with fitted curves."""
-
-def compute_correlations(self) -> None:
-    """
-    Execute auto- or cross-correlation analysis.
-    
-    Computes temporal correlations from tracking data with current
-    field selection and fitting parameters.
-    """
-
-def compute_colocalization(self) -> None:
-    """
-    Perform automated colocalization analysis.
-    
-    Uses ML-based or intensity-based method to classify spot pairs
-    across channels. Generates crop visualization matrix.
-    """
-
-def plot_intensity_histogram(self) -> None:
-    """Generate distribution histogram for selected field and channel."""
-
-def plot_intensity_time_course(self) -> None:
-    """Display time course plot for selected data type and channel."""
-
-def display_correlation_plot(self) -> None:
-    """Render correlation analysis results with fitted curves."""
-
-def display_colocalization_results(self, mean_crop: np.ndarray, crop_size: int,
-                                 flag_vector: np.ndarray, ch1: int, ch2: int) -> None:
-    """Display colocalization matrix visualization."""
+__init__(image, num_iterations=3, channels=None, diameter=120,
+         model_type='cyto3', selection_method='max_cells_and_area',
+         NUMBER_OF_CORES=1, pretrained_model=None, selection_metric='max_cells')
 ```
 
-##### Export Methods
+**Methods:** `calculate_masks()`
+
+---
+
+### `CellposeTimeSeries`
+
+Cellpose segmentation across multiple time points with consistent cell-ID tracking.
 
 ```python
-def export_tracking_data(self) -> None:
-    """Export tracking DataFrame to CSV with default naming."""
-
-def export_displayed_image_as_png(self) -> None:
-    """Export current display as high-resolution PNG (300 DPI)."""
-
-def export_tracking_video(self) -> None:
-    """Export tracking visualization as MP4 or GIF video."""
-
-def export_displayed_video(self) -> None:
-    """Export Import tab time-lapse as video."""
-
-def get_default_export_filename(self, prefix: str = None, extension: str = None) -> str:
-    """
-    Generate standardized filename for exports.
-    
-    Format: [prefix_]filename_imagename[.extension]
-    
-    Parameters
-    ----------
-    prefix : str, optional
-        Descriptive prefix (e.g., "tracking", "colocalization")
-    extension : str, optional
-        File extension
-        
-    Returns
-    -------
-    str
-        Formatted filename
-    """
-
-def export_selected_items(self) -> None:
-    """Batch export selected items from Export tab."""
-
-def _export_metadata(self, file_path: str) -> None:
-    """Export complete analysis parameters to text file."""
+__init__(image, channels_cytosol=None, channels_nucleus=None,
+         diameter_cytosol=120, diameter_nucleus=60, max_timepoints=10,
+         linking_memory=5, min_iou_threshold=0.3, model_type_cyto='cyto3',
+         model_type_nuc='nuclei', use_memmap=False, progress_callback=None,
+         selection_metric_cyto=None, selection_metric_nuc=None)
 ```
 
-## Tracking Pipeline Classes
+**Methods:** `calculate_tyx_masks()`, `filter_short_lived_masks(masks_tyx, min_frames=2)`
 
-The particle tracking functionality in the GUI utilizes three main classes from `microscopy.py`:
+---
 
-### ParticleTracking Class
+### `CellSegmentationWatershed`
+
+Gradient-based watershed segmentation (production variant).
 
 ```python
-class ParticleTracking:
-    """
-    Main class for detecting and linking particles in time-lapse microscopy data.
-    
-    Coordinates the complete tracking workflow from detection through trajectory
-    linking, with support for clustering analysis and multi-channel intensity
-    measurements.
-    """
-    
-    def __init__(self, image, channels_spots, list_voxels, channels_cytosol, channels_nucleus,
-                 remove_clusters=False, maximum_spots_cluster=None, min_length_trajectory=10,
-                 threshold_for_spot_detection=100, masks=None, memory=0, yx_spot_size_in_px=5, 
-                 z_spot_size_in_px=2, cluster_radius_nm=None, link_particles=True, 
-                 use_trackpy=False, use_maximum_projection=False, separate_clusters_and_spots=False,
-                 maximum_range_search_pixels=10, link_using_3d_coordinates=False,
-                 neighbor_strategy='KDTree', generate_random_particles=False,
-                 number_of_random_particles_trajectories=None,
-                 use_fixed_threshold=False):
-        """
-        Initialize particle tracking with comprehensive parameter set.
-
-        Parameters
-        ----------
-        image : ndarray
-            5D image array [T, Z, Y, X, C]
-        channels_spots : list
-            Channel indices containing spot signals
-        list_voxels : list
-            [z_size, xy_size] voxel dimensions in nm
-        masks : ndarray, optional
-            Binary mask defining analysis region
-        threshold_for_spot_detection : float
-            Intensity threshold for spot detection
-        min_length_trajectory : int
-            Minimum trajectory length for filtering
-        memory : int
-            Frames a particle can disappear and reappear
-        maximum_range_search_pixels : int
-            Maximum search distance for linking (pixels)
-        cluster_radius_nm : float
-            Clustering radius in nanometers
-        link_using_3d_coordinates : bool
-            Use Z coordinates for trajectory linking
-        generate_random_particles : bool
-            Generate random control trajectories
-        use_fixed_threshold : bool
-            Use threshold computed from frame 0 for all frames.
-            Recommended for experiments where signal decreases over
-            time (e.g., inhibitor treatments). Default: False.
-        """
-    
-    def run(self) -> list:
-        """
-        Execute complete tracking workflow.
-        
-        Returns
-        -------
-        list of pd.DataFrame
-            List of trajectory DataFrames, one per channel in channels_spots.
-            Each DataFrame contains a spot_type column with the actual imaging 
-            channel number (not an index). For example, if channels_spots=[2,1], 
-            spots from channel 2 will have spot_type=2, and spots from channel 1 
-            will have spot_type=1.
-        filtered_image_stack : ndarray
-            The filtered image stack used for detection.
-        """
+__init__(image, footprint_size=3, expected_radius=200, threshold_method='li',
+         threshold_factor=1.0, markers_method='local', canny_sigma=2.0,
+         min_object_size=500, separation_size=1)
 ```
 
-### SpotDetection Class
+**Methods:** `apply_watershed()`
+
+---
+
+### `CellSegmentationWatershed_standard`
+
+Standard watershed segmentation variant.
 
 ```python
-class SpotDetection:
-    """
-    Spot detection and data extraction for microscopy images.
-    
-    Handles detection across multiple channels with clustering analysis
-    and comprehensive intensity measurements per spot. Used internally
-    by the ParticleTracking workflow.
-    
-    The detection process follows these steps:
-    1. Image preprocessing and filtering
-    2. Local maxima detection using specified spot sizes
-    3. Threshold-based spot filtering  
-    4. Clustering analysis (3D mode only)
-    5. Intensity measurements with background correction
-    6. Quality metric calculation (SNR, PSF fitting)
-    
-    This corresponds to the "Single Frame" and "Detection" buttons
-    in the Tracking tab GUI.
-    """
-    
-    def __init__(self, image, channels_spots, channels_cytosol, channels_nucleus, 
-                 cluster_radius_nm=500, masks_complete_cells=None, masks_nuclei=None, 
-                 masks_cytosol_no_nuclei=None, dataframe=None, image_counter=0, 
-                 list_voxels=[500,160], show_plot=True, yx_spot_size_in_px=None, 
-                 z_spot_size_in_px=None, use_trackpy=False, use_maximum_projection=False,
-                 calculate_intensity=True, use_fixed_size_for_intensity_calculation=True):
-        """
-        Initialize spot detection with segmentation masks and parameters.
-        
-        Parameters match those available in the Tracking tab GUI:
-        
-        Parameters
-        ----------
-        image : ndarray
-            4D image array [Z, Y, X, C] for single time point
-        channels_spots : list
-            Channel indices for spot detection (set by current channel in GUI)
-        masks_complete_cells : ndarray, optional
-            Cell segmentation masks from Segmentation tab
-        masks_nuclei : ndarray, optional
-            Nuclear segmentation masks (if available)
-        cluster_radius_nm : float, default=500
-            Clustering radius in nanometers (GUI: "Cluster radius (nm)")
-        calculate_intensity : bool, default=True
-            Whether to measure spot intensities using disk-doughnut method
-        use_fixed_size_for_intensity_calculation : bool, default=True
-            Use fixed aperture vs. cluster-size-dependent aperture
-        use_maximum_projection : bool, default=False
-            Use 2D projection (GUI: "Use 2D Projection for Tracking" checkbox)
-        yx_spot_size_in_px : int, optional
-            XY spot size from GUI parameter (default uses GUI setting)
-        z_spot_size_in_px : int, optional
-            Z spot size from GUI parameter (default uses GUI setting)
-        
-        Returns
-        -------
-        pd.DataFrame
-            DataFrame containing detected spots with spot_type column set to the 
-            actual imaging channel number (not an index). For example, if 
-            channels_spots=[2,1], spots from channel 2 will have spot_type=2.
-        """
+__init__(image, footprint_size=5, threshold_method='li',
+         markers_method='distance', separation_size=5, threshold_factor=1.0)
 ```
 
-### DataProcessing Class
+**Methods:** `apply_watershed()`
+
+---
+
+### `CellSegmentation`
+
+Dual-compartment (cytosol + nucleus) segmentation using Cellpose.
 
 ```python
-class DataProcessing:
-    """
-    Process detected spots and extract cellular localization information.
-    
-    Links spots to segmentation masks, calculates cellular properties,
-    and generates comprehensive metadata for each detected spot.
-    """
-    
-    def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, 
-                 masks_cytosol_no_nuclei, channels_cytosol, channels_nucleus, 
-                 yx_spot_size_in_px, spot_type=0, dataframe=None, reset_cell_counter=False,
-                 image_counter=0, number_color_channels=None, use_maximum_projection=False,
-                 use_fixed_size_for_intensity_calculation=True):
-        """
-        Initialize data processing with spot coordinates and segmentation masks.
-        
-        Parameters
-        ----------
-        clusters_and_spots : ndarray
-            Detected spot coordinates [N, 3 or 4] with (z, y, x, cluster_size)
-        image : ndarray
-            Image data for intensity measurements
-        masks_complete_cells : ndarray
-            Cell segmentation masks
-        masks_nuclei : ndarray
-            Nuclear segmentation masks
-        spot_type : int
-            The actual imaging channel number from which spots were detected.
-            For example, if detecting spots in channel 2, spot_type will be 2.
-        use_fixed_size_for_intensity_calculation : bool
-            Use fixed aperture vs. cluster-size-dependent aperture
-        """
-    
-    def get_dataframe(self) -> pd.DataFrame:
-        """
-        Process spots and generate comprehensive results DataFrame.
-        
-        Returns
-        -------
-        pd.DataFrame
-            Processed results with cellular localization and intensity data
-        """
+__init__(image, channels_cytosol=None, channels_nucleus=None,
+         diameter_cytosol=150, diameter_nucleus=100,
+         optimization_segmentation_method='default',
+         remove_fragmented_cells=False, show_plot=True, image_name=None,
+         NUMBER_OF_CORES=1, running_in_pipeline=False,
+         model_nuc_segmentation='nuclei', model_cyto_segmentation='cyto3',
+         pretrained_model_nuc_segmentation=None,
+         pretrained_model_cyto_segmentation=None,
+         selection_metric='max_cells_and_area', num_iterations=5)
 ```
 
-### AutoThreshold Class
+**Methods:** `calculate_masks()`, `synchronize_masks(masks_cyto, masks_nuclei)`,
+`synchronize_masks_tyx(...)`, `is_nucleus_in_cytosol(mask_n, mask_c)`
+
+---
+
+### `ManualSegmentation`
+
+Interactive polygon-drawing segmentation tool (Jupyter/inline).
 
 ```python
-class AutoThreshold:
-    """
-    Automatically determine optimal spot detection threshold.
-    
-    Implements a hybrid approach combining methods from Big-FISH and TrueSpot
-    for robust threshold selection across diverse imaging conditions:
-    
-    1. Primary method (Big-FISH): Generates a curve of spot counts versus 
-       threshold values and identifies the transition point where the curve 
-       changes from a steep decrease to a plateau.
-    
-    2. Fallback method (TrueSpot-inspired): For images lacking a distinct 
-       transition point, analyzes the variability in the derivative of the 
-       spot count curve to find the optimal threshold.
-    
-    Uses the same LoG filter and local maximum detection as BigFISH/TrackPy
-    to ensure consistency with the spot detection pipeline.
-    
-    This class corresponds to the "Auto" button in the Tracking tab GUI.
-    
-    Attributes
-    ----------
-    thresholds : ndarray
-        Array of tested threshold values.
-    spot_counts : ndarray
-        Log-scale spot counts at each threshold.
-    optimal_threshold : float
-        Automatically determined threshold.
-    method_used : str
-        Which algorithm was used ('bigfish' or 'fano').
-    """
-    
-    def __init__(self, image, voxel_size_yx=130, voxel_size_z=300,
-                 yx_spot_size_in_px=5, z_spot_size_in_px=2, use_3d=None):
-        """
-        Initialize automatic threshold detection.
-        
-        Parameters
-        ----------
-        image : ndarray
-            2D (Y,X) or 3D (Z,Y,X) fluorescence image
-        voxel_size_yx : float, default=130
-            Pixel size in nm for XY dimensions
-        voxel_size_z : float, default=300
-            Pixel size in nm for Z dimension (3D only)
-        yx_spot_size_in_px : int, default=5
-            Expected spot size in XY pixels
-        z_spot_size_in_px : int, default=2
-            Expected spot size in Z pixels
-        use_3d : bool, optional
-            Force 3D processing. Defaults to None (auto-detect from image)
-        """
-    
-    def calculate(self) -> float:
-        """
-        Calculate and return the optimal threshold.
-        
-        Returns
-        -------
-        float
-            Optimal threshold value for spot detection
-        """
+__init__(image, cmap='Spectral', polygon_color=(255, 0, 0))
 ```
 
-## Machine Learning-Based Colocalization
+**Methods:** `polygon(new_image, points_in_polygon)`, `switch_to_inline()`,
+`onclick(event)`, `close_and_save(filename, save_mask)`
 
-The application implements a convolutional neural network (CNN) for automated spot colocalization analysis, located in the `modeling/machine_learning` directory. This ML approach provides an alternative to traditional intensity-based colocalization methods.
+---
 
-### CNN Architecture
+### `MultiManualSegmentation`
 
-The colocalization model uses a lightweight CNN architecture (`ParticleDetectionCNN`) designed for binary classification of small image crops:
+Multi-class interactive segmentation.
 
 ```python
-class ParticleDetectionCNN(nn.Module):
-    """
-    Convolutional Neural Network for particle detection in microscopy image crops.
-    
-    Architecture:
-    - Input: 11x11 grayscale image crops (resized to 64x64 for training)
-    - 3 Convolutional layers with ReLU activation and MaxPooling
-    - 2 Fully connected layers with dropout
-    - Output: Binary classification (particle present/absent)
-    """
+__init__(image, cmap='Greys_r')
 ```
 
-**Network Layers:**
+**Methods:** `get_mask()`, `get_class_map()`, `get_mask_for_class(class_name)`
 
-- **Conv1**: 1→16 channels, 3×3 kernel, ReLU, 2×2 MaxPool
-- **Conv2**: 16→32 channels, 3×3 kernel, ReLU, 2×2 MaxPool  
-- **Conv3**: 32→64 channels, 3×3 kernel, ReLU, 2×2 MaxPool
-- **FC1**: Flattened → 128 units, ReLU, 50% Dropout
-- **FC2**: 128 → 1 unit, Sigmoid output
+---
 
-### Training Data Generation
+### `LineProfile`
 
-The ML model is trained on multiple data sources to ensure robust performance across diverse experimental conditions:
-
-#### 1. Real Microscopy Data
+Interactive two-point line-profile tool.
 
 ```python
-def create_crops_from_image(real_image, df_tracking, minimal_snr=0.8, 
-                           grid_size=11, selected_color_channel=0):
-    """
-    Extract training crops from real microscopy images using tracking data.
-    
-    This function generates positive and negative training examples from
-    actual experimental data, ensuring the model learns from realistic
-    imaging conditions and noise characteristics.
-    
-    Positive samples: High-SNR tracked particles (SNR > 0.8)
-    Negative samples: Random image regions without particles
-    
-    Parameters
-    ----------
-    real_image : ndarray
-        5D microscopy image stack [T, Z, Y, X, C]
-    df_tracking : pd.DataFrame
-        Tracking results from ParticleTracking analysis
-    minimal_snr : float, default=0.8
-        Minimum signal-to-noise ratio for positive examples
-    grid_size : int, default=11
-        Size of extracted crops (should match model input)
-    selected_color_channel : int, default=0
-        Channel index for crop extraction
-        
-    Returns
-    -------
-    ndarray
-        Normalized crop image [11, 11] ready for training
-    """
+__init__(image, ax=None, cmap='gray', max_pixels=None)
 ```
 
-#### 2. Simulated Gaussian Spots
+**Methods:** `get_profile()`
+
+---
+
+### `TrackPyDetection`
+
+Spot detection using TrackPy.
 
 ```python
-def plot_spot(amplitude=None, sigma=None, grid_size=11, mu_x=None, mu_y=None,
-              percentage_noise=None, create_spot=False, number_spots=1):
-    """
-    Generate synthetic particle crops with realistic noise characteristics.
-    
-    Creates simulated fluorescent spots matching typical microscopy PSF
-    properties, including realistic noise models and variable parameters
-    to improve model generalization.
-    
-    Features:
-    - Variable amplitude (200-255 intensity units)
-    - Gaussian PSF with σ = 0.5-2.0 pixels  
-    - Random positioning within crop center ±4 pixels
-    - Poisson noise modeling (1-10% of signal amplitude)
-    - Support for single and double-particle spots
-    - Background intensity variation
-    
-    This corresponds to the simulated data used in the ML training
-    pipeline described in the Tutorial.
-    """
+__init__(image, channels_spots, voxel_size_yx=150, yx_spot_size_in_px=5,
+         show_plot=False, image_name=None, save_all_images=False,
+         spot_diameter=5, display_spots_on_multiple_z_planes=False,
+         use_max_projection=True, threshold_for_spot_detection=None,
+         save_files=False, reference_threshold=None)
 ```
 
-#### 3. Human-Annotated Ground Truth
+**Methods:** `detect()`
 
-The model incorporates expert human annotations from multiple researchers to establish consensus ground truth:
+---
+
+### `BigFISH`
+
+Spot detection using the Big-FISH library.
 
 ```python
-# Consensus ground truth from multiple annotators
-flag_vector_consensus = np.sum([annotator_a, annotator_b, annotator_c, annotator_d], 
-                              axis=0) >= (num_annotators / 2)
+__init__(image, channels_spots, voxel_size_z=300, voxel_size_yx=103,
+         cluster_radius_nm=350, yx_spot_size_in_px=5, z_spot_size_in_px=2,
+         show_plot=False, image_name=None, save_all_images=False,
+         display_spots_on_multiple_z_planes=False,
+         use_log_filter_for_spot_detection=True,
+         threshold_for_spot_detection=None, save_files=False,
+         decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5,
+         decompose_dense_regions=False, reference_threshold=None)
 ```
 
-**Inter-annotator Agreement:**
+**Methods:** `detect()`
 
-- Pearson correlations between expert annotators: 0.65-0.85
-- Consensus threshold: ≥50% agreement across annotators
+---
 
-### Training Pipeline
+### `SpotDetection`
 
-**Data Composition:**
-
-- Real microscopy crops: 40% (1000 positive + 500 negative samples)
-- Simulated single spots: 25% (500 samples)
-- Simulated double spots: 10% (256 samples)  
-- Human-validated crops: 25% (consensus annotations)
-
-**Training Parameters:**
+Multi-channel spot detection orchestrator (BigFISH or TrackPy backend).
 
 ```python
-batch_size = 256
-num_epochs = 51,200  # (batch_size × 200)
-learning_rate = 1e-6
-optimizer = Adam
-loss_function = BCELoss  # Binary Cross-Entropy
-validation_split = 0.2
+__init__(image, channels_spots, channels_cytosol, channels_nucleus,
+         cluster_radius_nm=500, masks_complete_cells=None, masks_nuclei=None,
+         masks_cytosol_no_nuclei=None, dataframe=None, image_counter=0,
+         list_voxels=None, show_plot=True, image_name=None,
+         save_all_images=True, display_spots_on_multiple_z_planes=False,
+         use_log_filter_for_spot_detection=True,
+         threshold_for_spot_detection=None, save_files=True,
+         yx_spot_size_in_px=None, z_spot_size_in_px=None,
+         use_trackpy=False, use_maximum_projection=False,
+         calculate_intensity=True, use_fixed_size_for_intensity_calculation=True,
+         fast_gaussian_fit=True, reference_threshold=None)
 ```
 
-**Data Augmentation:**
+**Methods:** `get_dataframe()`
 
-- Random rotation (±180°)
-- Intensity normalization to [0, 255]
-- Gaussian noise injection
-- Random positioning within crops
+---
 
-### Model Performance
+### `ParticleTracking`
 
-The ML method demonstrates superior performance compared to traditional intensity-based approaches:
-
-**Accuracy Metrics:**
-
-- **ML (Real Data)**: 85-92% accuracy
-- **ML (Simulated Data)**: 88-95% accuracy  
-- **ML (Human-Validated)**: 90-96% accuracy
-- **Traditional SNR Method**: 75-82% accuracy
-
-**Validation Protocol:**
+Multi-frame spot detection and particle linking for time-lapse imaging.
 
 ```python
-def calculate_performance(predicted, ground_truth):
-    TP = true_positives
-    FP = false_positives  
-    TN = true_negatives
-    FN = false_negatives
-    accuracy = (TP + TN) / (TP + FP + TN + FN)
-    return TP, FP, TN, FN, accuracy
+__init__(image, channels_spots, list_voxels, channels_cytosol,
+         channels_nucleus, remove_clusters=False, maximum_spots_cluster=None,
+         min_length_trajectory=10, threshold_for_spot_detection=100,
+         masks=None, masks_nuclei=None, masks_cytosol_no_nuclei=None,
+         memory=0, yx_spot_size_in_px=5, z_spot_size_in_px=2,
+         cluster_radius_nm=None, link_particles=True, use_trackpy=False,
+         use_fixed_size_for_intensity_calculation=True, number_cores=None,
+         use_maximum_projection=False, separate_clusters_and_spots=False,
+         maximum_range_search_pixels=10, link_using_3d_coordinates=False,
+         neighbor_strategy='KDTree', generate_random_particles=False,
+         number_of_random_particles_trajectories=None, step_size_in_sec=1.0,
+         fast_gaussian_fit=True, verbose=False, use_fixed_threshold=False)
 ```
 
-### Implementation in Colocalization Analysis
+**Methods:** `run()`
 
-The ML model is integrated into the colocalization workflow as follows:
+---
 
-1. **Crop Extraction**: Generate 11×11 pixel crops around each detected spot
-2. **Preprocessing**: Normalize intensity to [0, 255] range
-3. **Inference**: Apply trained CNN to classify each crop
-4. **Thresholding**: Apply confidence threshold (default: 0.5-0.67)
-5. **Visualization**: Display results in crop matrix with ML flags
+### `Registration`
+
+Image registration using StackReg.
 
 ```python
-def compute_colocalization(self):
-    """ML-based colocalization implementation in GUI."""
-    if self.method_ml_radio.isChecked():
-        # Load pre-trained model
-        model = ML.ParticleDetectionCNN()
-        ML.load_model(model, 'particle_detection_cnn.pth')
-        
-        # Generate normalized crops
-        list_crops = AM.Utilities().normalize_crop_return_list(
-            array_crops_YXC=mean_crop,
-            crop_size=crop_size,
-            selected_color_channel=selected_channel,
-            normalize_to_255=True
-        )
-        
-        # ML inference
-        threshold = self.ml_threshold_input.value()
-        flag_vector = ML.predict_crops(model, list_crops, threshold=threshold)
-        method_used = "ML"
+__init__(image, roi_bounds, reference_channel=0, mode='RIGID_BODY',
+         padding=10, progress_callback=None, verbose=False)
 ```
 
-### Model Files and Training Notebooks
+**Methods:** `register()`, `get_registered_image()`
 
-**Key Components:**
+---
 
-- `modeling/machine_learning/ML_SpotDetection.py`: CNN implementation and training functions
-- `modeling/machine_learning/MachineLearning_spot_detection.ipynb`: Interactive model training
-- `modeling/machine_learning/ML_Pipeline_and_Data_Validation.ipynb`: Complete training pipeline
-- Pre-trained models: `particle_detection_cnn.pth`, `particle_detection_cnn_real_data.pth`
+### `DataProcessing`
 
-**Training Data Validation:**
-The training pipeline includes comprehensive validation against human expert annotations, ensuring the model learns robust features for particle detection across diverse experimental conditions and imaging parameters.
-
-## Data Structures
-
-### Tracking DataFrame Structure
-
-The tracking functionality generates a comprehensive pandas DataFrame (`df_tracking`) containing all particle information across time. This DataFrame is the primary output of the particle tracking pipeline and serves as input for subsequent analyses in the Distribution, Time Course, and Correlation tabs.
-
-**Access in GUI**: Available after running "Tracking" button, exported via "Export DataFrame" button.
-
-**Related Tutorial Section**: [Step 4: Particle Tracking](tutorial.md#step-4-particle-tracking)
-
-**Related User Guide Section**: [Particle Tracking](user_guide.md#particle-tracking)
-
-#### Core Spatial and Temporal Columns
-
-These columns are always present after successful tracking:
-
-| Column | Type | Description | Units | GUI Source |
-|--------|------|-------------|-------|------------|
-| `frame` | int | Time frame index (0-based) | frames | Time slider position |
-| `x` | float | X coordinate of particle centroid | pixels | Image coordinates |
-| `y` | float | Y coordinate of particle centroid | pixels | Image coordinates |
-| `z` | float | Z coordinate of particle centroid | pixels | Z-slice or 3D detection |
-| `particle` | int | Unique trajectory identifier | - | Trajectory linking results |
-
-#### Intensity Measurements (Per Channel)
-
-For each imaging channel N (where N = 0, 1, 2, ...), the following intensity columns are automatically generated. The specific measurements depend on the "Use fixed size for intensity calculation" setting in the Tracking tab.
-
-**Background-Subtracted Intensity (Primary measurement):**
-
-| Column | Type | Description | Units | Calculation Method |
-|--------|------|-------------|-------|-------------------|
-| `spot_int_ch_N` | float | Integrated intensity using disk-doughnut method | counts | See [User Guide: Distribution Analysis](user_guide.md#distribution-analysis) |
-
-**Additional Intensity Measurements:**
-
-| Column | Type | Description | Units |
-|--------|------|-------------|-------|
-| `total_spot_int_ch_N` | float | Sum of all pixel values within spot region | counts |
-| `psf_amplitude_ch_N` | float | Peak intensity from 2D Gaussian fit | counts |
-| `psf_sigma_ch_N` | float | Standard deviation from 2D Gaussian fit | pixels |
-| `snr_ch_N` | float | Signal-to-noise ratio | - |
-
-**Quality Control Note**: If Gaussian fitting fails for a spot, `psf_amplitude_ch_N` and `psf_sigma_ch_N` will contain NaN values. The `snr_ch_N` calculation is robust to fitting failures.
-
-#### Particle Properties and Clustering Information
-
-These columns provide information about spot detection and clustering results:
-
-| Column | Type | Description | Units | Available When |
-|--------|------|-------------|-------|----------------|
-| `cluster_size` | int | Number of spots grouped in cluster (1 = individual spot) | spots | Always (3D mode provides detailed clustering) |
-| `is_cluster` | bool | Whether particle is part of a multi-spot cluster | - | When cluster_size > 1 |
-| `spot_type` | int | Actual imaging channel number used for detection | - | Always present |
-| `spot_id` | int | Unique spot identifier within each frame | - | Always |
-| `unique_particle` | str | Hierarchical unique particle identifier combining cell_id, spot_type, and particle number (format: `cell_id_spot_type_particle`) | - | When segmentation available |
-
-**Cluster Size Interpretation** (see [User Guide: Tracking Algorithms](user_guide.md#tracking-algorithms)):
-
-- `cluster_size = 1`: Individual isolated spot
-- `cluster_size = 2-5`: Small molecular complexes  
-- `cluster_size > 5`: Large assemblies or transcriptional factories
-
-#### Cellular Localization (When Segmentation Available)
-
-| Column | Type | Description | Units |
-|--------|------|-------------|-------|
-| `cell_id` | int | Unique cell identifier | - |
-| `is_nuc` | bool | Whether spot is located in nucleus | - |
-| `is_cell_fragmented` | int | Flag indicating if the Cell touches the border of the image (no cell -1, complete cell 0, or fragmented cell 1) | - |
-| `nuc_loc_y` | float | Nuclear centroid Y coordinate | pixels |
-| `nuc_loc_x` | float | Nuclear centroid X coordinate | pixels |
-| `cyto_loc_y` | float | Cytoplasmic centroid Y coordinate | pixels |
-| `cyto_loc_x` | float | Cytoplasmic centroid X coordinate | pixels |
-| `nuc_area_px` | float | Nuclear area | pixels² |
-| `cyto_area_px` | float | Cytoplasmic area | pixels² |
-| `cell_area_px` | float | Total cell area | pixels² |
-
-#### Intensity Context (When Segmentation Available)
-
-For each channel N with segmentation:
-
-| Column | Type | Description | Units |
-|--------|------|-------------|-------|
-| `nuc_int_ch_N` | float | Average nuclear intensity | counts |
-| `cyto_int_ch_N` | float | Average cytoplasmic intensity | counts |
-| `pseudo_cyto_int_ch_N` | float | Pseudo-cytoplasm intensity (dilated nucleus) | counts |
-| `nucleus_cytosol_intensity_ratio_ch_N` | float | Nuclear/cytoplasmic intensity ratio | - |
-| `nucleus_pseudo_cytosol_intensity_ratio_ch_N` | float | Nuclear/pseudo-cytoplasm ratio | - |
-
-#### Metadata Columns
-
-| Column | Type | Description | Units |
-|--------|------|-------------|-------|
-| `image_id` | int | Source image identifier | - |
-| `spot_id` | int | Unique spot identifier within image | - |
-
-### DataFrame Generation Workflow
-
-The tracking DataFrame is generated through the following pipeline:
-
-1. **Spot Detection**: `SpotDetection` class detects spots in each frame
-2. **Trajectory Linking**: `ParticleTracking` class links spots across time
-3. **Data Processing**: `DataProcessing` class adds cellular context and measurements
-4. **Quality Filtering**: Remove short trajectories and apply quality filters
-
-### Usage Examples
-
-**Access specific particle trajectory:**
+Convert spot detection results to a per-cell DataFrame.
 
 ```python
-# Get all data points for particle ID 42
-particle_data = df_tracking[df_tracking['particle'] == 42]
-
-# Sort by frame for time-course analysis
-particle_timecourse = particle_data.sort_values('frame')
+__init__(clusters_and_spots, image, masks_complete_cells, masks_nuclei,
+         masks_cytosol_no_nuclei, channels_cytosol, channels_nucleus,
+         yx_spot_size_in_px, spot_type=0, dataframe=None,
+         reset_cell_counter=False, image_counter=0,
+         number_color_channels=None, use_maximum_projection=False,
+         use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True)
 ```
 
-**Extract intensity time course (for Correlation Analysis):**
+**Methods:** `get_dataframe()`
+
+---
+
+### `ParticleMotion`
+
+Compute MSD and diffusion coefficients from trajectories.
 
 ```python
-# Get channel 0 intensity over time for particle 42
-particle_42 = df_tracking[df_tracking['particle'] == 42].sort_values('frame')
-intensity_timecourse = particle_42['spot_int_ch_0'].values
-time_points = particle_42['frame'].values
-
-# Convert to physical time units (if time interval known)
-if time_interval_seconds is not None:
-    time_seconds = time_points * time_interval_seconds
+__init__(trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1,
+         max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0,
+         plot_name=None, max_fit_points=20, is_3d=False,
+         microns_per_pixel_z=None)
 ```
 
-**Filter by cellular localization (requires segmentation):**
+**Methods:** `calculate_msd()`
+
+---
+
+### `CropArray`
+
+Extract and normalize per-spot image crops.
 
 ```python
-# Get only nuclear spots
-nuclear_spots = df_tracking[df_tracking['is_nuc'] == True]
-
-# Get spots in specific cell
-cell_5_spots = df_tracking[df_tracking['cell_id'] == 5]
-
-# Filter by cell quality (complete cells only)
-complete_cell_spots = df_tracking[df_tracking['is_cell_fragmented'] == 0]
+__init__(image, df_crops, crop_size, remove_outliers=True,
+         max_percentile=99.5, selected_time_point=None,
+         normalize_each_particle=False)
 ```
 
-**Quality control and analysis:**
+**Methods:** `run()`
+
+---
+
+### `ColocalizationDistance`
+
+Euclidean-distance colocalization between two spot channels.
 
 ```python
-# Calculate trajectory lengths (for minimum length filtering)
-trajectory_lengths = df_tracking.groupby('particle').size()
-
-# Get high-quality spots (high SNR, good PSF fit)
-high_quality = df_tracking[
-    (df_tracking['snr_ch_0'] > 3.0) & 
-    (df_tracking['psf_sigma_ch_0'].notna()) &
-    (df_tracking['psf_sigma_ch_0'] < 3.0)  # Reasonable PSF width
-]
-
-# Analyze cluster properties (3D tracking mode)
-cluster_summary = df_tracking[df_tracking['cluster_size'] > 1].groupby('particle').agg({
-    'cluster_size': 'mean',
-    'spot_int_ch_0': 'mean'
-})
+__init__(df, list_spot_type_to_compare=[0, 1], time_point=0,
+         threshold_intensity_0=0, threshold_intensity_1=0,
+         threshold_distance=2, show_plot=False, voxel_size_z=None,
+         psf_z=None, voxel_size_yx=None, psf_yx=None,
+         report_codetected_spots_in_both_channels=False)
 ```
 
-These examples demonstrate how to use the tracking DataFrame for the analyses available in the GUI tabs (Distribution, Time Course, Correlation) and for custom analysis scripts.
+**Methods:** `extract_spot_classification_from_df()`
 
-### Quality Control Columns
+---
 
-The DataFrame includes several quality control indicators:
+### `PointSpreadFunction`
 
-- **`cluster_size`**: Spots with `cluster_size > 1` may represent clustered particles
-- **`snr_ch_N`**: Signal-to-noise ratio for quality assessment
-- **`is_cell_fragmented`**: Indicates cell boundary quality (-1: poor, 0: good, 1: excellent)
-- **`psf_sigma_ch_N`**: PSF width for spot quality assessment
-
-### Colocalization Results Dictionary
+Build a mean PSF crop and fit 3-D Gaussian.
 
 ```python
-colocalization_results = {
-    'mean_crop_filtered': np.ndarray,    # Processed crop images [H, W, C]
-    'crop_size': int,                    # Crop window size (pixels)
-    'flag_vector': np.ndarray,           # Boolean colocalization flags
-    'ch1_index': int,                    # Reference channel index
-    'ch2_index': int,                    # Target channel index
-    'num_spots_reference': int,          # Total reference spots
-    'num_spots_colocalize': int,         # Colocalized spots count
-    'colocalization_percentage': float,  # Percentage colocalized
-    'threshold_value': float,            # Analysis threshold used
-    'method': str                        # 'ML' or 'Intensity'
-}
+__init__(image, df_crops, crop_size_xy=5, crop_size_z=3,
+         remove_outliers=True, selected_color_channel=None,
+         min_percentile=0.5, max_percentile=99, show_plot=False,
+         plot_name='temp.png', save_plots=False)
 ```
+
+**Methods:** `calculate()`, `fit_3D_gaussian(data)`, `gaussian_3d(coords, ...)`
+
+---
+
+### `Correlation`
+
+Auto- and cross-correlation with baseline correction and multi-tau support.
+
+```python
+__init__(primary_data, secondary_data=None, max_lag=None,
+         nan_handling='zeros', return_full=True, use_bootstrap=True,
+         shift_data=False, show_plot=False, save_plots=False,
+         plot_name='temp_AC.png', time_interval_between_frames_in_seconds=1,
+         index_max_lag_for_fit=None, color_channel=0, start_lag=0,
+         line_color='blue', line_color_fit='red', correct_baseline=False,
+         baseline_offset=None, use_global_mean=False, plot_title=None,
+         fit_type='linear', de_correlation_threshold=0.01,
+         use_linear_projection_for_lag_0=True, normalize_plot_with_g0=False,
+         remove_outliers=True, MAD_THRESHOLD_FACTOR=6.0,
+         plot_individual_trajectories=False, y_axes_min_max_list_values=None,
+         x_axes_min_max_list_values=None, multi_tau=False,
+         multi_tau_raw_points=20, multi_tau_bins_per_stage=8,
+         baseline_method='auto_plateau', baseline_manual_range=None,
+         baseline_plateau_fraction=0.25, baseline_percentile=10.0,
+         baseline_smooth_window=7, baseline_min_points=5,
+         baseline_weight_by_pairs=True, figsize=(8, 6))
+```
+
+**Methods:** `run()`
+
+---
+
+### `Utilities`
+
+Static utility methods for image processing and data manipulation.
+
+```python
+__init__()
+```
+
+#### Array & Trajectory Manipulation
+
+| Method | Description |
+| --- | --- |
+| `forward_fill_nan(data)` | Forward-fill NaN in 1-D array |
+| `forward_fill_nan_2d(data)` | Forward-fill NaN in 2-D array |
+| `detrend_trajectories(intensity_array)` | Remove linear trend from trajectories |
+| `downsample_array(arr, factor, method)` | Downsample array by integer factor |
+| `simulate_missing_data(matrix1, matrix2, ...)` | Randomly blank data entries |
+| `shift_initial_nans(data)` | Move leading NaNs to end |
+| `find_last_valid_column(data)` | Find last non-NaN column index |
+| `remove_nan_rows(array, nan_percentage)` | Drop rows exceeding NaN fraction |
+| `shift_trajectories(array_ch0, array_ch1, ...)` | Align trajectory arrays |
+| `df_fields_to_arrays_aligned(dataframe, ...)` | Extract two DataFrame fields as aligned arrays |
+| `df_trajectories_to_array(dataframe, ...)` | Convert trajectory DataFrame to array |
+| `df_extract_data(dataframe, spot_type, ...)` | Extract spot-type subset from DataFrame |
+| `summary_df_by_spot_type(df)` | Summarize DataFrame by spot type |
+| `remove_outliers(array, min_percentile, max_percentile)` | Percentile clip 1-D array |
+| `parse_bool_or_int(value)` | Parse string to bool or int |
+
+#### Image Processing
+
+| Method | Description |
+| --- | --- |
+| `log_filter(image_TZYXC, spot_radius_px)` | Laplacian-of-Gaussian filter |
+| `gaussian_laplace_filter_image(image_TZYXC, ...)` | Apply LoG across channels |
+| `pad_image(image, pixels_to_pad)` | Zero-pad image |
+| `erode_mask(img, px_to_remove)` | Binary erosion of mask |
+| `convert_to_int8(image, rescale, ...)` | Convert array to uint8 |
+| `calculate_projection(image, axis, projection_method)` | Mean/max projection |
+| `calculate_sharpness(list_images, ...)` | Local-variance sharpness metric |
+| `remove_images_not_processed(images_metadata, list_images)` | Filter unprocessed images |
+
+#### Spot & Gaussian Tools
+
+| Method | Description |
+| --- | --- |
+| `two_dimensional_gaussian(x_y, ...)` | Evaluate 2-D Gaussian model |
+| `generate_gaussian_data(amplitude, ...)` | Synthesize 2-D Gaussian array |
+| `fit_2D_gaussian(data)` | Fit 2-D Gaussian to crop |
+| `optimize_spot_size(frame_data, x_pos, y_pos, ...)` | Find best-fit spot radius |
+| `calculate_SNR(mean_array, spot_size)` | Compute signal-to-noise ratio |
+| `calculate_threshold_for_spot_detection(image_TZYXC, ...)` | Compute detection threshold |
+| `calculate_threshold_from_percentage(tested_image, ...)` | Threshold from target spot % |
+| `is_spot_in_crop(selected_crop_id, ...)` | Check if crop contains a spot |
+| `normalize_crop_return_list(array_crops_YXC, ...)` | Normalize crops to [0, 1] |
+| `test_particle_presence_all_frames_with_ML(...)` | ML-based spot presence test |
+
+#### Mask Operations
+
+| Method | Description |
+| --- | --- |
+| `masks_to_contours(masks, downsample_factor)` | Convert label masks to contour lists |
+| `contours_to_maks(contours, image_shape)` | Reconstruct mask from contours |
+| `merge_masks(list_masks)` | Combine multiple mask arrays |
+| `separate_masks(masks)` | Split merged mask into components |
+| `spots_in_mask(df, mask, edge_exclusion_px)` | Filter spots inside mask |
+| `reorder_mask_image(mask_image_tested)` | Sort mask labels by area |
+| `return_n_masks(mask_image_tested, number_of_selected_masks)` | Keep N largest masks |
+| `remove_artifacts_from_mask_image(mask_image_tested, minimal_mask_area_size)` | Remove small mask artifacts |
+| `metric_max_cells_and_area(masks, mode)` | Score mask quality |
+
+#### DataFrame & Pipeline Helpers
+
+| Method | Description |
+| --- | --- |
+| `spots_in_mask(df, mask, edge_exclusion_px)` | Filter spots by mask |
+| `remove_cells_below_spots_threshold(df, ...)` | Filter cells with too few spots |
+| `image_cell_selection(cell_id, list_images, ...)` | Crop image around a cell |
+| `extract_spot_location_from_cell(df, ...)` | Get spot coordinates for one cell |
+| `spot_crops(image, df, number_crops_to_show, spot_size)` | Extract spot crop array |
+| `generate_random_colocalized_trajectories(...)` | Simulate paired trajectories |
+| `merge_trajectories(df_trajectories_0, df_trajectories_1, ...)` | Link trajectories across channels |
+| `extracting_data_for_each_df_in_directory(...)` | Batch-load per-folder DataFrames |
+| `extract_data_interpretation(...)` | Aggregate multi-condition results |
+| `function_get_df_columns_as_array(df, ...)` | Extract DataFrame column as array |
+| `convert_list_to_df(list_number_cells, ...)` | Convert result lists to DataFrame |
+| `export_data_to_CSV(...)` | Write spot counts to CSV |
+
+#### File & Folder Utilities
+
+| Method | Description |
+| --- | --- |
+| `find_src_directory(current_directory)` | Walk up to repo `src/` root |
+| `find_folders_by_keywords(base_path, keywords)` | Glob folders by keyword list |
+| `clear_folder_except_substring(directory, substring)` | Delete files not matching substring |
+| `convert_str_to_path(file_path)` | Coerce string to `Path` |
+| `unzip_local_folders(list_local_files, local_folder_path)` | Extract ZIP archives |
+| `combine_images_vertically(image_paths, save_path, ...)` | Stack images into single PNG |
+| `show_metadta_and_plot_imeges(data_folder_path, ...)` | Print metadata and preview images |
+| `get_one_drive_dir()` | Return OneDrive root path |
+| `convert_to_standard_format(data_folder_path, ...)` | Standardize raw folder layout |
+| `create_output_folders(data_folder_path, ...)` | Create pipeline output directories |
+
+#### Decorators & Miscellaneous
+
+| Method | Description |
+| --- | --- |
+| `metadata_decorator(...)` | Decorator to auto-save metadata |
+| `get_metadata_folder(*args, **kwargs)` | Resolve metadata output folder |
+| `is_None(variable_to_test)` | Check if value is None-like |
+| `make_it_a_list(variable_to_test)` | Wrap scalar in list if needed |
+
+---
+
+### `Plots` *(microscopy)*
+
+Visualization utilities for microscopy data. No constructor arguments required.
+
+```python
+__init__()
+```
+
+#### Image & Cell Views
+
+| Method | Description |
+| --- | --- |
+| `plot_images(image, df, masks, ...)` | Multi-channel image overview |
+| `plot_cell_zoom_selected_crop(image_TZYXC, df, ...)` | Zoomed cell + spots |
+| `plot_cell_zoom_with_timecourse(image_TZYXC, df, ...)` | Zoomed cell + intensity time course |
+| `plot_cell_zoom_with_timecourse_horizontal(...)` | Horizontal layout variant |
+| `plot_single_cell(image, df, selected_channel, ...)` | Single cell render |
+| `plot_single_cell_all_channels(image, df, ...)` | Single cell across all channels |
+| `plot_selected_cell_colors(image, df, ...)` | Overlay spots on false-color cell |
+| `plot_cell_all_z_planes(image, ...)` | All z-planes montage |
+| `plot_complete_fov(list_images, df, ...)` | Full field-of-view overview |
+| `plot_all_cells(list_images, complete_dataframe, ...)` | All cells tiled view |
+| `plot_all_cells_and_spots(list_images, ...)` | All cells with spot overlay |
+| `plotting_masks_and_original_image(image, ...)` | Mask + raw image overlay |
+| `plotting_all_original_images(list_images, ...)` | Raw image montage |
+| `plotting_segmentation_images(directory, ...)` | Segmentation results montage |
+
+#### Spot & Trajectory Views
+
+| Method | Description |
+| --- | --- |
+| `plot_trajectories_and_mask(df, masks, ...)` | 2-D/3-D trajectory map |
+| `plot_3d_video_detected_spots(original_image, ...)` | 3-D spot detection summary |
+| `plot_colocalized_spots(filtered_images, ...)` | Colocalized vs. exclusive spots |
+| `plot_croparray(croparray, crop_size, ...)` | Grid of spot crops |
+| `plot_average_crops(mean_crop, crop_size, ...)` | Mean spot crop panel |
+| `plot_matrix_crops(mean_crop, crop_size, ...)` | Matrix layout of crops |
+| `plot_matrix_pair_crops(mean_crop, crop_size, ...)` | Paired-channel crop matrix |
+| `plot_single_particle(croparray, crop_size, ...)` | Single spot crop detail |
+| `plot_crops_properties(list_particles_arrays, ...)` | Amplitude/sigma distributions |
+| `plot_pixel_properties(list_amplitude, ...)` | Per-pixel Gaussian fit properties |
+| `plot_merged_trajectories(df_trajectories_0, ...)` | Merged trajectory overview |
+
+#### Correlation & Distribution Views
+
+| Method | Description |
+| --- | --- |
+| `plot_autocorrelation(mean_correlation, ...)` | ACF with fit |
+| `plot_crosscorrelation(intensity_array_ch0, ...)` | CCF plot |
+| `plot_histograms_from_df(df_tracking, ...)` | Per-field histogram |
+| `plot_image_pixel_intensity_distribution(image, ...)` | Pixel intensity histogram |
+| `dist_plots(df, plot_title, ...)` | Distribution panel |
+| `plot_comparing_df(df_all, df_cyto, df_nuc, ...)` | Cytosol vs. nucleus comparison |
+| `plot_TS(df_original, plot_title, ...)` | Transcription-site spot plot |
+| `plot_TS_bar_stacked(df_original, ...)` | Stacked-bar TS variant |
+| `plotting_results_as_distributions(...)` | Full distribution panel |
+| `plot_scatter_and_distributions(x, y, ...)` | Scatter + marginal histograms |
+| `plot_scatter_bleed_thru(dataframe, ...)` | Bleed-through scatter |
+| `plot_all_distributions(dataframe, ...)` | Complete distribution summary |
+| `plot_spot_intensity_distributions(dataframe, ...)` | Per-spot intensity distributions |
+| `plot_nuc_cyto_int_ratio_distributions(dataframe, ...)` | Nuc/cyto intensity ratio |
+| `plot_cell_size_spots(...)` | Cell-size vs. spot-count scatter |
+| `plot_cell_intensity_spots(dataframe, ...)` | Cell intensity vs. spot count |
+| `plot_interpretation_distributions(...)` | Multi-condition interpretation |
+| `compare_intensities_spots_interpretation(...)` | Cross-condition intensity comparison |
+| `plot_matrix_sample_time(array1, array2, ...)` | Raster sample-time matrix |
+
+#### Interactive Widgets
+
+| Method | Description |
+| --- | --- |
+| `visualize_image_widget(image_TZYXC)` | Jupyter slider viewer |
+| `display_visualization_plot(ax, frame_idx, ...)` | Render one frame into axes |
+| `Napari_Visualizer(tested_image_TZYXC, ...)` | Export Napari-compatible GIF |
+
+---
+
+### `SliderWidgetTracking`
+
+Interactive Jupyter widget for threshold-tuning with spot overlay.
+
+```python
+__init__(image_TZYXC, masks=None, list_voxels=None, time_point=None,
+         list_spot_size_px=None, channels_spots=None, channels_cytosol=None,
+         channels_nucleus=None, min_length_trajectory=3,
+         yx_spot_size_in_px=2, starting_threshold=500,
+         channel_for_tracking=0)
+```
+
+**Methods:** `display()`, `get_threshold()`, `get_cached_dataframes()`,
+`get_cached_images()`, `plot_filtered_image(selected_time, max_percentile, threshold)`
+
+---
+
+### `SingleTimePointSpotDetection`
+
+Single time-point spot detection widget.
+
+```python
+__init__(image_TZYXC, masks=None, list_voxels=None, list_spot_size_px=None,
+         channels_spots=None, channels_cytosol=None, channels_nucleus=None,
+         yx_spot_size_in_px=2, starting_threshold=500, channel_for_tracking=0)
+```
+
+**Methods:** `display()`, `detect_spots(time_point, threshold)`,
+`plot_spots(df, list_filtered_images, max_percentile)`,
+`get_threshold_and_time()`, `get_cached_dataframes()`, `get_cached_images()`
+
+---
+
+### `SliderPlotting`
+
+Simple Jupyter slider for browsing image stacks.
+
+```python
+__init__(image_TZYXC, masks=None, cmap='custom', df_tracking=None,
+         use_gaussian_filter=False, sigma=1.5)
+```
+
+**Methods:** `display()`, `plot_filtered_image(selected_time, max_percentiles, sigma)`,
+`convert_to_uint8(image, rescale, min_percentile, max_percentile)`
+
+---
+
+### `VideoTracking`
+
+Generate MP4-ready frames for a tracked particle video.
+
+```python
+__init__(image_TZYXC, df_tracking, voxel_xy_um, list_channel_order_to_plot,
+         list_max_percentile, min_percentile, zoom_size, selected_spot,
+         figsize=(10, 10), dpi=150)
+```
+
+**Methods:** `generate_video_frames(max_percentile)`, `display_video(video_frames)`
+
+---
+
+## `microlive.ml_spot_detection` — `microlive/ml_spot_detection.py`
+
+CNN-based spot classification for colocalization verification.
+
+### Functions
+
+| Function | Description |
+| --- | --- |
+| `random_rotate_image(image)` | Random 90° rotation augmentation |
+| `load_model(model, path)` | Load model weights from file |
+| `save_model(model, path)` | Save model weights to file |
+| `normalize_crop_return_list(array_crops_YXC, ...)` | Normalize crops to [0, 255] |
+| `standardize_spot_return_list(array_crops_YXC, ...)` | Z-score standardize crops |
+| `standarize_crop(crop)` | Z-score single crop |
+| `normalize_crop(crop)` | Min-max normalize single crop |
+| `predict_crops(model, list_crops, threshold)` | Run inference on crop batch |
+| `validate(model, loader, criterion, device)` | Validation loop |
+| `run_network(image_dir, num_epochs, ...)` | Train the CNN |
+
+### Classes
+
+#### `ParticleDetectionCNN`
+
+Lightweight CNN binary classifier for spot/no-spot.
+
+```python
+__init__()
+```
+
+**Methods:** `forward(x)`
+
+#### `ParticleDataset`
+
+PyTorch Dataset for labeled spot crops.
+
+```python
+__init__(images_dir, subset='train', use_transform=False)
+```
+
+---
+
+## `microlive.pipelines.pipeline_particle_tracking`
+
+### Functions (microlive.pipelines.pipeline_particle_tracking)
+
+#### `pipeline_particle_tracking(...)`
+
+Top-level batch runner. Discovers images in `data_folder_path`, calls
+`process_single_image` for each, aggregates results.
+
+Key parameters: `channels_spots`, `channels_cytosol`, `channels_nucleus`,
+`min_length_trajectory`, `yx_spot_size_in_px`, `z_spot_size_in_px`,
+`apply_photobleaching_correction`, `calculate_MSD`, `calculate_correlations`,
+`results_folder_path`.
+
+#### `process_single_image(...)`
+
+Process one image through the full pipeline:
+segmentation → photobleaching correction → spot detection →
+particle tracking → MSD → correlation.
+
+---
+
+## `microlive.pipelines.pipeline_FRAP`
+
+FRAP analysis pipeline. See source for full function list.
+
+### Key Functions
+
+| Function | Description |
+| --- | --- |
+| `read_lif_files_in_folder(folder_path)` | Load all LIFs in a directory |
+| `segment_image(image_TXY, ...)` | Segment FRAP field |
+| `find_frap_roi(image_TZXYC_masked, ...)` | Detect bleached ROI |
+| `detect_roi_by_difference(...)` | Detect ROI by pre/post difference |
+| `detect_roi_by_tracking(...)` | Detect ROI by particle tracking |
+| `process_selected_df(df_roi, ...)` | Compute FRAP curves from ROI df |
+| `fit_model_to_frap(time, intensity, ...)` | Single-exponential FRAP fit |
+| `fit_model_to_frap_immobile_fraction(...)` | FRAP fit with immobile fraction |
+| `plot_frap_quantification(...)` | FRAP intensity curves |
+| `plot_frap_quantification_all_images(...)` | Per-image FRAP summary |
+| `plot_images_frap(...)` | Selected-frame image montage |
+| `plot_t_half_values(df_fit, ...)` | t½ distribution plot |
+| `create_pdf(list_combined_image_paths, ...)` | Bundle images into PDF |
+| `concatenate_images(list_images, ...)` | Merge image lists |
+| `create_image_arrays(...)` | Build image arrays from LIF list |
+| `remove_cell_without_roi_detection(df, ...)` | Filter cells with no ROI |
+
+---
+
+## `microlive.pipelines.pipeline_folding_efficiency`
+
+### Functions (microlive.pipelines.pipeline_folding_efficiency)
+
+| Function | Description |
+| --- | --- |
+| `pipeline_folding_efficiency(...)` | Full folding-efficiency pipeline |
+| `metadata_folding_efficiency(...)` | Write pipeline metadata record |
+
+---
+
+## `microlive.utils`
+
+### `microlive.utils.resources`
+
+| Function | Description |
+| --- | --- |
+| `get_package_data_dir()` | Path to `microlive/data/` |
+| `get_icon_path()` | Path to application icon |
+| `get_model_path()` | Path to bundled model file |
+
+### `microlive.utils.model_downloader`
+
+| Function | Description |
+| --- | --- |
+| `get_model_path(model_name)` | Resolve cached model path |
+| `is_model_cached(model_name)` | Check if model is in cache |
+| `cache_model(model_name, force_download)` | Download and cache model |
+| `verify_model_integrity(model_name)` | Checksum verification |
+| `list_cached_models()` | Dictionary of all cached models |
+| `clear_model_cache(model_name)` | Remove model(s) from cache |
+| `get_frap_nuclei_model_path()` | Path to FRAP nuclei model |
+| `download_url_to_file(url, dst, progress)` | Low-level URL downloader |
+
+### `microlive.utils.device`
+
+| Function | Description |
+| --- | --- |
+| `get_device()` | Return best available torch device |
+| `is_gpu_available()` | Return True if GPU is detected |
+| `get_device_info()` | Dict of device properties |
+| `check_gpu_status()` | Print GPU status summary |

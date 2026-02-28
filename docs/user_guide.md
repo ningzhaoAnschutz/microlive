@@ -6,14 +6,17 @@
 2. [Interface Overview](#interface-overview)
 3. [Loading and Managing Images](#loading-and-managing-images)
 4. [Display and Visualization](#display-and-visualization)
-5. [Segmentation](#segmentation)
-6. [Photobleaching Correction](#photobleaching-correction)
-7. [Particle Tracking](#particle-tracking)
-8. [Statistical Analysis](#statistical-analysis)
+5. [Image Registration](#image-registration)
+6. [Segmentation](#segmentation)
+7. [Photobleaching Correction](#photobleaching-correction)
+8. [Particle Tracking](#particle-tracking)
 9. [MSD Analysis](#msd-mean-squared-displacement-analysis)
-10. [Colocalization Analysis](#colocalization-analysis)
-11. [Data Structures](#data-structures)
-12. [Data Export](#data-export)
+10. [Statistical Analysis (Distribution & Time Course)](#statistical-analysis)
+11. [Correlation Analysis](#correlation-analysis)
+12. [Colocalization Analysis](#colocalization-analysis)
+13. [Tracking Visualization](#tracking-visualization)
+14. [Data Structures](#data-structures)
+15. [Data Export](#data-export)
 
 ## Getting Started
 
@@ -22,10 +25,12 @@
 For users new to MicroLive, follow this basic workflow:
 
 1. **Load Data**: Open LIF or TIFF files via the Import tab
-2. **Segment Cells**: Define regions of interest in the Segmentation tab  
-3. **Track Particles**: Detect and link spots in the Tracking tab
-4. **Analyze Results**: Generate plots and statistics in Distribution/Correlation tabs
-5. **Export Data**: Save results and visualizations via the Export tab
+2. **Register** *(optional)*: Correct for sample drift in the Registration tab
+3. **Segment Cells**: Define regions of interest in the Segmentation tab
+4. **Correct Photobleaching** *(optional)*: Apply intensity correction before tracking
+5. **Track Particles**: Detect and link spots in the Tracking tab
+6. **Analyze Results**: Generate MSD, distributions, correlations, and colocalization
+7. **Export Data**: Save results and visualizations via the Export tab
 
 For detailed step-by-step instructions, see the [Complete Tutorial](tutorial.md).
 
@@ -47,29 +52,22 @@ For detailed step-by-step instructions, see the [Complete Tutorial](tutorial.md)
 
 ### Tab Organization
 
-The application is organized into 13 main tabs, each serving specific functions:
+The application is organized into **12 main tabs** in the following order:
 
-**Core Modules:**
-
-- **Import**: Primary image visualization and navigation
-- **Registration**: Image alignment and drift correction
-- **Segmentation**: Define regions of interest (Watershed, Cellpose, Manual, Import)
-- **Tracking**: Particle detection and trajectory analysis
-
-**Analysis Modules:**
-
-- **MSD**: Mean squared displacement analysis for diffusion
-- **Distribution**: Statistical analysis of particle properties
-- **Time Course**: Temporal analysis visualization
-- **Correlation**: Auto- and cross-correlation analysis
-- **Colocalization**: Automated colocalization analysis
-- **Coloc Manual**: Manual colocalization verification
-
-**Specialized Tools:**
-
-- **Photobleaching**: Intensity correction
-- **Visualization**: Enhanced tracking visualization with trajectory display
-- **Export**: Comprehensive data export
+| # | Tab | Purpose |
+|---|-----|---------|
+| 1 | **Import** | Image loading, navigation, and display |
+| 2 | **Registration** | XY drift correction and channel alignment |
+| 3 | **Segmentation** | Cell/ROI boundary definition (Watershed, Cellpose, Manual, Import, Edit) |
+| 4 | **Photobleaching** | Intensity decay correction |
+| 5 | **Tracking** | Spot detection and trajectory linking |
+| 6 | **MSD** | Mean squared displacement / diffusion analysis |
+| 7 | **Distribution** | Histograms of particle properties |
+| 8 | **Time Course** | Temporal dynamics plots |
+| 9 | **Correlation** | Auto- and cross-correlation (ACF/CCF) |
+| 10 | **Colocalization** | Automated spatial colocalization (Visual, Distance, Verify sub-tabs) |
+| 11 | **Visualization** | Enhanced per-trajectory inspection |
+| 12 | **Export** | Batch export of all results |
 
 ### Common Interface Elements
 
@@ -144,6 +142,44 @@ Each channel has independent intensity controls:
 - **Dark/Light Theme**: Toggle switch in the top-left of Import tab
 - **Color Schemes**: Consistent color schemes across all analysis modules
 - **Font Sizing**: Optimized for different screen resolutions
+
+## Image Registration
+
+The Registration tab corrects for XY sample drift or stage movement between time frames, ensuring cells remain aligned throughout the acquisition. If your cells do not visibly drift, this step can be skipped.
+
+### Registration Workflow
+
+1. **Draw ROI** (recommended): Click and drag on the left image panel to select a rectangular region containing a stable, bright reference structure (e.g., cell body, fiducial)
+   - Avoid regions with moving particles or bright puncta that appear and disappear
+   - A cyan rectangle confirms the ROI; the status indicator turns green
+   - If no ROI is drawn, the full image is used (a warning will appear)
+2. **Select Mode**: Choose the transformation type from the Mode dropdown:
+
+   | Mode | Degrees of Freedom | When to Use |
+   |------|--------------------|-------------|
+   | `RIGID_BODY` (default) | Rotation + translation | Most live-cell experiments |
+   | `TRANSLATION` | X/Y shift only | Minimal drift, no rotation |
+   | `SCALED_ROTATION` | Rotation + uniform scale + translation | Optical zoom drift |
+   | `AFFINE` | Full affine (shear, scale, rotation) | Complex distortions |
+
+3. **Run Registration**: Click **"▶ Perform Registration"** (green button)
+   - A progress bar shows frame-by-frame completion
+   - The right panel updates to show the registered image when complete
+4. **Verify**: Use the time slider and play button to confirm alignment
+5. **Undo if Needed**: Click **"✕ Remove"** to discard and revert to the original image
+
+### Integration with Other Tabs
+
+Once registration is applied, all downstream tabs (Segmentation, Tracking, Photobleaching, etc.) automatically use the registered image stack. Removing registration reverts the entire pipeline to the original data.
+
+### Technical Notes
+
+- Registration is computed against **frame 0** as the reference
+- The ROI is used only for computing the transformation; the correction is applied to the full image
+- Pixels outside the valid registration area are set to zero (visible as a black border)
+- Registration is not saved to the original file; it is applied in-memory only
+
+---
 
 ## Segmentation
 
@@ -297,6 +333,7 @@ This allows you to independently adjust cytosol and nucleus masks. For example, 
 
 - **Remove cells touching border**: Filter out partial cells at image edges
 - **Remove unpaired cells**: When both cytosol and nucleus are segmented, remove cells without matching nucleus (or vice versa)
+- **Keep only center cell**: Filter masks to keep only the single cell whose centroid is closest to the image center
 
 ## Photobleaching Correction
 
@@ -798,7 +835,9 @@ This approach ensures accurate size measurements across different imaging condit
 - **Percentile Filtering**: Remove outliers from visualization
 - **Export Options**: Save time course plots and data
 
-### Correlation Analysis
+---
+
+## Correlation Analysis
 
 The Correlation tab provides tools for analyzing temporal correlations in particle intensity time courses, implementing fluorescence correlation spectroscopy (FCS) methods for single-molecule dynamics analysis.
 
@@ -1312,6 +1351,48 @@ The header shows:
 - **Distance**: Applied threshold in pixels and nanometers
 - **Total**: Number of unique particle tracks
 - **Colocalized**: Tracks with at least one colocalized observation
+
+## Tracking Visualization
+
+The Visualization tab provides detailed single-trajectory inspection with synchronized multi-channel display.
+
+### Overview
+
+- **Purpose**: Review individual particle trajectories in detail before export
+- **Input**: Completed particle tracking (from Tracking tab)
+- **Output**: Per-trajectory images and videos
+
+### Interface
+
+| Panel | Content |
+|-------|---------|
+| **Left** | Full-field view with all trajectories; selected particle highlighted |
+| **Right (per channel)** | Cropped view centered on the selected particle |
+| **Particle list** | Scrollable list of all trajectory IDs |
+
+### Workflow
+
+1. **Select a particle**: Click a trajectory ID in the right-side list
+   - The full-field view marks the particle with a red circle
+   - Cropped panels update to show all channels at the current frame
+2. **Navigate time**: Use the time slider or play button to follow the particle
+3. **Adjust display**: Use Min/Max intensity sliders and channel buttons for optimal contrast
+4. **Display options**:
+   - **Remove Background**: Apply segmentation mask to suppress out-of-cell signal
+   - **Show Scalebar**: Overlay a physical scale bar
+   - **Show Time Stamp**: Display the current time point
+5. **Export**:
+   - **Export Image**: Save the current multi-panel view as a PNG
+   - **Export Video**: Save an MP4/GIF of the selected particle's dynamics over time
+
+### Use Cases
+
+- Verify that a trajectory is a genuine single particle and not a tracking artifact
+- Compare particle appearance in reference vs. colocalization channel
+- Generate figures for publications showing individual trajectory examples
+- Identify outliers (e.g., particles that split, merge, or blink)
+
+---
 
 ## Data Structures
 

@@ -114,9 +114,64 @@ These values are crucial for quantitative analysis and proper scaling of measure
 
 ---
 
-## Tutorial 2: Segmentation Tab - Cell Boundary Definition
+## Tutorial 2: Registration Tab - Correcting Sample Drift
 
-### Overview
+### Overview (Tutorial 2)
+
+Correct for XY stage drift or sample movement between frames, ensuring that the same cell stays aligned across all time points before downstream analysis.
+
+> **When to use**: Run Registration after Import if your cells visibly drift or shift across frames. Skip this tab if your data is already stable.
+
+### Step 1: Navigate to Registration Tab
+
+1. Click the **"Registration"** tab (second tab, after Import)
+2. The interface shows two side-by-side panels:
+   - **Left**: Original image — use this to draw an ROI
+   - **Right**: Registered result — updates after registration runs
+
+### Step 2: Select a Reference Region (ROI)
+
+1. **Click and drag** on the left image panel to draw a rectangular ROI
+   - The ROI should contain a **stable, bright reference structure** (e.g., a single cell body, a fiducial marker)
+   - Avoid regions with moving particles — you want a structure that stays fixed
+   - A cyan rectangle appears as you drag; the ROI status indicator turns green when confirmed
+2. **If no ROI is drawn**, clicking "Perform Registration" will use the full image (a warning will appear)
+
+### Step 3: Choose Registration Mode
+
+Use the **Mode** dropdown to select the transformation type:
+
+| Mode | Description | When to Use |
+|---|---|---|
+| `RIGID_BODY` | Rotation + translation (default) | Most live-cell data |
+| `TRANSLATION` | X/Y shift only, no rotation | Minimal stage drift |
+| `SCALED_ROTATION` | Rotation + scaling + translation | Zoom drift |
+| `AFFINE` | Full affine (shear, scale, rotation) | Complex distortions |
+
+### Step 4: Perform Registration
+
+1. Click **"▶ Perform Registration"** (green button)
+2. A progress dialog shows percent completion frame by frame
+3. The right panel updates to show the registered image when complete
+4. The registered image is used automatically in all subsequent tabs
+
+### Step 5: Evaluate and Undo if Needed
+
+1. **Compare panels**: Use the time slider and playback button to check that motion is corrected
+2. **Undo**: Click **"✕ Remove"** to discard registration and revert to the original image
+3. Re-draw the ROI or change mode and re-register if results are unsatisfactory
+
+### Expected Results (Tutorial 2)
+
+- Stable alignment across all time frames
+- Registered image available for all subsequent analysis tabs
+- Clear visual comparison between original and corrected panels
+
+---
+
+## Tutorial 3: Segmentation Tab - Cell Boundary Definition
+
+### Overview (Tutorial 3)
 
 Define cellular regions for masking subsequent analyses, ensuring particles are analyzed only within cells of interest.
 
@@ -136,37 +191,53 @@ Define cellular regions for masking subsequent analyses, ensuring particles are 
    - Useful for thick samples or when cells extend through Z
    - Status label indicates current setting
 
-### Step 2: Manual Segmentation
+The Segmentation tab contains five sub-tabs: **Watershed**, **Cellpose**, **Manual**, **Import**, and **Edit**. Use whichever method produces the cleanest mask for your data.
 
-1. **Start Manual Segmentation**
-   - Click "Manual Segmentation" button
-   - Image displays with preprocessing applied
-   - Click handler activates for polygon drawing
+### Step 2: Watershed Sub-tab (Automated, no deep learning)
 
-2. **Draw Cell Boundary**
-   - Click points around the cell perimeter
+1. Click the **"Watershed"** sub-tab
+2. Adjust the **Threshold Factor** slider (0.5–2.0; default 1.0)
+   - Higher values = more conservative/smaller masks
+   - The slider updates the segmentation live as you drag
+3. Use the **Size** slider to expand (+) or shrink (−) the resulting mask in pixels
+4. Click **"Run Watershed"** to apply
+5. A cyan semi-transparent overlay with white contours shows the result
+
+### Step 3: Cellpose Sub-tab (Deep learning, recommended)
+
+1. Click the **"Cellpose"** sub-tab
+2. Set the expected cell **diameter in pixels** (read the pixel scale from the axis labels in the image panel)
+3. Choose **cytoplasm** and/or **nucleus** channels from the dropdowns
+4. Click **"Run Cellpose (Cyto)"** and/or **"Run Cellpose (Nuc)"**
+5. Click **"Synchronize"** to align cytosol and nucleus masks across cells
+   - Only cells with a matched nucleus inside the cytosol are kept
+6. Optionally enable **"Remove border cells"**, **"Remove unpaired cells"**, or **"Keep center cell only"**
+
+### Step 4: Manual Sub-tab (Polygon drawing)
+
+1. Click the **"Manual"** sub-tab
+2. Click **"Manual Segmentation"** to enter polygon-draw mode
+3. Click points around the cell perimeter (clockwise or counter-clockwise)
    - Points are connected automatically
-   - Work clockwise or counter-clockwise around cell
-   - Include entire cell body and extensions
+4. Click **"Finish Segmentation"** to close the polygon and generate a mask
+5. Click **"Clear Mask"** to start over if needed
 
-3. **Complete Segmentation**
-   - Click "Finish Segmentation" when polygon is complete
-   - Binary mask is generated automatically
-   - Red overlay shows segmented region
+### Step 5: Import Sub-tab (Load external mask)
 
-### Step 3: Watershed Segmentation
+1. Click the **"Import"** sub-tab
+2. Click **"Import Cytosol Mask"** or **"Import Nucleus Mask"** to load a TIFF mask file
+   - Mask must match image dimensions (Y × X, integer labels)
+3. Status labels turn green when a mask is successfully loaded
 
-1. **Alternative Automated Method**
-   - Adjust "Threshold Factor" slider (typically 1.0-2.0)
-   - Higher values = more stringent segmentation
-   - Click "Run Watershed Segmentation"
+### Step 6: Edit Sub-tab (Refine existing mask)
 
-2. **Evaluate Results**
-   - Check that cell boundaries are correctly identified
-   - Adjust threshold and re-run if needed
-   - May work better for well-contrasted cells
+1. Click the **"Edit"** sub-tab (available after any mask is created)
+2. Use the **mask selector** dropdown to choose which mask layer to edit
+3. Draw or erase regions using the brush tools
+4. Use **"Undo"** to revert the last change, **"Reset"** to discard all edits
+5. Click **"Apply & Save Edits"** to commit edits to the active mask
 
-### Step 4: Quality Control and Export
+### Step 7: Quality Control and Export
 
 1. **Verify Segmentation Quality**
    - Ensure mask covers intended cellular region
@@ -174,21 +245,20 @@ Define cellular regions for masking subsequent analyses, ensuring particles are 
    - Re-segment if boundaries are inaccurate
 
 2. **Export Segmentation**
-   - Click "Export Image" for segmentation visualization
-   - Click "Export Mask" for binary mask as TIFF
-   - Save documentation of segmentation approach
+   - Click **"Export Image"** for segmentation visualization
+   - Click **"Export Mask"** for binary mask as TIFF
 
-### Expected Results
+### Expected Results (Tutorial 3)
 
-- Binary mask defining cellular region
+- Binary mask defining cellular region(s)
 - Quality segmentation for subsequent masking
-- Exported documentation of segmentation
+- Exported mask TIFF for documentation
 
 ---
 
-## Tutorial 3: Photobleaching Tab - Intensity Correction
+## Tutorial 4: Photobleaching Tab - Intensity Correction
 
-### Overview
+### Overview (Tutorial 4)
 
 Correct for photobleaching artifacts that affect quantitative fluorescence measurements over time.
 
@@ -249,7 +319,7 @@ Correct for photobleaching artifacts that affect quantitative fluorescence measu
    - Click "Export Photobleaching Image" for documentation
    - Save plots showing correction effectiveness
 
-### Expected Results
+### Expected Results (Tutorial 4)
 
 - Quantified photobleaching parameters
 - Corrected image stack for quantitative analysis
@@ -257,9 +327,9 @@ Correct for photobleaching artifacts that affect quantitative fluorescence measu
 
 ---
 
-## Tutorial 4: Tracking Tab - Particle Detection and Trajectory Linking
+## Tutorial 5: Tracking Tab - Particle Detection and Trajectory Linking
 
-### Overview
+### Overview (Tutorial 5)
 
 Detect particles and link them into trajectories for dynamic analysis.
 
@@ -365,7 +435,7 @@ Detect particles and link them into trajectories for dynamic analysis.
    - Click "Export Video" for complete trajectory movie
    - Includes all enabled overlays and colormaps
 
-### Expected Results
+### Expected Results (Tutorial 5)
 
 - Complete particle trajectory dataset
 - Quantitative measurements for each detection
@@ -374,9 +444,70 @@ Detect particles and link them into trajectories for dynamic analysis.
 
 ---
 
-## Tutorial 5: Distribution Tab - Statistical Analysis of Particle Properties
+## Tutorial 6: MSD Tab - Mean Squared Displacement Analysis
 
-### Overview
+### Overview (Tutorial 6)
+
+Calculate Mean Squared Displacement (MSD) curves and diffusion coefficients from particle trajectories. MSD analysis reveals whether particles undergo free diffusion, confined diffusion, or directed motion.
+
+### Step 1: Prerequisites
+
+1. **Data Requirements**
+   - Completed particle tracking (Tracking tab)
+   - Trajectories with sufficient length (>10 frames recommended)
+   - Accurate pixel size and time interval metadata
+
+### Step 2: Navigate to MSD Tab
+
+1. Click the **"MSD"** tab (between Tracking and Distribution)
+2. Left panel shows the MSD plot canvas; right panel shows parameters and results
+
+### Step 3: Select Tracking Channel
+
+1. Use the **Tracking Channel** dropdown to select the channel whose trajectories to analyze
+   - Only channels with linked trajectories appear in the list
+
+### Step 4: Configure MSD Parameters
+
+1. **Fit Points**: Number of lag-time points used for the linear diffusion fit (default: 20)
+   - Fewer points = fit dominated by short lags (more accurate for free diffusion)
+   - More points = fit includes longer lags (useful for confined/directed motion detection)
+2. **Mode**: Automatically detected from trajectory dimensionality (2D or 3D)
+   - Shown as a read-only label: "Mode: Auto-detect"
+
+### Step 5: Calculate MSD
+
+1. Click **"Calculate MSD"** (green button)
+2. MSD curves are plotted for each trajectory and the ensemble mean is overlaid
+3. Results are displayed in the right panel:
+   - **D (μm²/s)**: Diffusion coefficient in physical units (requires calibrated voxel size)
+   - **D (px²/s)**: Diffusion coefficient in pixel units
+   - **R²**: Goodness of linear fit
+   - **N**: Number of trajectories analyzed
+
+### Step 6: Interpret Results
+
+1. **Linear MSD vs. lag time** → Free (Brownian) diffusion
+2. **Sub-linear (flattening) MSD** → Confined diffusion
+3. **Super-linear (accelerating) MSD** → Directed/active transport
+4. Toggle **"Log-Log Scale"** to visualize the MSD power-law exponent (α = 1 for free diffusion)
+
+### Step 7: Export MSD Results
+
+1. Click **"Export DataFrame"** to save per-trajectory MSD values as CSV
+2. Click **"Export Plot"** to save the MSD figure as a PNG
+
+### Expected Results (Tutorial 6)
+
+- Ensemble MSD curve with per-trajectory overlay
+- Diffusion coefficient D and R² fit quality
+- Exported CSV and plot for publication
+
+---
+
+## Tutorial 7: Distribution Tab - Statistical Analysis of Particle Properties
+
+### Overview (Tutorial 7)
 
 Generate histograms and statistical summaries of measured particle properties.
 
@@ -438,7 +569,7 @@ Generate histograms and statistical summaries of measured particle properties.
    - High-resolution PNG with statistics
    - Include in publications or reports
 
-### Expected Results
+### Expected Results (Tutorial 7)
 
 - Quantitative distribution of particle properties
 - Statistical summary (mean, median)
@@ -446,9 +577,9 @@ Generate histograms and statistical summaries of measured particle properties.
 
 ---
 
-## Tutorial 6: Time Course Tab - Temporal Dynamics Analysis
+## Tutorial 8: Time Course Tab - Temporal Dynamics Analysis
 
-### Overview
+### Overview (Tutorial 8)
 
 Analyze how particle properties change over time, revealing dynamic processes.
 
@@ -493,7 +624,7 @@ Analyze how particle properties change over time, revealing dynamic processes.
    - High-resolution plots with proper axes labels
    - Suitable for presentations and publications
 
-### Expected Results
+### Expected Results (Tutorial 8)
 
 - Temporal profiles of particle properties
 - Identification of dynamic processes
@@ -501,9 +632,9 @@ Analyze how particle properties change over time, revealing dynamic processes.
 
 ---
 
-## Tutorial 7: Correlation Tab - Temporal Correlation Analysis
+## Tutorial 9: Correlation Tab - Temporal Correlation Analysis
 
-### Overview
+### Overview (Tutorial 9)
 
 Analyze temporal correlations in particle dynamics to extract kinetic information and assess particle interactions.
 
@@ -586,7 +717,13 @@ Analyze temporal correlations in particle dynamics to extract kinetic informatio
    - **Exponential**: Most common for single-component kinetics
    - Fit parameters provide quantitative kinetic information
 
-2. **Quality Assessment**
+2. **Multi-Tau Mode**
+   - Enable the **"Multi-Tau"** checkbox for logarithmically-spaced lag bins
+   - Compresses long lag ranges into fewer points, improving signal-to-noise at long lags
+   - Recommended when analyzing slow processes or very long trajectories
+   - Configure via **Multi-Tau Raw Points** and **Bins per Stage** parameters
+
+3. **Quality Assessment**
    - **Error bars**: Indicate statistical uncertainty
    - **Fit quality**: Assess how well model describes data
    - **Smoothed curves**: Help identify trends in noisy data
@@ -598,7 +735,7 @@ Analyze temporal correlations in particle dynamics to extract kinetic informatio
    - High-resolution plots with fit parameters
    - Include both raw data and fitted curves
 
-### Expected Results
+### Expected Results (Tutorial 9)
 
 - Quantitative correlation functions
 - Kinetic parameters from curve fitting
@@ -607,9 +744,9 @@ Analyze temporal correlations in particle dynamics to extract kinetic informatio
 
 ---
 
-## Tutorial 8: Colocalization Tab - Automated Spatial Analysis
+## Tutorial 10: Colocalization Tab - Automated Spatial Analysis
 
-### Overview
+### Overview (Tutorial 10)
 
 Quantify spatial relationships between particles in different channels using automated methods.
 
@@ -624,7 +761,8 @@ Quantify spatial relationships between particles in different channels using aut
 
 1. **Navigate to Colocalization Tab**
    - Click "Colocalization" tab
-   - Interface shows channel selection and method options
+   - The tab contains four sub-tabs: **Visual**, **Verify Visual**, **Distance**, and **Verify Distance**
+   - Start with the **Visual** sub-tab for crop-matrix colocalization
 
 2. **Select Analysis Channels**
    - **Reference**: Channel containing tracked particles
@@ -689,87 +827,47 @@ Quantify spatial relationships between particles in different channels using aut
    - High-resolution documentation of results
    - Includes colocalization percentage in title
 
-### Expected Results
+### Expected Results (Tutorial 10)
 
 - Quantitative colocalization percentage
 - Visual matrix showing analysis results
 - CSV file with detailed statistics
 - Publication-ready visualization
 
----
+### Distance Sub-tab
 
-## Tutorial 9: Colocalization Manual Tab - Expert Validation
+The **Distance** sub-tab computes pairwise Euclidean distances between spots in two channels:
 
-### Overview
+1. Select source and target channels from the dropdowns
+2. Set the **distance threshold** (in nm) for colocalization calls
+3. Click **"Run Distance Colocalization"**
+4. Use the frame slider and playback to review distance overlays frame by frame
+5. Click **"Export Data"** or **"Export Image"** for results
 
-Manually verify and refine automated colocalization results through expert visual inspection.
+### Verify Visual and Verify Distance Sub-tabs
 
-### Step 1: Manual Verification Setup
+These sub-tabs allow **manual expert validation** of the automated results:
 
-1. **Navigate to Manual Tab**
-   - Click "Colocalization Manual" tab
-   - Requires completed automated colocalization
+1. Click **"Verify Visual"** or **"Verify Distance"** sub-tab
+2. Click **"Populate"** to load the automated colocalization results
+   - Each particle pair appears as a thumbnail showing both channels
+3. Check or uncheck boxes to accept or reject individual colocalization calls
+4. Statistics update in real time (total, colocalized, percentage)
+5. Click **"Cleanup"** to uncheck all and start fresh
+6. Click **"Export Data"** to save the manually verified CSV
 
-2. **Populate Initial Results**
-   - Click "Populate" to load automated results
-   - Checkboxes reflect ML or intensity analysis
-   - Each spot pair shown as thumbnail image
+### Expected Results (Tutorial 10)
 
-### Step 2: Visual Inspection Process
-
-1. **Review Individual Spots**
-   - Scroll through spot pairs in thumbnail view
-   - Each thumbnail shows both channels side-by-side
-   - 4× scale provides detailed view
-
-2. **Manual Classification**
-   - Check boxes for true colocalization
-   - Uncheck boxes for false positives
-   - Base decisions on visual overlap and intensity
-
-### Step 3: Statistical Tracking
-
-1. **Monitor Progress**
-   - Statistics update in real-time
-   - Shows total spots, marked colocalized, percentage
-   - Track progress through dataset
-
-2. **Consistency Checks**
-   - Review decisions periodically
-   - Consider inter-observer variability
-   - Document decision criteria
-
-### Step 4: Refinement Tools
-
-1. **Cleanup Function**
-   - Click "Cleanup" to uncheck all boxes
-   - Start fresh with manual inspection
-   - Useful for complete re-analysis
-
-2. **Batch Operations**
-   - Work systematically through thumbnails
-   - Focus on borderline cases
-   - Accept obvious positives/negatives quickly
-
-### Step 5: Export Manual Results
-
-1. **Save Manual Analysis**
-   - Click "Export Data" for refined CSV results
-   - Includes manually verified percentages
-   - Method marked as "Manual" for documentation
-
-### Expected Results
-
-- Expert-validated colocalization percentage
-- Refined analysis with reduced false positives/negatives
-- Documentation of manual validation process
-- High-confidence colocalization measurements
+- Quantitative colocalization percentage (automated and manually verified)
+- Visual matrix showing analysis results
+- CSV files with detailed statistics (Visual, Distance, and manual variants)
+- Publication-ready visualizations
 
 ---
 
-## Tutorial 10: Tracking Visualization Tab - Advanced Particle Inspection
+## Tutorial 11: Tracking Visualization Tab - Advanced Particle Inspection
 
-### Overview
+### Overview (Tutorial 11)
 
 Detailed visualization and analysis of individual particle trajectories with multi-channel context.
 
@@ -844,7 +942,7 @@ Detailed visualization and analysis of individual particle trajectories with mul
    - Shows selected particle dynamics
    - Useful for presentations and detailed analysis
 
-### Expected Results
+### Expected Results (Tutorial 11)
 
 - Detailed inspection of individual particle behavior
 - Multi-channel context for particle analysis
@@ -853,9 +951,9 @@ Detailed visualization and analysis of individual particle trajectories with mul
 
 ---
 
-## Tutorial 11: Export Tab - Comprehensive Data Management
+## Tutorial 12: Export Tab - Comprehensive Data Management
 
-### Overview
+### Overview (Tutorial 12)
 
 Organize and export all analysis results in a structured, documented format for sharing and archival.
 
@@ -955,7 +1053,7 @@ Organize and export all analysis results in a structured, documented format for 
    - Store raw data separately from analysis results
    - Maintain version control for analysis parameters
 
-### Expected Results
+### Expected Results (Tutorial 12)
 
 - Organized folder containing all analysis results
 - Complete documentation of analysis parameters
