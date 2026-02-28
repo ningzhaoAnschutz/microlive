@@ -16028,29 +16028,129 @@ class GUI(QMainWindow):
         except Exception as e:
             print(f"Failed to export segmentation image: {e}")
 
-    def _export_mask_as_tiff(self, file_path):
-        if self.segmentation_mask is None:
+    def _collect_masks_for_export(self, source="active", context="single"):
+        """Collect mask arrays to export with label-preservation metadata."""
+        export_specs = []
+        requested_source = source
+        resolved_source = getattr(self, '_active_mask_source', 'segmentation') if source == "active" else source
+
+        def _get_current_or_tyx_frame(mask_yx, mask_tyx):
+            # Be resilient to legacy/edit paths that may place a TYX mask in the YX slot.
+            if mask_tyx is None and mask_yx is not None and getattr(mask_yx, 'ndim', 0) == 3:
+                mask_tyx = mask_yx
+                mask_yx = None
+            if context == "batch" and getattr(self, 'use_tyx_masks', False) and mask_tyx is not None:
+                return mask_tyx, True
+            if mask_yx is not None:
+                return mask_yx, False
+            if mask_tyx is not None:
+                frame_idx = int(getattr(self, 'segmentation_current_frame', getattr(self, 'current_frame', 0)))
+                frame_idx = max(0, min(frame_idx, mask_tyx.shape[0] - 1))
+                return mask_tyx[frame_idx], False
+            return None, False
+
+        if resolved_source == 'segmentation' and self.segmentation_mask is not None:
+            export_specs.append({
+                'suffix': 'mask',
+                'prefix': 'mask',
+                'array': self.segmentation_mask,
+                'preserve_labels': False,
+            })
+            return export_specs
+
+        if resolved_source == 'cellpose' or (requested_source == "active" and resolved_source == 'segmentation'):
+            cyto_array, cyto_is_tyx = _get_current_or_tyx_frame(
+                getattr(self, 'cellpose_masks_cyto', None),
+                getattr(self, 'cellpose_masks_cyto_tyx', None),
+            )
+            nuc_array, nuc_is_tyx = _get_current_or_tyx_frame(
+                getattr(self, 'cellpose_masks_nuc', None),
+                getattr(self, 'cellpose_masks_nuc_tyx', None),
+            )
+
+            if cyto_array is not None:
+                export_specs.append({
+                    'suffix': 'cytosol',
+                    'prefix': 'cellpose_cytosol_tyx' if cyto_is_tyx else 'cellpose_cytosol',
+                    'array': cyto_array,
+                    'preserve_labels': True,
+                })
+            if nuc_array is not None:
+                export_specs.append({
+                    'suffix': 'nucleus',
+                    'prefix': 'cellpose_nucleus_tyx' if nuc_is_tyx else 'cellpose_nucleus',
+                    'array': nuc_array,
+                    'preserve_labels': True,
+                })
+
+            if export_specs:
+                return export_specs
+
+        if requested_source == "active" and self.segmentation_mask is not None:
+            return [{
+                'suffix': 'mask',
+                'prefix': 'mask',
+                'array': self.segmentation_mask,
+                'preserve_labels': False,
+            }]
+
+        return []
+
+    def _write_mask_tiff(self, file_path, mask_array, preserve_labels=False):
+        """Write a segmentation mask to TIFF, optionally preserving label IDs."""
+        if mask_array is None:
             return
-        mask_to_save = (self.segmentation_mask > 0).astype(np.uint8) * 255
+
+        arr = np.asarray(mask_array)
+        if preserve_labels:
+            if np.issubdtype(arr.dtype, np.floating):
+                arr = np.rint(arr)
+            if np.issubdtype(arr.dtype, np.signedinteger):
+                arr = np.maximum(arr, 0)
+            if not np.issubdtype(arr.dtype, np.integer):
+                arr = arr.astype(np.int64)
+
+            max_label = int(arr.max()) if arr.size else 0
+            if max_label <= np.iinfo(np.uint8).max:
+                arr_to_save = arr.astype(np.uint8, copy=False)
+            elif max_label <= np.iinfo(np.uint16).max:
+                arr_to_save = arr.astype(np.uint16, copy=False)
+            else:
+                arr_to_save = arr.astype(np.uint32, copy=False)
+        else:
+            arr_to_save = (arr > 0).astype(np.uint8) * 255
+
+        tifffile.imwrite(str(file_path), arr_to_save, photometric='minisblack')
+
+    def _export_mask_as_tiff(self, file_path):
         try:
-            tifffile.imwrite(str(file_path), mask_to_save, photometric='minisblack')
+            export_specs = self._collect_masks_for_export(source="active", context="batch")
+            if not export_specs:
+                return
+
+            base_path = Path(file_path)
+            ext = base_path.suffix if base_path.suffix else ".tif"
+
+            if len(export_specs) == 1:
+                out_path = base_path if base_path.suffix else base_path.with_suffix(ext)
+                spec = export_specs[0]
+                self._write_mask_tiff(out_path, spec['array'], preserve_labels=spec['preserve_labels'])
+                return
+
+            for spec in export_specs:
+                out_path = base_path.with_name(f"{base_path.stem}_{spec['suffix']}{ext}")
+                self._write_mask_tiff(out_path, spec['array'], preserve_labels=spec['preserve_labels'])
         except Exception as e:
             print(f"Failed to export mask: {e}")
 
     def _export_cellpose_masks(self, results_folder):
         """Export Cellpose masks to the results folder (for batch export)."""
         try:
-            if self.cellpose_masks_cyto is not None:
-                cyto_filename = self.get_default_export_filename(prefix="cellpose_cytosol", extension="tif")
-                cyto_path = results_folder / cyto_filename
-                mask_cyto = self.cellpose_masks_cyto.astype(np.uint8)
-                tifffile.imwrite(str(cyto_path), mask_cyto, photometric='minisblack')
-            
-            if self.cellpose_masks_nuc is not None:
-                nuc_filename = self.get_default_export_filename(prefix="cellpose_nucleus", extension="tif")
-                nuc_path = results_folder / nuc_filename
-                mask_nuc = self.cellpose_masks_nuc.astype(np.uint8)
-                tifffile.imwrite(str(nuc_path), mask_nuc, photometric='minisblack')
+            export_specs = self._collect_masks_for_export(source="cellpose", context="batch")
+            for spec in export_specs:
+                filename = self.get_default_export_filename(prefix=spec['prefix'], extension="tif")
+                out_path = results_folder / filename
+                self._write_mask_tiff(out_path, spec['array'], preserve_labels=True)
         except Exception as e:
             print(f"Failed to export Cellpose masks: {e}")
 
@@ -16631,11 +16731,15 @@ class GUI(QMainWindow):
             QMessageBox.information(self, "Success", f"Segmentation image exported successfully to:\n{file_path}")
 
     def export_mask_as_tiff(self):
-        # Check if mask is available
-        if self.segmentation_mask is None:
-            QMessageBox.warning(self, "No Mask", "No segmentation mask available to export.")
+        export_specs = self._collect_masks_for_export(source="active", context="single")
+        if not export_specs:
+            QMessageBox.warning(self, "No Mask", "No segmentation or Cellpose mask available to export.")
             return
-        default_filename = self.get_default_export_filename(prefix="mask", extension="tif")
+
+        default_prefix = "mask"
+        if len(export_specs) == 1 and export_specs[0].get('prefix'):
+            default_prefix = export_specs[0]['prefix']
+        default_filename = self.get_default_export_filename(prefix=default_prefix, extension="tif")
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -16645,11 +16749,28 @@ class GUI(QMainWindow):
             options=options
         )
         if file_path:
-            mask_to_save = (self.segmentation_mask > 0).astype(np.uint8)
-            mask_to_save = mask_to_save * 255
             try:
-                tifffile.imwrite(file_path, mask_to_save, photometric='minisblack')
-                QMessageBox.information(self, "Success", f"Mask exported successfully to:\n{file_path}")
+                base_path = Path(file_path)
+                if not base_path.suffix:
+                    base_path = base_path.with_suffix(".tif")
+
+                written_paths = []
+                if len(export_specs) == 1:
+                    spec = export_specs[0]
+                    self._write_mask_tiff(base_path, spec['array'], preserve_labels=spec['preserve_labels'])
+                    written_paths.append(str(base_path))
+                else:
+                    ext = base_path.suffix if base_path.suffix else ".tif"
+                    for spec in export_specs:
+                        out_path = base_path.with_name(f"{base_path.stem}_{spec['suffix']}{ext}")
+                        self._write_mask_tiff(out_path, spec['array'], preserve_labels=spec['preserve_labels'])
+                        written_paths.append(str(out_path))
+
+                if len(written_paths) == 1:
+                    msg = f"Mask exported successfully to:\n{written_paths[0]}"
+                else:
+                    msg = "Masks exported successfully to:\n" + "\n".join(written_paths)
+                QMessageBox.information(self, "Success", msg)
             except Exception as e:
                 QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting:\n{str(e)}")
 
