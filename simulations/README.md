@@ -76,7 +76,6 @@ simulations/
 ├── visualize_results.py     # Generate PNG visualizations
 ├── config_simple.yaml       # Single-cell configuration
 ├── config_multicell.yaml    # Multi-cell configuration
-├── IMPLEMENTATION_PLAN.md   # Detailed design document
 ├── README.md               # This file
 ├── tests/
 │   ├── run_test.py             # Automated validation test suite
@@ -86,10 +85,13 @@ simulations/
 ├── results/                 # Default single-cell output
 │   ├── simulated_spots.tif
 │   ├── mask_cytosol.tif
+│   ├── mask_cytosol_no_nuclei.tif
 │   ├── mask_nucleus.tif
 │   ├── ground_truth.csv
 │   └── viz/                 # Visualization PNGs
-└── results_multicell/       # Multi-cell output
+├── results_multicell/       # Multi-cell output
+├── results_single_cell/     # Single-cell output (alternative)
+└── results_simulated_spots/ # GUI validation output
 ```
 
 ## Output Files
@@ -101,7 +103,7 @@ simulations/
 | `mask_nucleus.tif` | TIFF [ZYX] | Labeled nucleus mask (pixel = cell_id) |
 | `mask_cytosol_no_nuclei.tif` | TIFF [ZYX] | Cytosol-only mask (excluding nucleus) |
 | `ground_truth.csv` | CSV | All spot positions, intensities, compartments |
-| `ground_truth.parquet` | Parquet | Same data in efficient binary format |
+| `ground_truth.parquet` | Parquet | Same data in efficient binary format (conditional) |
 | `simulation_metadata.txt` | Text | Configuration and timing log |
 
 ## Configuration
@@ -232,8 +234,8 @@ python visualize_results.py --sim-dir results_multicell
 
 | File | Description |
 | :--- | :--- |
-| `frame0_rgb.png` | RGB composite (G=Ch0, R=Ch1, B=Ch2) |
-| `frame0_ch0.png` | Channel 0 max projection |
+| `frame0_ch{ch}.png` | Start frame max projection per channel |
+| `frame{t}_rgb.png` | RGB composite for start, middle, and end frames |
 | `mask_cytosol.png` | Cell masks (color = cell ID) |
 | `mask_nucleus.png` | Nucleus masks |
 | `trajectories.png` | Particle movement paths |

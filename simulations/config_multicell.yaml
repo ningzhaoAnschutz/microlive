@@ -55,7 +55,7 @@ colocalization:
 photobleaching:
   ch0_decay_rate: 0.00037      # ~20% loss over 600s
   ch1_decay_rate: 0.00060      # ~30% loss over 600s
-  ch2_decay_rate: 0.00085      # ~40% loss over 600s
+  ch2_decay_rate: 0.000718     # Channel 2: ~35% loss
 
 baseline:
   outside_cell: 1200

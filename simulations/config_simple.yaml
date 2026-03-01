@@ -121,8 +121,8 @@ colocalization:
 # should recover these rates.
 photobleaching:
   ch0_decay_rate: 0.00037      # Lead channel: ~20% loss over 600s
-  ch1_decay_rate: 0.00060      # Channel 1: ~30% loss over 600s  
-  ch2_decay_rate: 0.00085      # Channel 2: ~40% loss over 600s
+  ch1_decay_rate: 0.00060      # Channel 1: ~30% loss over 600s
+  ch2_decay_rate: 0.000718     # Channel 2: ~35% loss over 600s
 
 # ---------------------------------------------------------------------
 # PSF (Point Spread Function) Parameters

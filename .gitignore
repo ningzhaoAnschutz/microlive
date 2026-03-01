@@ -108,4 +108,6 @@ writing/latex/Fig/
 writing/latex/readme
 writing/latex/reference.bib
 dev/
-
+poster/
+.cache/
+simulations/tests/report_run*.md

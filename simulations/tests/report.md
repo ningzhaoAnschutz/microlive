@@ -1,6 +1,6 @@
 # MicroLive Simulation Validation Report
 
-**Generated:** 2026-01-14 06:45:55  
+**Generated:** 2026-03-01 15:41:22  
 **Status:** ✅ ALL PASS
 
 ---
@@ -29,9 +29,9 @@
 
 | Parameter | Value |
 | :--- | :---: |
-| Total time | 300 s |
+| Total time | 600 s |
 | Frame rate | 5 s/frame |
-| Total frames | 60 |
+| Total frames | 120 |
 
 ### Noise Configuration (Per-Channel)
 
@@ -45,9 +45,9 @@
 
 | Parameter | Value |
 | :--- | :---: |
-| SNR Mean | 3.0 |
+| SNR Mean | 3.5 |
 | SNR Std | 1.0 |
-| SNR Range | [0.5, 4.0] |
+| SNR Range | [0.5, 5.0] |
 | Size Mean | 1.5 px |
 
 ### Motion
@@ -61,9 +61,9 @@
 
 | Parameter | Value |
 | :--- | :---: |
-| Number of Cells | 4 |
-| Layout | grid |
-| Cell Diameter (YX) | [180, 180] px |
+| Number of Cells | 1 |
+| Layout | single |
+| Cell Diameter (YX) | [350, 350] px |
 | Nucleus Enabled | Yes |
 
 ---
@@ -84,8 +84,8 @@
 
 *Verifies that channel colocalization probabilities are correctly implemented. For each spot in Channel 0, checks that the fraction with co-localized signal in Channel 1 and Channel 2 matches the configured probabilities (±10% tolerance).*
 
-- Ch1 coloc: 83.1% (config: 80.0%)
-- Ch2 coloc: 63.5% (config: 60.0%)
+- Ch1 coloc: 75.2% (config: 80.0%)
+- Ch2 coloc: 67.5% (config: 60.0%)
 
 ---
 
@@ -97,9 +97,9 @@
 
 | Channel | Config | Measured | Error |
 | :---: | :---: | :---: | :---: |
-| 0 | 0.000370 | 0.000286 | 22.8% |
-| 1 | 0.000600 | 0.000459 | 23.5% |
-| 2 | 0.000850 | 0.000644 | 24.3% |
+| 0 | 0.000370 | 0.000300 | 18.9% |
+| 1 | 0.000600 | 0.000476 | 20.6% |
+| 2 | 0.000718 | 0.000514 | 28.4% |
 
 ---
 
@@ -117,8 +117,8 @@
 
 *Assesses tracking position accuracy by matching tracked spots to ground truth. Reports mean and median position error in pixels for matched spots. Uses min_length_trajectory=15 and memory=0 for realistic tracking parameters.*
 
-- Mean position error: 2.64 px
-- Tracked spots: 200
+- Mean position error: 0.47 px
+- Tracked spots: 19
 
 ---
 
@@ -128,8 +128,8 @@
 
 *Validates that detected spots are correctly assigned to nucleus or cytosol. Compares tracked spot compartment labels against ground truth. Requires ≥50% detection recall and ≥75% compartment accuracy.*
 
-- Compartment accuracy: 82.6%
-- Correct: 19/23
+- Compartment accuracy: 100.0%
+- Correct: 8/8
 
 ---
 
@@ -141,9 +141,9 @@
 
 - Tracking channel: Ch 0
 - Config D: 0.000169 µm²/s
-- Measured D: 0.000170 µm²/s
-- Error: 0.8%
-- Particles tracked: 11
+- Measured D: 0.000201 µm²/s
+- Error: 18.7%
+- Particles tracked: 1
 
 ---
 
@@ -151,15 +151,16 @@
 
 **Status:** ✅ PASS
 
-*Tests ML-based colocalization detection between channels. For each tracked Ch0 spot, uses the CNN classifier (threshold=0.51) to detect colocalized signal in Ch1 and Ch2. Compares measured colocalization percentages against configured probabilities (≤25% absolute error threshold).*
+*Tests ML-based colocalization detection between channels. For each trajectory-averaged Ch0 crop, uses the CNN classifier (threshold=0.51) to detect colocalized signal in Ch1 and Ch2. Compares measured colocalization percentages against target probabilities (ground truth when available, otherwise config; ≤25% absolute error threshold).*
 
 - ML Threshold: 0.51
-- Spots analyzed: 11
+- Spots analyzed: 50
+- Target source: ground_truth
 
-| Channel | Config | ML Recovery | Error |
+| Channel | Target | ML Recovery | Error |
 | :---: | :---: | :---: | :---: |
-| Ch1 | 80.0% | 81.8% | 1.8% |
-| Ch2 | 60.0% | 81.8% | 21.8% |
+| Ch1 | 76.0% | 74.0% | 2.0% |
+| Ch2 | 66.0% | 66.0% | 0.0% |
 
 ---
 
@@ -170,8 +171,8 @@
 *Validates that the MicroLive GUI module compiles without syntax errors. Checks: (1) Python syntax validation using py_compile, (2) module spec validation using importlib, and (3) core package import verification. Reports file size and line count for the GUI module.*
 
 - File: app.py
-- Lines of code: 16,340
-- File size: 787,890 bytes
+- Lines of code: 18,830
+- File size: 901,537 bytes
 - Syntax OK: ✅
 - Package import OK: ✅
 

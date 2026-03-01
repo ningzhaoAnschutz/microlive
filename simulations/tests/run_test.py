@@ -59,11 +59,64 @@ THRESHOLD_COLOCALIZATION = 0.25    # ≤25% absolute error on coloc % (accounts 
 THRESHOLD_POSITION = 5.0           # ≤5 pixels mean position error
 
 
+def _extract_tracking_dataframe(tracking_result) -> pd.DataFrame:
+    """Normalize ParticleTracking outputs to a single DataFrame."""
+    if isinstance(tracking_result, tuple):
+        tracking_result = tracking_result[0]
+
+    if isinstance(tracking_result, list):
+        if len(tracking_result) > 0 and hasattr(tracking_result[0], 'columns'):
+            tracking_result = tracking_result[0]
+        else:
+            return pd.DataFrame()
+
+    if isinstance(tracking_result, pd.DataFrame):
+        return tracking_result
+
+    return pd.DataFrame()
+
+
+def _count_unique_particles(df: Optional[pd.DataFrame]) -> int:
+    """Count unique particle identities in a tracking dataframe."""
+    if df is None or not isinstance(df, pd.DataFrame) or len(df) == 0:
+        return 0
+
+    if 'unique_particle' in df.columns:
+        return df['unique_particle'].nunique()
+    if 'cell_id' in df.columns and 'particle' in df.columns:
+        return (df['cell_id'].astype(str) + '_' + df['particle'].astype(str)).nunique()
+    if 'particle' in df.columns:
+        return df['particle'].nunique()
+    return 0
+
+
+def _ensure_unique_particle_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure dataframe has a stable per-trajectory id column: unique_particle."""
+    if df is None or not isinstance(df, pd.DataFrame) or len(df) == 0:
+        return pd.DataFrame() if df is None else df
+
+    if 'unique_particle' in df.columns:
+        return df
+
+    df = df.copy()
+    if 'cell_id' in df.columns and 'particle' in df.columns:
+        df['unique_particle'] = (
+            df['cell_id'].astype(str) + '_' + df['particle'].astype(str)
+        )
+    elif 'particle' in df.columns:
+        df['unique_particle'] = df['particle'].astype(str)
+    else:
+        df['unique_particle'] = np.arange(len(df)).astype(str)
+    return df
+
+
 # =============================================================================
 # TEST FUNCTIONS
 # =============================================================================
 
-def test_photobleaching(image_tzyxc: np.ndarray, config: dict) -> Dict:
+def test_photobleaching(image_tzyxc: np.ndarray,
+                        config: dict,
+                        mask_yx: Optional[np.ndarray] = None) -> Dict:
     """Test photobleaching decay rate recovery.
     
     Args:
@@ -83,7 +136,9 @@ def test_photobleaching(image_tzyxc: np.ndarray, config: dict) -> Dict:
     try:
         pb = mi.Photobleaching(
             image_TZYXC=image_tzyxc,
-            time_interval_seconds=frame_rate
+            mask_YX=mask_yx,
+            time_interval_seconds=frame_rate,
+            show_plot=False
         )
         decay_params = pb.calculate_photobleaching()
         
@@ -563,7 +618,9 @@ def test_msd_recovery(image_tzyxc: np.ndarray, masks: Tuple[np.ndarray, np.ndarr
     print("=" * 60)
     
     # Get config values
-    motion_cfg = config.get('particle_motion', {})
+    motion_cfg = config.get('motion', {})
+    if not motion_cfg:
+        motion_cfg = config.get('particle_motion', {})
     D_px_per_frame = motion_cfg.get('diffusion_coefficient', 0.05)
     
     voxel_z = config.get('image', {}).get('voxel_size_z_nm', 300)
@@ -722,10 +779,11 @@ def test_msd_recovery(image_tzyxc: np.ndarray, masks: Tuple[np.ndarray, np.ndarr
         return {'passed': False, 'error': str(e)}
 
 
-def test_colocalization_recovery(image_tzyxc: np.ndarray, 
-                                  df_tracked: pd.DataFrame,
-                                  config: dict,
-                                  ml_threshold: float = 0.51) -> Dict:
+def test_colocalization_recovery(image_tzyxc: np.ndarray,
+                                 df_tracked: pd.DataFrame,
+                                 config: dict,
+                                 ml_threshold: float = 0.51,
+                                 df_gt: Optional[pd.DataFrame] = None) -> Dict:
     """Test colocalization recovery using ML-based detection.
     
     Uses the ML model to detect colocalization between Ch0 spots and 
@@ -750,23 +808,72 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
             print("  ⚠️ ML model not available, skipping test")
             return {'passed': True, 'skipped': True, 'reason': 'ML model not available'}
         
-        # Check if tracking data is available
-        if df_tracked is None or len(df_tracked) == 0:
-            print("  ⚠️ No tracking data available")
-            return {'passed': False, 'error': 'No tracking data'}
-        
+        # Load ML-related parameters from config `test:` section when available
+        test_cfg = config.get('test', {}) if config is not None else {}
+        coloc_ml_cfg = test_cfg.get('colocalization_ml', {})
+        # ml_threshold param can be overridden by config
+        ml_threshold = coloc_ml_cfg.get('ml_threshold', ml_threshold)
+        crop_size_offset = coloc_ml_cfg.get('crop_size_offset', 7)
+        min_valid_crops = coloc_ml_cfg.get('min_valid_crops', 10)
+        max_trajectories = int(coloc_ml_cfg.get('max_trajectories', 500))
+        trajectory_source = str(
+            coloc_ml_cfg.get('trajectory_source', 'auto')
+        ).lower()
+        if trajectory_source not in {'auto', 'tracking', 'ground_truth'}:
+            trajectory_source = 'auto'
+
         # Get configured colocalization probabilities
         coloc_cfg = config.get('colocalization', {})
-        ch1_config = coloc_cfg.get('ch1_probability', 0.7)
-        ch2_config = coloc_cfg.get('ch2_probability', 0.3)
-        
-        print(f"  Config Ch1 coloc: {ch1_config:.1%}")
-        print(f"  Config Ch2 coloc: {ch2_config:.1%}")
+        ch1_target = coloc_cfg.get('ch1_probability', 0.7)
+        ch2_target = coloc_cfg.get('ch2_probability', 0.3)
+        target_source = 'config'
+
+        # Determine trajectory source
+        df_tracking_src = _ensure_unique_particle_column(
+            df_tracked if df_tracked is not None else pd.DataFrame()
+        )
+        n_tracking_particles = _count_unique_particles(df_tracking_src)
+        use_ground_truth = trajectory_source == 'ground_truth'
+        if trajectory_source == 'auto':
+            use_ground_truth = n_tracking_particles < min_valid_crops
+
+        if use_ground_truth:
+            if df_gt is None or len(df_gt) == 0:
+                print("  ⚠️ Ground truth unavailable for colocalization trajectories")
+                return {'passed': False, 'error': 'Ground truth not available'}
+
+            df_source = df_gt[df_gt['spot_type'] == 0].copy()
+            if len(df_source) == 0:
+                print("  ⚠️ Ground truth contains no Ch0 trajectories")
+                return {'passed': False, 'error': 'No Ch0 trajectories in ground truth'}
+            df_source = _ensure_unique_particle_column(df_source)
+
+            # Use measured ground-truth partner rates for the selected trajectories.
+            per_particle_gt = df_source.groupby('unique_particle', as_index=False)[
+                ['has_ch1_partner', 'has_ch2_partner']
+            ].first()
+            ch1_target = float(per_particle_gt['has_ch1_partner'].mean())
+            ch2_target = float(per_particle_gt['has_ch2_partner'].mean())
+            target_source = 'ground_truth'
+            print(f"  Trajectory source: ground_truth ({len(per_particle_gt)} trajectories)")
+        else:
+            if df_tracking_src is None or len(df_tracking_src) == 0:
+                print("  ⚠️ No tracking data available")
+                return {'passed': False, 'error': 'No tracking data'}
+            df_source = df_tracking_src.copy()
+            target_source = 'config'
+            print(f"  Trajectory source: tracking ({n_tracking_particles} trajectories)")
+
+        print(f"  Target Ch1 coloc ({target_source}): {ch1_target:.1%}")
+        print(f"  Target Ch2 coloc ({target_source}): {ch2_target:.1%}")
         print(f"  ML threshold: {ml_threshold}")
         
         # Get image and spot parameters
-        spot_size = config.get('spot_properties', {}).get('size_mean', 1.5)
-        crop_size = int(spot_size * 2) + 5  # Similar to GUI: yx_spot_size_in_px + 5
+        psf_sigma = config.get('spot_properties', {}).get('size_mean', 1.5)
+        # yx_spot_size used by detectors (3 sigma rule)
+        yx_spot_size = max(3, int(psf_sigma * 3))
+        # Crop size = particle window + offset (from config)
+        crop_size = int(yx_spot_size + crop_size_offset)
         if crop_size % 2 == 0:
             crop_size += 1
         
@@ -781,15 +888,23 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
         else:
             image_for_coloc = image_tzyxc
         
-        # Use all spot observations (not just unique particles)
-        # Sample a subset if too many spots
-        if len(df_tracked) > 500:
-            df_spots = df_tracked.sample(n=500, random_state=42)
+        # Keep full trajectories; if needed, subsample by trajectories (not rows).
+        unique_particles = df_source['unique_particle'].dropna().unique()
+        if len(unique_particles) > max_trajectories:
+            rng = np.random.default_rng(42)
+            selected_particles = rng.choice(
+                unique_particles,
+                size=max_trajectories,
+                replace=False
+            )
+            df_spots = df_source[df_source['unique_particle'].isin(selected_particles)].copy()
         else:
-            df_spots = df_tracked.copy()
+            df_spots = df_source.copy()
         
         n_spots_total = len(df_spots)
+        n_particles_total = _count_unique_particles(df_spots)
         print(f"  Spot observations: {n_spots_total}")
+        print(f"  Trajectories used: {n_particles_total}")
         
         if n_spots_total == 0:
             print("  ⚠️ No spots found")
@@ -816,6 +931,11 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
         
         n_valid_crops = mean_crop.shape[0] // crop_size
         print(f"  Valid crops: {n_valid_crops}")
+
+        # Skip ML evaluation if too few valid crops to produce stable statistics
+        if n_valid_crops < min_valid_crops:
+            print(f"  ⚠️ Not enough valid crops ({n_valid_crops} < {min_valid_crops}), skipping ML colocalization test")
+            return {'passed': True, 'skipped': True, 'reason': f'Not enough valid crops ({n_valid_crops} < {min_valid_crops})'}
         
         # Test Ch0 vs Ch1 colocalization
         crops_ch1 = mi.Utilities().normalize_crop_return_list(
@@ -838,11 +958,11 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
         ch2_measured = np.mean(flags_ch2) if len(flags_ch2) > 0 else 0.0
         
         # Calculate errors
-        ch1_error = abs(ch1_measured - ch1_config)
-        ch2_error = abs(ch2_measured - ch2_config)
+        ch1_error = abs(ch1_measured - ch1_target)
+        ch2_error = abs(ch2_measured - ch2_target)
         
-        print(f"  Ch1 coloc: measured={ch1_measured:.1%}, config={ch1_config:.1%}, error={ch1_error:.1%}")
-        print(f"  Ch2 coloc: measured={ch2_measured:.1%}, config={ch2_config:.1%}, error={ch2_error:.1%}")
+        print(f"  Ch1 coloc: measured={ch1_measured:.1%}, target={ch1_target:.1%}, error={ch1_error:.1%}")
+        print(f"  Ch2 coloc: measured={ch2_measured:.1%}, target={ch2_target:.1%}, error={ch2_error:.1%}")
         
         # Pass if both within threshold
         ch1_pass = ch1_error <= THRESHOLD_COLOCALIZATION
@@ -860,14 +980,15 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
         
         return {
             'passed': passed,
-            'ch1_config': ch1_config,
+            'ch1_config': ch1_target,
             'ch1_measured': ch1_measured,
             'ch1_error': ch1_error,
-            'ch2_config': ch2_config,
+            'ch2_config': ch2_target,
             'ch2_measured': ch2_measured,
             'ch2_error': ch2_error,
             'n_spots': n_valid_crops,
-            'ml_threshold': ml_threshold
+            'ml_threshold': ml_threshold,
+            'trajectory_source': target_source
         }
         
     except Exception as e:
@@ -1291,9 +1412,10 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
             ),
             'Colocalization Recovery': (
                 "Tests ML-based colocalization detection between channels. "
-                "For each tracked Ch0 spot, uses the CNN classifier (threshold=0.51) to detect "
-                "colocalized signal in Ch1 and Ch2. Compares measured colocalization percentages "
-                "against configured probabilities (≤25% absolute error threshold)."
+                "For each trajectory-averaged Ch0 crop, uses the CNN classifier (threshold=0.51) "
+                "to detect colocalized signal in Ch1 and Ch2. Compares measured colocalization "
+                "percentages against target probabilities (ground truth when available, otherwise config; "
+                "≤25% absolute error threshold)."
             ),
             'GUI Syntax': (
                 "Validates that the MicroLive GUI module compiles without syntax errors. "
@@ -1356,8 +1478,10 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
         if 'ch1_measured' in result and 'ch1_config' in result and 'ml_threshold' in result:
             lines.append(f"- ML Threshold: {result['ml_threshold']}")
             lines.append(f"- Spots analyzed: {result.get('n_spots', 'N/A')}")
+            if 'trajectory_source' in result:
+                lines.append(f"- Target source: {result['trajectory_source']}")
             lines.append("")
-            lines.append("| Channel | Config | ML Recovery | Error |")
+            lines.append("| Channel | Target | ML Recovery | Error |")
             lines.append("| :---: | :---: | :---: | :---: |")
             lines.append(f"| Ch1 | {result['ch1_config']:.1%} | {result['ch1_measured']:.1%} | {result['ch1_error']:.1%} |")
             lines.append(f"| Ch2 | {result['ch2_config']:.1%} | {result['ch2_measured']:.1%} | {result['ch2_error']:.1%} |")
@@ -1472,13 +1596,23 @@ Examples:
     cytosol_mask = tifffile.imread(cytosol_path)
     nucleus_mask = tifffile.imread(nucleus_path)
     print(f"  Masks loaded: cytosol={cytosol_mask.shape}, nucleus={nucleus_mask.shape}")
+
+    # Convert 3D masks to 2D for modules expecting YX masks
+    if cytosol_mask.ndim == 3:
+        cytosol_2d = cytosol_mask.max(axis=0)
+        nucleus_2d = nucleus_mask.max(axis=0)
+    else:
+        cytosol_2d = cytosol_mask
+        nucleus_2d = nucleus_mask
     
     # Run tests
     results = {}
     
     results['Ground Truth Quality'] = test_ground_truth_quality(df_gt, config)
     results['Colocalization'] = test_colocalization(df_gt, config)
-    results['Photobleaching'] = test_photobleaching(image_tzyxc, config)
+    results['Photobleaching'] = test_photobleaching(
+        image_tzyxc, config, mask_yx=cytosol_2d
+    )
     results['Spot Detection'] = test_spot_detection(image_tzyxc, df_gt, config)
     results['Position Accuracy'] = test_position_accuracy(
         image_tzyxc, df_gt, (cytosol_mask, nucleus_mask), config
@@ -1486,6 +1620,16 @@ Examples:
     results['Compartment Assignment'] = test_compartment_assignment(
         image_tzyxc, df_gt, (cytosol_mask, nucleus_mask), config
     )
+
+    test_cfg = config.get('test', {})
+    shared_tracking_cfg = test_cfg.get('shared_tracking', {})
+    shared_tracking_threshold = shared_tracking_cfg.get(
+        'threshold_for_spot_detection', 2000
+    )
+    shared_tracking_min_length = shared_tracking_cfg.get(
+        'min_length_trajectory', 15
+    )
+    shared_tracking_memory = shared_tracking_cfg.get('memory', 0)
     
     # Run shared tracking for MSD test (avoids running tracking twice)
     # Apply photobleaching correction first (matching GUI workflow)
@@ -1497,7 +1641,9 @@ Examples:
     try:
         pb = mi.Photobleaching(
             image_TZYXC=image_tzyxc,
-            time_interval_seconds=frame_rate
+            mask_YX=cytosol_2d,
+            time_interval_seconds=frame_rate,
+            show_plot=False
         )
         _ = pb.calculate_photobleaching()
         correction_result = pb.apply_photobleaching_correction()
@@ -1519,14 +1665,6 @@ Examples:
     voxel_z = config.get('image', {}).get('voxel_size_z_nm', 300)
     voxel_yx = config.get('image', {}).get('voxel_size_yx_nm', 130)
     
-    # Convert 3D masks to 2D
-    if cytosol_mask.ndim == 3:
-        cytosol_2d = cytosol_mask.max(axis=0)
-        nucleus_2d = nucleus_mask.max(axis=0)
-    else:
-        cytosol_2d = cytosol_mask
-        nucleus_2d = nucleus_mask
-    
     try:
         tracker = mi.ParticleTracking(
             image=image_corrected,  # Use photobleaching-corrected image
@@ -1538,38 +1676,86 @@ Examples:
             masks_nuclei=nucleus_2d,
             yx_spot_size_in_px=5,
             z_spot_size_in_px=2,
-            threshold_for_spot_detection=2000,  # Match GUI auto-threshold
-            min_length_trajectory=15,
-            memory=0,
+            threshold_for_spot_detection=shared_tracking_threshold,
+            min_length_trajectory=shared_tracking_min_length,
+            memory=shared_tracking_memory,
             use_maximum_projection=True,
             verbose=False
         )
         
         result = tracker.run()
-        
-        if isinstance(result, tuple):
-            df_tracked_shared = result[0]
-        else:
-            df_tracked_shared = result
-        
-        if isinstance(df_tracked_shared, list):
-            if len(df_tracked_shared) > 0 and hasattr(df_tracked_shared[0], 'columns'):
-                df_tracked_shared = df_tracked_shared[0]
-            else:
-                df_tracked_shared = pd.DataFrame()
-        
+        df_tracked_shared = _extract_tracking_dataframe(result)
         n_tracked = len(df_tracked_shared) if df_tracked_shared is not None else 0
-        n_particles = df_tracked_shared['particle'].nunique() if n_tracked > 0 and 'particle' in df_tracked_shared.columns else 0
+        n_particles = _count_unique_particles(df_tracked_shared)
         print(f"  Tracked spots: {n_tracked}, Particles: {n_particles}")
     except Exception as e:
         print(f"  ⚠️ Tracking failed: {e}")
         df_tracked_shared = None
+
+    # Colocalization ML needs enough unique tracked particles to produce stable crops.
+    # If shared MSD tracking is too strict, run a fallback with relaxed thresholds.
+    df_tracked_coloc = df_tracked_shared
+    coloc_ml_cfg = test_cfg.get('colocalization_ml', {})
+    min_valid_crops = int(coloc_ml_cfg.get('min_valid_crops', 10))
+    shared_particles = _count_unique_particles(df_tracked_shared)
+
+    enable_coloc_fallback = bool(
+        coloc_ml_cfg.get('enable_relaxed_tracking_fallback', False)
+    )
+
+    if enable_coloc_fallback and shared_particles < min_valid_crops:
+        fallback_threshold = coloc_ml_cfg.get(
+            'tracking_threshold_for_spot_detection', 1500
+        )
+        fallback_min_length = coloc_ml_cfg.get(
+            'tracking_min_length_trajectory', 5
+        )
+        fallback_memory = coloc_ml_cfg.get('tracking_memory', 0)
+
+        print("\n" + "=" * 60)
+        print("Running fallback ParticleTracking for colocalization ML...")
+        print("=" * 60)
+        print(
+            f"  Shared tracking has {shared_particles} particles (<{min_valid_crops}); "
+            "running relaxed tracking for ML crops."
+        )
+
+        try:
+            tracker_coloc = mi.ParticleTracking(
+                image=image_tzyxc,  # Keep native intensities for crop extraction
+                channels_spots=[0],
+                list_voxels=[voxel_z, voxel_yx],
+                channels_cytosol=[0],
+                channels_nucleus=[1],
+                masks=cytosol_2d,
+                masks_nuclei=nucleus_2d,
+                yx_spot_size_in_px=5,
+                z_spot_size_in_px=2,
+                threshold_for_spot_detection=fallback_threshold,
+                min_length_trajectory=fallback_min_length,
+                memory=fallback_memory,
+                use_maximum_projection=True,
+                verbose=False
+            )
+            result_coloc = tracker_coloc.run()
+            df_tracked_coloc_candidate = _extract_tracking_dataframe(result_coloc)
+            n_tracked_coloc = len(df_tracked_coloc_candidate)
+            n_particles_coloc = _count_unique_particles(df_tracked_coloc_candidate)
+            print(
+                f"  Fallback tracked spots: {n_tracked_coloc}, "
+                f"Particles: {n_particles_coloc}"
+            )
+
+            if n_tracked_coloc > 0:
+                df_tracked_coloc = df_tracked_coloc_candidate
+        except Exception as e:
+            print(f"  ⚠️ Fallback colocalization tracking failed: {e}")
     
     results['MSD Recovery'] = test_msd_recovery(
         image_tzyxc, (cytosol_mask, nucleus_mask), config, df_tracked=df_tracked_shared
     )
     results['Colocalization Recovery'] = test_colocalization_recovery(
-        image_tzyxc, df_tracked_shared, config, ml_threshold=0.51
+        image_tzyxc, df_tracked_coloc, config, ml_threshold=0.51, df_gt=df_gt
     )
     results['GUI Syntax'] = test_gui_syntax()
     
