@@ -7282,6 +7282,7 @@ class Correlation:
         baseline_min_points: int = 5,
         baseline_weight_by_pairs: bool = True,
         figsize=(8, 6),
+        detrend_photobleaching=False,
     ):
         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
             if data1.ndim != 1:
@@ -7365,6 +7366,7 @@ class Correlation:
         self.multi_tau_raw_points = multi_tau_raw_points
         self.multi_tau_bins_per_stage = multi_tau_bins_per_stage
         self.figsize = figsize
+        self.detrend_photobleaching = detrend_photobleaching
 
     # ========================= helpers =========================
 
@@ -7581,6 +7583,16 @@ class Correlation:
             )
             self.max_lag = clamped
 
+        # ── Step 2b: optional per-trajectory exponential detrend ──────────
+        if self.detrend_photobleaching:
+            _util = Utilities()
+            self.primary_data = _util.detrend_trajectories(
+                self.primary_data, method='exponential'
+            )
+            if self.secondary_data is not None:
+                self.secondary_data = _util.detrend_trajectories(
+                    self.secondary_data, method='exponential'
+                )
 
         local_forward_fill = self._forward_fill_func if self.nan_handling == "forward_fill" else lambda arr: arr
 
@@ -8171,41 +8183,73 @@ class Utilities():
             filled[i] = self.forward_fill_nan(row)
         return filled
 
-    def detrend_trajectories(self, intensity_array):
+    def detrend_trajectories(self, intensity_array, method='exponential'):
         """
-        Remove a per-trajectory linear trend while preserving the mean.
-
-        For each row, fits a least-squares line to the valid (non-NaN) timepoints
-        and subtracts it, then adds back the per-trace mean so that the ACF
-        amplitude G(0) = Var(I)/<I>^2 remains physically meaningful.
-        NaN positions are left unchanged.
-
-        Use case: remove residual slow drift (e.g. heterogeneous photobleaching,
-        illumination non-uniformity) that survives a global image-level correction.
+        Remove per-trajectory slow decay (e.g. photobleaching) while
+        preserving the mean intensity so that G(0) = Var(I)/⟨I⟩² is unchanged.
 
         Parameters
         ----------
         intensity_array : ndarray, shape (n_trajectories, n_timepoints)
             May contain NaNs. Trajectories should already be left-aligned.
+        method : str
+            'exponential' — fit I(t) = A·exp(-t/τ) + B (A ≥ 0), divide out
+                            the decay curve, rescale to original mean.
+                            Only corrects decaying traces; increasing or
+                            flat traces are left unchanged.
+            'linear'      — subtract a linear trend, restore mean (legacy).
 
         Returns
         -------
         detrended : ndarray, same shape
-            Each trajectory linearly detrended with mean restored.
+            Each trajectory detrended with mean restored.
         """
+        from scipy.optimize import curve_fit as _curve_fit
+
         detrended = np.array(intensity_array, dtype=float)
         for i in range(len(detrended)):
             row = detrended[i]
             valid = np.isfinite(row)
-            if valid.sum() < 5:
-                continue  # too few points — skip
+            n_valid = valid.sum()
+            if n_valid < 10:
+                continue  # too few points for a robust fit
             t = np.where(valid)[0].astype(float)
             y = row[valid]
-            m, b = np.polyfit(t, y, 1)
-            if np.abs(m) < 1e-12:
-                continue  # flat — no trend to remove
-            # Subtract trend, restore mean so ACF amplitude is unchanged
-            detrended[i, valid] = y - (m * t + b) + np.nanmean(y)
+            mean_y = np.nanmean(y)
+
+            if method == 'exponential':
+                try:
+                    A0 = max(float(y[0] - y[-1]), 1e-6)
+                    B0 = float(y[-1])
+                    tau0 = max(float(t[-1]) / 3.0, 1.0)
+                    popt, _ = _curve_fit(
+                        lambda t, A, tau, B: A * np.exp(-t / tau) + B,
+                        t, y,
+                        p0=[A0, tau0, B0],
+                        bounds=([0, 1, -np.inf], [np.inf, np.inf, np.inf]),
+                        maxfev=20000,
+                    )
+                    A, tau, B = popt
+                    fit_vals = A * np.exp(-t / tau) + B
+                    # Guard: skip if the fit is essentially flat
+                    if np.ptp(fit_vals) / (abs(mean_y) + 1e-12) < 0.01:
+                        continue
+                    # Guard: skip if fit values contain zeros/negatives
+                    if np.any(fit_vals <= 0):
+                        continue
+                    # Divide out the decay, rescale to original mean
+                    detrended[i, valid] = y / fit_vals * mean_y
+                except Exception:
+                    continue  # fit failed — leave trace unchanged
+
+            elif method == 'linear':
+                if n_valid < 5:
+                    continue
+                m, b = np.polyfit(t, y, 1)
+                if np.abs(m) < 1e-12:
+                    continue  # flat — no trend to remove
+                detrended[i, valid] = y - (m * t + b) + mean_y
+
         return detrended
 
     def downsample_array(self, arr: np.ndarray, factor: int, method: str = 'drop') -> np.ndarray:

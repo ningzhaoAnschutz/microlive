@@ -1966,7 +1966,7 @@ class GUI(QMainWindow):
             self,
             "Open Image Files",
             "",
-            "Image Files (*.lif *.tif *.ome.tif);;All Files (*)",
+            "Image Files (*.lif *.tif *.tiff *.ome.tif);;All Files (*)",
             options=options
         )
         if not file_paths:
@@ -1986,7 +1986,7 @@ class GUI(QMainWindow):
                     child = QTreeWidgetItem(parent)
                     child.setText(0, nm)
                     child.setData(0, Qt.UserRole, {'file': path, 'index': idx})
-            elif path.lower().endswith(('.tif', '.ome.tif')):
+            elif path.lower().endswith(('.tif', '.tiff', '.ome.tif')):
                 # Single-image TIFF: flag it to not show children
                 parent = QTreeWidgetItem(self.image_tree)
                 parent.setText(0, Path(path).name)
@@ -2273,20 +2273,42 @@ class GUI(QMainWindow):
         if axes_str is not None:
             current_axes = list(axes_str)
             data = raw
-            # Add singleton dimensions for missing axes
-            for ax in ["T", "Z", "Y", "X", "C"]:
-                if ax not in current_axes:
-                    data = np.expand_dims(data, axis=-1)
-                    current_axes.append(ax)
-            # Reorder dimensions to [T, Z, Y, X, C]
-            # perform a permutation based on the current axes if they are not in the standard order
-            if current_axes != ["T", "Z", "Y", "X", "C"]:
-                target_axes = ["T", "Z", "Y", "X", "C"]
-                perm = [current_axes.index(ax) for ax in target_axes]
-                raw = np.transpose(data, perm)
-            else:
-                # Already in standard order
-                raw = data
+            # Map common non-standard axes to standard equivalents
+            # tifffile uses 'S' for samples (RGB/channels) — treat as 'C'
+            standard_axes = {"T", "Z", "Y", "X", "C"}
+            for i, ax in enumerate(current_axes):
+                if ax == "S" and "C" not in current_axes:
+                    current_axes[i] = "C"
+            # Remove unknown axes (not in T/Z/Y/X/C) by squeezing those dimensions
+            axes_to_remove = []
+            for i, ax in enumerate(current_axes):
+                if ax not in standard_axes:
+                    axes_to_remove.append(i)
+            # Squeeze out unknown axes in reverse order to keep indices valid
+            for i in sorted(axes_to_remove, reverse=True):
+                if data.shape[i] == 1:
+                    data = np.squeeze(data, axis=i)
+                    current_axes.pop(i)
+                else:
+                    # Non-singleton unknown axis — cannot safely remove; skip axis reordering
+                    print(f"Warning: TIFF has non-singleton axis '{current_axes[i]}' (size {data.shape[i]}). "
+                          f"Falling back to dimension mapping dialog.")
+                    current_axes = None
+                    break
+            if current_axes is not None:
+                # Add singleton dimensions for missing standard axes
+                for ax in ["T", "Z", "Y", "X", "C"]:
+                    if ax not in current_axes:
+                        data = np.expand_dims(data, axis=-1)
+                        current_axes.append(ax)
+                # Reorder dimensions to [T, Z, Y, X, C]
+                if current_axes != ["T", "Z", "Y", "X", "C"]:
+                    target_axes = ["T", "Z", "Y", "X", "C"]
+                    perm = [current_axes.index(ax) for ax in target_axes]
+                    raw = np.transpose(data, perm)
+                else:
+                    # Already in standard order
+                    raw = data
         # Convert raw image data to standard internal format
         self.image_stack = self.convert_to_standard_format(raw)
         if self.image_stack is None:
