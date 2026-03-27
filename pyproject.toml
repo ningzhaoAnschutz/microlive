@@ -66,6 +66,7 @@ dependencies = [
     "bioio==3.1.0",
     "bioio-base==3.1.0",
     "bioio-lif>=1.2",
+    "bioio-czi==1.0.3",
     "readlif==0.6.5",
     "opencv-python-headless>=4.9",
     "roifile",

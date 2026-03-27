@@ -16,7 +16,7 @@
 
 ## Features
 
-- **Image I/O**: Load .lif, .tif, .ome.tif with metadata extraction and dimension mapping
+- **Image I/O**: Load .lif, .czi, .tif, .ome.tif with metadata extraction and dimension mapping
 - **Registration**: Drift correction via phase correlation
 - **Segmentation**: Cellpose (GPU), watershed, manual ROI, or external mask import
 - **Photobleaching correction**: Exponential decay modeling

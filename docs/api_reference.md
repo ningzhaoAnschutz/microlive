@@ -397,6 +397,23 @@ __init__(path, show_metadata=True, save_tif=False, save_png=False,
 
 ---
 
+### `ReadCzi`
+
+Read Zeiss `.czi` files and extract images with physical metadata. Automatically detects and removes Apotome structured-illumination grid artifacts by averaging H-phases when raw (unprocessed) Apotome data is present.
+
+```python
+__init__(path, show_metadata=True, format='TZYXC')
+```
+
+| Method | Description |
+| --- | --- |
+| `read()` | Read all scenes and return 11-element tuple matching `ReadLif` format |
+| `read_scene(scene_index)` | Read a single scene as a 5-D array (TZYXC) |
+
+**Apotome Handling:** When `IsOnlineProcessing=false` and an H dimension is present, the reader automatically averages all phase-shifted images to produce a clean widefield-equivalent result. Properly processed CZI files pass through unchanged.
+
+---
+
 ### `ConvertFormat`
 
 Transpose image arrays between axis orderings.

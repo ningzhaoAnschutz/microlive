@@ -1966,7 +1966,7 @@ class GUI(QMainWindow):
             self,
             "Open Image Files",
             "",
-            "Image Files (*.lif *.tif *.tiff *.ome.tif);;All Files (*)",
+            "Image Files (*.lif *.czi *.tif *.tiff *.ome.tif);;All Files (*)",
             options=options
         )
         if not file_paths:
@@ -1986,6 +1986,18 @@ class GUI(QMainWindow):
                     child = QTreeWidgetItem(parent)
                     child.setText(0, nm)
                     child.setData(0, Qt.UserRole, {'file': path, 'index': idx})
+            elif path.lower().endswith('.czi'):
+                # Load CZI file — same pattern as LIF
+                reader = mi.ReadCzi(path=path, show_metadata=False, save_tif=False, save_png=False, format='TZYXC', lazy=True)
+                _, names, yx_um, z_um, channels, nch, intervals, bd, list_laser_lines, list_intensities, list_wave_ranges = reader.read()
+                self.loaded_lif_files[path] = (reader, names, yx_um, z_um, channels, nch, intervals, bd, list_laser_lines, list_intensities, list_wave_ranges)
+                parent = QTreeWidgetItem(self.image_tree)
+                parent.setText(0, Path(path).name)
+                parent.setData(0, Qt.UserRole, {'file': path})
+                for idx, nm in enumerate(names):
+                    child = QTreeWidgetItem(parent)
+                    child.setText(0, nm)
+                    child.setData(0, Qt.UserRole, {'file': path, 'index': idx})
             elif path.lower().endswith(('.tif', '.tiff', '.ome.tif')):
                 # Single-image TIFF: flag it to not show children
                 parent = QTreeWidgetItem(self.image_tree)
@@ -1996,7 +2008,7 @@ class GUI(QMainWindow):
             first_path = file_paths[0]
             first_item = self.image_tree.topLevelItem(0)
             self.image_tree.setCurrentItem(first_item)
-            if first_path.lower().endswith('.lif'):
+            if first_path.lower().endswith(('.lif', '.czi')):
                 self.load_lif_image(first_path, 0)
             else:
                 pass
@@ -9619,27 +9631,19 @@ class GUI(QMainWindow):
         
         # Apply zoom immediately after imshow to prevent other elements from resetting limits
         zoom_scale = 1.0  # Default: no zoom adjustment
+        REFERENCE_IMAGE_SIZE = 512  # Circle sizes are calibrated for 512×512 images
         if self.tracking_zoom_roi is not None:
             x_min, x_max, y_min, y_max = self.tracking_zoom_roi
             self.ax_tracking.set_xlim(x_min, x_max)
             self.ax_tracking.set_ylim(y_max, y_min)  # Inverted for image coordinates
-            # Calculate zoom factor: ratio of visible area to full image
-            # Smaller visible area = more zoomed in = LARGER markers (inverted from before)
-            full_width = normalized_image.shape[1]
+            # Scale circles based on visible ROI width vs reference size
             visible_width = x_max - x_min
-            if full_width > 0 and visible_width > 0:
-                zoom_ratio = visible_width / full_width
-                # Invert the scale: full view (zoom_ratio=1) gets smaller markers
-                # Zoomed in (zoom_ratio=0.1) gets normal/larger markers
-                # At full view: zoom_scale ~ 0.4; When zoomed to 10%: zoom_scale ~ 1.0
-                zoom_scale = max(0.4, min(1.0, 1.0 - (zoom_ratio ** 0.5) * 0.6))
+            if visible_width > 0:
+                zoom_scale = min(1.0, REFERENCE_IMAGE_SIZE / visible_width)
         else:
-            # Full view (no zoom): use smaller markers based on image size
-            # For smaller images like 928x624, markers should be proportionally smaller
-            full_width = normalized_image.shape[1]
-            # Scale down for smaller images: 1024px = 0.4, 2048px = 0.7, 4096px+ = 1.0
-            image_scale = min(1.0, max(0.3, (full_width / 2048.0) ** 0.5))
-            zoom_scale = image_scale
+            # Full view: scale down circles for images larger than reference
+            full_width = max(normalized_image.shape[1], normalized_image.shape[0])
+            zoom_scale = min(1.0, REFERENCE_IMAGE_SIZE / full_width)
         
         dpi = self.figure_tracking.get_dpi()
         marker_scale = dpi / 100.0

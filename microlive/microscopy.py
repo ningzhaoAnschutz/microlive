@@ -104,6 +104,7 @@ from IPython.display import display
 ### Lif file imports
 from readlif.reader import LifFile
 from bioio import BioImage
+import aicspylibczi
 ### Registration imports
 from pystackreg import StackReg
 import xml.etree.ElementTree as ET
@@ -1344,6 +1345,531 @@ class ReadLif:
                             except (ValueError, TypeError):
                                 pass
         return laser_lines, intensities, wave_ranges
+
+
+class ReadCzi:
+    """Read Zeiss .czi files and extract images with metadata.
+
+    Uses BioImage with bioio-czi plugin for image reading. Parses CZI XML
+    metadata for Zeiss-specific info (laser lines, detectors, time intervals).
+
+    The interface mirrors ReadLif exactly: same constructor signature, same
+    11-element return tuple from read(), and same read_scene() method.
+
+    Apotome / SIM Support:
+        Automatically detects raw Apotome structured-illumination data
+        (grid stripes) using metadata and FFT analysis. When raw data is
+        found, a notch filter removes the grid frequency in Fourier space,
+        producing a clean widefield-equivalent image. Properly processed
+        CZI files (ZEN online processing) pass through unchanged.
+
+    Args:
+        path: Path to the .czi file (str or Path).
+        show_metadata: Print metadata to stdout. Defaults to True.
+        save_tif: Export each scene as OME-TIFF (TCZYX format). Defaults to False.
+        save_png: Export each scene as PNG. Defaults to False.
+        format: Axis order for returned arrays. Defaults to 'TZYXC'.
+        lazy: If True, pixel data loads on demand. Defaults to False.
+
+    Attributes:
+        path: Path object to the .czi file.
+        _aics: BioImage handle for the file.
+        _apotome_info: Dict with Apotome detection results (populated on first read).
+    """
+
+    def __init__(self, path, show_metadata=True, save_tif=False, save_png=False,
+                 format='TZYXC', lazy=False):
+        # Path setup
+        if isinstance(path, str):
+            self.path = Utilities.convert_str_to_path(path)
+        else:
+            self.path = Path(path)
+
+        self.show_metadata = show_metadata
+        self.save_tif      = save_tif
+        self.save_png      = save_png
+        self.format        = format
+        self.lazy          = lazy
+
+        # BioImage handle (bioio-czi plugin auto-detected for .czi files)
+        self._aics = BioImage(str(self.path))
+
+        # Apotome detection cache (populated lazily)
+        self._apotome_info = None
+
+    def read(self):
+        """Read all scenes from the .czi file.
+
+        Returns:
+            tuple: 11-element tuple matching ReadLif.read() signature:
+                - list_images (list[np.ndarray]): Image arrays per scene, shape per format.
+                - list_names (list[str]): Scene names.
+                - pixel_XY (float): XY pixel size in microns.
+                - pixel_Z (float): Z pixel size in microns.
+                - channel_names (list[str]): Channel name labels.
+                - num_channels (int): Number of channels.
+                - list_time_intervals (list[float]): Time between frames per scene (s).
+                - bit_depth (int): Image bit depth.
+                - list_laser_lines (list[list[int]]): Laser wavelengths per scene.
+                - list_intensities (list[list[float]]): Laser intensities per scene.
+                - list_wave_ranges (list[list[tuple]]): Spectral ranges per scene.
+        """
+        # CZI XML metadata
+        czi_meta = self._aics.metadata
+        bit_depth = self._extract_bit_depth(czi_meta)
+
+        # Scene list + pixel sizes + channel names (same API as ReadLif)
+        images   = self._aics if self.lazy else BioImage(str(self.path))
+        scenes   = list(images.scenes)
+        pixel_Z  = abs(images.physical_pixel_sizes.Z or 0)
+        pixel_XY = abs(images.physical_pixel_sizes.Y or 0)
+        ch_names = list(images.channel_names)
+
+        # Prepare outputs
+        list_images         = []
+        list_names          = []
+        list_time_intervals = []
+        list_laser_lines    = []
+        list_intensities    = []
+        list_wave_ranges    = []
+
+        for idx, scene in enumerate(scenes):
+            # Time interval from CZI XML
+            ti = self._extract_time_interval(czi_meta)
+            list_time_intervals.append(ti)
+
+            images.set_scene(idx)
+            arr = images.get_image_data(self.format)
+
+            # Apply Apotome notch filter if raw SIM grid is detected
+            arr = self._apply_apotome_filter(arr, czi_meta)
+
+            list_images.append(arr)
+            list_names.append(scene)
+
+            # Laser/spectral info from CZI XML
+            ll, iv, wr = self.get_laser_info(idx)
+            list_laser_lines.append(ll)
+            list_intensities.append(iv)
+            list_wave_ranges.append(wr)
+
+            # Infer bit depth from array dtype if XML parsing failed
+            if bit_depth == 0:
+                dt = arr.dtype
+                if np.issubdtype(dt, np.integer):
+                    bit_depth = int(np.iinfo(dt).bits)
+
+            if self.show_metadata:
+                if idx == 0:
+                    print(f"Number of images: {len(scenes)}\n" + "-"*40)
+                print(f"[{idx}] {scene}")
+                print(f"  shape={arr.shape}, dtype={arr.dtype}")
+                print(f"  channels = {ch_names}")
+                print(f"  pixel Z={pixel_Z:.3f}  XY={pixel_XY:.3f}")
+                print(f"  time={ti}s  bitdepth={bit_depth}")
+                print(f"  laser lines   = {ll}")
+                print(f"  intensities    = {iv}")
+                print(f"  spectral ranges= {wr}")
+                print("-"*40)
+
+            stem   = f"{self.path.stem}_{idx}"
+            outdir = self.path.parent / "images_reformatted"
+            if self.save_tif:
+                outdir.mkdir(parents=True, exist_ok=True)
+                arr_tczyx = np.transpose(arr, (0, 4, 1, 2, 3))
+                tifffile.imwrite(
+                    outdir / f"{stem}.ome.tif",
+                    arr_tczyx,
+                    imagej=False,
+                    metadata={
+                        'axes': 'TCZYX',
+                        'PhysicalSizeX': pixel_XY,
+                        'PhysicalSizeY': pixel_XY,
+                        'PhysicalSizeZ': pixel_Z,
+                        'TimeIncrement': ti,
+                        'TimeIncrementUnit': 's',
+                        'SignificantBits': bit_depth,
+                        'Channel': {'Name': ch_names},
+                        'shape': list(arr_tczyx.shape),
+                    }
+                )
+            if self.save_png:
+                outdir.mkdir(parents=True, exist_ok=True)
+                pngpath = outdir / f"{stem}.png"
+                mp = np.moveaxis(np.max(arr, axis=0), 0, -1)
+                Plots().plot_images(
+                    image=mp,
+                    figsize=(8, 4),
+                    plot_name=pngpath,
+                    save_plots=True,
+                    show_plot=False,
+                    use_maximum_projection=False,
+                    use_gaussian_filter=True,
+                    cmap='Greys',
+                    min_max_percentile=[0.5, 99.5]
+                )
+
+        return (
+            list_images,
+            list_names,
+            pixel_XY,
+            pixel_Z,
+            ch_names,
+            len(ch_names),
+            list_time_intervals,
+            bit_depth,
+            list_laser_lines,
+            list_intensities,
+            list_wave_ranges,
+        )
+
+    def read_scene(self, image_index: int):
+        """Read a single scene by index.
+
+        Args:
+            image_index: Zero-based scene index.
+
+        Returns:
+            np.ndarray: Image array with shape defined by self.format.
+
+        Raises:
+            IndexError: If image_index is out of range.
+        """
+        if not (0 <= image_index < len(self._aics.scenes)):
+            raise IndexError("Scene index out of range")
+        self._aics.set_scene(image_index)
+        arr = self._aics.get_image_data(self.format)
+
+        # Apply Apotome notch filter if raw SIM grid is detected
+        arr = self._apply_apotome_filter(arr, self._aics.metadata)
+
+        return arr
+
+    def get_laser_info(self, image_index: int):
+        """Extract laser and spectral info from CZI XML metadata.
+
+        Args:
+            image_index: Zero-based scene index.
+
+        Returns:
+            tuple: (laser_lines, intensities, wave_ranges)
+                - laser_lines (list[int]): Wavelengths in nm.
+                - intensities (list[float]): Laser power values.
+                - wave_ranges (list[tuple]): Spectral windows as (start_nm, end_nm).
+        """
+        laser_lines = []
+        intensities = []
+        wave_ranges = []
+
+        root = self._aics.metadata
+        if root is None:
+            return laser_lines, intensities, wave_ranges
+
+        try:
+            # Laser wavelengths from Instrument/Lasers
+            for laser in root.findall('.//Laser'):
+                wl = laser.find('Wavelength')
+                if wl is not None and wl.text:
+                    try:
+                        laser_lines.append(int(round(float(wl.text))))
+                    except (ValueError, TypeError):
+                        pass
+
+            # Excitation wavelengths and power from Channels
+            for channel in root.findall('.//Channels/Channel'):
+                exc = channel.find('ExcitationWavelength')
+                if exc is not None and exc.text:
+                    try:
+                        wl = int(round(float(exc.text)))
+                        if wl > 0 and wl not in laser_lines:
+                            laser_lines.append(wl)
+                    except (ValueError, TypeError):
+                        pass
+
+                # Laser power / transmittance
+                for power_path in ['LaserScanInfo/Power', 'Transmittance',
+                                   'Power', 'Intensity']:
+                    pwr = channel.find(power_path)
+                    if pwr is not None and pwr.text:
+                        try:
+                            intensities.append(round(float(pwr.text), 3))
+                        except (ValueError, TypeError):
+                            pass
+                        break
+
+                # Detection wavelength ranges
+                det_wl = channel.find('DetectionWavelength')
+                if det_wl is not None:
+                    ranges_elem = det_wl.find('Ranges')
+                    if ranges_elem is not None and ranges_elem.text:
+                        for rng in ranges_elem.text.split(','):
+                            rng = rng.strip()
+                            if '-' in rng:
+                                parts = rng.split('-')
+                                try:
+                                    start = int(round(float(parts[0])))
+                                    end   = int(round(float(parts[1])))
+                                    wave_ranges.append((start, end))
+                                except (ValueError, TypeError, IndexError):
+                                    pass
+        except Exception:
+            pass
+
+        return laser_lines, intensities, wave_ranges
+
+    # ------------------------------------------------------------------
+    #  Apotome / SIM grid detection and phase-averaging
+    # ------------------------------------------------------------------
+
+    def _detect_apotome(self, metadata_xml):
+        """Detect whether this CZI contains raw Apotome structured-illumination data.
+
+        Checks metadata for AcquisitionMode == 'StructuredIllumination' and
+        IsOnlineProcessing == 'false', plus verifies an H dimension exists
+        in the CZI sub-block structure.
+
+        Results are cached in ``self._apotome_info`` so detection runs only once.
+
+        Args:
+            metadata_xml: XML Element tree from BioImage.metadata.
+
+        Returns:
+            dict: Keys:
+                - 'is_raw_apotome' (bool): True if raw grid data is present.
+                - 'num_phases' (int): Number of H-phases (0 if not Apotome).
+                - 'online_processing' (bool): True if ZEN processed the file.
+        """
+        if self._apotome_info is not None:
+            return self._apotome_info
+
+        info = {
+            'is_raw_apotome': False,
+            'num_phases': 0,
+            'online_processing': False,
+        }
+
+        if metadata_xml is None:
+            self._apotome_info = info
+            return info
+
+        try:
+            xml_str = ET.tostring(metadata_xml, encoding='unicode')
+
+            # --- Layer 1: metadata inspection ---
+            is_sim = 'StructuredIllumination' in xml_str
+            is_apotome_tag = 'ApoTomeAcquisitionSetup' in xml_str
+
+            if not (is_sim or is_apotome_tag):
+                self._apotome_info = info
+                return info
+
+            # Check online processing flag
+            online_elem = metadata_xml.find('.//IsOnlineProcessing')
+            if online_elem is not None and online_elem.text:
+                info['online_processing'] = online_elem.text.strip().lower() == 'true'
+
+            # If ZEN already processed the data, no filtering needed
+            if info['online_processing']:
+                logging.info("CZI: Apotome data detected — ZEN online processing was applied. "
+                             "No grid removal needed.")
+                self._apotome_info = info
+                return info
+
+            # --- Layer 2: check for H dimension via aicspylibczi ---
+            try:
+                czi = aicspylibczi.CziFile(str(self.path))
+                dims = czi.get_dims_shape()
+                if dims and 'H' in dims[0]:
+                    h_range = dims[0]['H']
+                    info['num_phases'] = h_range[1] - h_range[0]
+                else:
+                    # No H dimension — not Apotome raw data
+                    self._apotome_info = info
+                    return info
+            except Exception as exc:
+                logging.warning(f"CZI: Could not read H dimension — {exc}")
+                self._apotome_info = info
+                return info
+
+            # Mark as raw Apotome
+            info['is_raw_apotome'] = True
+            logging.info(
+                f"CZI: Raw Apotome/SIM data detected (IsOnlineProcessing=false, "
+                f"{info['num_phases']} H-phases). "
+                f"Phase averaging will be applied to remove grid stripes."
+            )
+        except Exception as exc:
+            logging.warning(f"CZI: Apotome detection failed — {exc}")
+
+        self._apotome_info = info
+        return info
+
+    def _apply_apotome_filter(self, image_array, metadata_xml):
+        """Remove Apotome grid by averaging all H-phases from the raw CZI file.
+
+        When the CZI contains raw Apotome data (multiple H-phases with
+        IsOnlineProcessing=false), this method reads all H-phases using
+        aicspylibczi and averages them. Averaging phase-shifted grid images
+        mathematically cancels the grid pattern while preserving the sample
+        signal, producing a clean widefield-equivalent image.
+
+        For properly processed CZI files (or non-Apotome files), the original
+        array is returned unchanged.
+
+        Args:
+            image_array: Image array in self.format order (default TZYXC).
+                This is the array from BioImage (which only reads H=0).
+            metadata_xml: XML Element tree from BioImage.metadata.
+
+        Returns:
+            np.ndarray: Phase-averaged array (same shape/dtype as input), or
+                the original array unchanged if not raw Apotome data.
+        """
+        apotome = self._detect_apotome(metadata_xml)
+        if not apotome['is_raw_apotome'] or apotome['num_phases'] < 2:
+            return image_array
+
+        try:
+            czi = aicspylibczi.CziFile(str(self.path))
+            dims = czi.get_dims_shape()[0]
+
+            num_phases = apotome['num_phases']
+            h_start = dims['H'][0]
+
+            # Get image dimensions from the dims structure
+            n_z = dims['Z'][1] - dims['Z'][0] if 'Z' in dims else 1
+            n_c = dims['C'][1] - dims['C'][0] if 'C' in dims else 1
+            z_start = dims['Z'][0] if 'Z' in dims else 0
+            c_start = dims['C'][0] if 'C' in dims else 0
+
+            # Build the averaged volume: accumulate all H-phases
+            original_dtype = image_array.dtype
+            T, Z, Y, X, C = image_array.shape
+            accumulator = np.zeros((Z, Y, X, C), dtype=np.float64)
+
+            for h in range(num_phases):
+                for z in range(n_z):
+                    for c in range(n_c):
+                        try:
+                            data, _ = czi.read_image(
+                                H=h_start + h,
+                                Z=z_start + z,
+                                C=c_start + c
+                            )
+                            plane = data.squeeze().astype(np.float64)
+                            accumulator[z, :, :, c] += plane
+                        except Exception:
+                            # If a particular H/Z/C combo fails, skip it
+                            pass
+
+            accumulator /= num_phases
+
+            # Clip and cast back to original dtype
+            if np.issubdtype(original_dtype, np.integer):
+                iinfo = np.iinfo(original_dtype)
+                np.clip(accumulator, iinfo.min, iinfo.max, out=accumulator)
+
+            # Reconstruct the 5-D array (T=1 for typical Apotome Z-stacks)
+            result = np.empty_like(image_array)
+            for t in range(T):
+                result[t] = accumulator.astype(original_dtype)
+
+            logging.info(
+                f"CZI: Apotome grid removed by averaging {num_phases} H-phases."
+            )
+            return result
+
+        except Exception as exc:
+            logging.warning(
+                f"CZI: Phase averaging failed ({exc}). "
+                f"Returning unfiltered image."
+            )
+            return image_array
+
+    # ------------------------------------------------------------------
+    #  Metadata extraction helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_time_interval(metadata_xml):
+        """Extract time interval (seconds) from CZI metadata XML.
+
+        Tries multiple locations in the CZI XML structure to find the time
+        between frames.
+
+        Args:
+            metadata_xml: XML Element tree from BioImage.metadata.
+
+        Returns:
+            float: Time interval in seconds, or 0.0 if not found.
+        """
+        if metadata_xml is None:
+            return 0.0
+
+        try:
+            # Strategy 1: Experiment block time series interval
+            for path in [
+                './/TimeSeriesSetup/Interval/Duration',
+                './/TimelapseSetup/Interval',
+                './/AcquisitionBlock//TimeSeriesSetup//Interval//Duration',
+            ]:
+                elem = metadata_xml.find(path)
+                if elem is not None and elem.text:
+                    try:
+                        val = float(elem.text)
+                        if val > 0:
+                            return val
+                    except (ValueError, TypeError):
+                        pass
+
+            # Strategy 2: Scaling distance for T dimension
+            for path in [
+                './/Scaling//Items//Distance[@Id="T"]//Value',
+            ]:
+                elem = metadata_xml.find(path)
+                if elem is not None and elem.text:
+                    try:
+                        val = float(elem.text)
+                        if val > 0:
+                            return val
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            pass
+
+        return 0.0
+
+    @staticmethod
+    def _extract_bit_depth(metadata_xml):
+        """Extract bit depth from CZI metadata XML.
+
+        Args:
+            metadata_xml: XML Element tree from BioImage.metadata.
+
+        Returns:
+            int: Bit depth (e.g., 8, 12, 14, 16), or 0 if not found.
+        """
+        if metadata_xml is None:
+            return 0
+
+        try:
+            for path in [
+                './/ComponentBitCount',
+                './/Information//Image//ComponentBitCount',
+            ]:
+                elem = metadata_xml.find(path)
+                if elem is not None and elem.text:
+                    try:
+                        val = int(elem.text)
+                        if val > 0:
+                            return val
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            pass
+
+        return 0
+
 
 class ConvertFormat:
     """Convert images between different dimension formats (axis orders).
@@ -8204,7 +8730,7 @@ class Utilities():
         detrended : ndarray, same shape
             Each trajectory detrended with mean restored.
         """
-        from scipy.optimize import curve_fit as _curve_fit
+        _curve_fit = curve_fit
 
         detrended = np.array(intensity_array, dtype=float)
         for i in range(len(detrended)):

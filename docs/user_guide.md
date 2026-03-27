@@ -24,7 +24,7 @@
 
 For users new to MicroLive, follow this basic workflow:
 
-1. **Load Data**: Open LIF or TIFF files via the Import tab
+1. **Load Data**: Open LIF, CZI, or TIFF files via the Import tab
 2. **Register** *(optional)*: Correct for sample drift in the Registration tab
 3. **Segment Cells**: Define regions of interest in the Segmentation tab
 4. **Correct Photobleaching** *(optional)*: Apply intensity correction before tracking
@@ -39,6 +39,7 @@ For detailed step-by-step instructions, see the [Complete Tutorial](tutorial.md)
 **Input Formats:**
 
 - **LIF Files**: Native Leica format with complete metadata extraction
+- **CZI Files**: Zeiss format with metadata extraction; automatic Apotome grid removal for raw structured-illumination data
 - **TIFF/OME-TIFF**: Standard microscopy formats with embedded metadata support
 - **Multi-dimensional Arrays**: Automatic dimension mapping for arbitrary file structures
 
@@ -94,7 +95,7 @@ The application is organized into **12 main tabs** in the following order:
 
 ### Loading Workflow
 
-1. **Select Files**: Use "Open File" to browse for LIF or TIFF files
+1. **Select Files**: Use "Open File" to browse for LIF, CZI, or TIFF files
 2. **Handle Missing Metadata**: If prompted, enter missing values:
    - Pixel size in nanometers
    - Time interval in seconds

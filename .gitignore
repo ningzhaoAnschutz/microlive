@@ -111,3 +111,5 @@ dev/
 poster/
 .cache/
 simulations/tests/report_run*.md
+FISH_parameters.md
+test**
