@@ -9832,10 +9832,40 @@ class GUI(QMainWindow):
                     else:
                         label_color = 'white'
                     # Position: bottom-right of spot to avoid overlap with particle ID
-                    self.ax_tracking.text(row['x'] + 4, row['y'] + 4,
+                    self.ax_tracking.text(row['x'] + 2, row['y'] + 2,
                                            f"{int(row['cluster_size'])}",
                                            color=label_color, fontsize=7,
                                            ha='left', va='top')
+            if self.show_intensity_checkbox.isChecked():
+                # Filter to ROI if zoomed
+                df_to_label = df_frame
+                if self.tracking_zoom_roi is not None:
+                    x_min, x_max, y_min, y_max = self.tracking_zoom_roi
+                    df_to_label = df_frame[(df_frame['x'] >= x_min) & (df_frame['x'] <= x_max) &
+                                          (df_frame['y'] >= y_min) & (df_frame['y'] <= y_max)]
+                for _, row in df_to_label.iterrows():
+                    # Always use the spot's own detection channel for intensity
+                    if 'spot_type' in row.index:
+                        ch = int(row['spot_type'])
+                    else:
+                        ch = self.current_channel
+                    # Build column name and check existence
+                    int_col = f'spot_int_ch_{ch}'
+                    if int_col not in df_to_label.columns:
+                        break  # No intensity data (e.g., Single Frame mode)
+                    val = row[int_col]
+                    if pd.notna(val) and val != 0:
+                        # Use channel-specific color when showing all channels
+                        if show_all_channels and 'spot_type' in row.index:
+                            label_color = channel_colors[ch % len(channel_colors)]
+                        else:
+                            label_color = 'white'
+                        # Position: bottom-left of spot to avoid overlap with
+                        # cluster size (bottom-right) and particle ID (top-left)
+                        self.ax_tracking.text(row['x'] - 2, row['y'] + 2,
+                                               f"{int(val)}",
+                                               color=label_color, fontsize=6,
+                                               ha='right', va='top')
             if self.show_particle_id_checkbox.isChecked() and 'particle' in df_frame.columns:
                 # Filter to ROI if zoomed
                 df_to_label = df_frame
@@ -9850,7 +9880,7 @@ class GUI(QMainWindow):
                     else:
                         label_color = 'white'
                     # Position: top-left of spot to avoid overlap with cluster size
-                    self.ax_tracking.text(row['x'] - 4, row['y'] - 4,
+                    self.ax_tracking.text(row['x'] - 2, row['y'] - 2,
                                            f"{int(row['particle'])}",
                                            color=label_color, fontsize=6,
                                            ha='right', va='bottom')
@@ -10657,6 +10687,11 @@ class GUI(QMainWindow):
         self.show_cluster_size_checkbox.setChecked(False)
         self.show_cluster_size_checkbox.stateChanged.connect(self.plot_tracking)
         checkbox_layout.addWidget(self.show_cluster_size_checkbox)
+        # Add intensity label QCheckbox
+        self.show_intensity_checkbox = QCheckBox("Intensity")
+        self.show_intensity_checkbox.setChecked(False)
+        self.show_intensity_checkbox.stateChanged.connect(self.plot_tracking)
+        checkbox_layout.addWidget(self.show_intensity_checkbox)
         # Add particle ID QCheckbox
         self.show_particle_id_checkbox = QCheckBox("Particle ID")
         self.show_particle_id_checkbox.setChecked(False)
