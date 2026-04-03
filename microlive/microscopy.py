@@ -7043,702 +7043,6 @@ class PointSpreadFunction():
 
 
 
-# class Correlation:
-#     """
-#     A class for calculating auto/cross-correlation with robust baseline correction and
-#     constant-denominator normalization.
-
-#     Key improvements (vs previous):
-#       • Constant denominator across τ (⟨a⟩·⟨b⟩), avoiding lag-dependent bias.
-#       • Robust 'auto_plateau' baseline estimation with weighted trimmed mean.
-#       • Same baseline workflow applied inside bootstrap iterations.
-#       • Works with incomplete / unequal-length / NaN-riddled data.
-#       • Multi-tau path returns weights to help plateau estimation.
-
-#     Attributes (new/updated):
-#         baseline_method (str): 'auto_plateau' (default), 'exp_tail', 'percentile', or 'none'.
-#         baseline_plateau_fraction (float): Fraction of the *positive-lag* range used as a fallback (default 0.25).
-#         baseline_percentile (float): Percentile used in percentile fallback (default 10.0).
-#         baseline_smooth_window (int): Odd window (points) for smoothing before derivative (default 7).
-#         baseline_min_points (int): Minimum points required in plateau window (default 5).
-#         baseline_weight_by_pairs (bool): Weight baseline by overlap counts if available (default True).
-#         use_global_mean (bool): If True, denominator uses global means; else per-trace means (still constant across τ).
-
-#     All other arguments preserved from your original signature for compatibility.
-#     """
-
-#     def __init__(
-#         self,
-#         primary_data,
-#         secondary_data=None,
-#         max_lag=None,
-#         nan_handling='zeros',
-#         return_full=True,
-#         use_bootstrap=True,
-#         shift_data=False,
-#         show_plot=False,
-#         save_plots=False,
-#         plot_name='temp_AC.png',
-#         time_interval_between_frames_in_seconds=1,
-#         index_max_lag_for_fit=None,
-#         color_channel=0,
-#         start_lag=0,
-#         line_color='blue',
-#         line_color_fit ='red',
-#         correct_baseline=False,
-#         baseline_offset=None,
-#         use_global_mean=False,
-#         plot_title=None,
-#         fit_type='linear',
-#         de_correlation_threshold=0.01,
-#         use_linear_projection_for_lag_0=True,
-#         normalize_plot_with_g0=False,
-#         remove_outliers=True,
-#         MAD_THRESHOLD_FACTOR=6.0,
-#         plot_individual_trajectories=False,
-#         y_axes_min_max_list_values=None,
-#         x_axes_min_max_list_values=None,
-#         multi_tau=False,
-#         multi_tau_raw_points: int = 20,
-#         multi_tau_bins_per_stage: int = 8,
-#         # --- New baseline parameters ---
-#         baseline_method: str = 'auto_plateau',     # 'auto_plateau' | 'exp_tail' | 'percentile' | 'none'
-#         baseline_plateau_fraction: float = 0.25,   # fallback: last fraction of positive lags
-#         baseline_percentile: float = 10.0,         # fallback percentile (for 'percentile' and last-tail guards)
-#         baseline_smooth_window: int = 7,           # odd number
-#         baseline_min_points: int = 5,
-#         baseline_weight_by_pairs: bool = True,
-#         figsize=(8, 6),
-#     ):
-#         # Optional shift to remove leading NaNs
-#         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
-#             if data1.ndim != 1:
-#                 raise ValueError("Both data1 and data2 must be 1D arrays.")
-#             nan_count = 0
-#             for value in data1:
-#                 if np.isnan(value):
-#                     nan_count += 1
-#                 else:
-#                     break
-#             if nan_count >= min_nan_threshold:
-#                 fill_value = np.nan if fill_with_nans else 0
-#                 new_data1 = np.full_like(data1, fill_value)
-#                 new_data1[: len(data1) - nan_count] = data1[nan_count:]
-#                 if data2 is not None:
-#                     new_data2 = np.full_like(data2, fill_value)
-#                     new_data2[: len(data2) - nan_count] = data2[nan_count:]
-#                 else:
-#                     new_data2 = None
-#                 return new_data1, new_data2
-#             return data1, data2
-
-#         if shift_data:
-#             primary_data_shifted = np.zeros_like(primary_data)
-#             secondary_data_shifted = np.zeros_like(secondary_data) if secondary_data is not None else None
-#             for i in range(primary_data.shape[0]):
-#                 if secondary_data is None:
-#                     primary_data_shifted[i, :], _ = shift_and_fill(primary_data[i, :], None, min_nan_threshold=2)
-#                 else:
-#                     p, s = shift_and_fill(primary_data[i, :], secondary_data[i, :], min_nan_threshold=2)
-#                     primary_data_shifted[i, :], secondary_data_shifted[i, :] = p, s
-#             primary_data = primary_data_shifted
-#             if secondary_data is not None:
-#                 secondary_data = secondary_data_shifted
-
-#         # Store attributes
-#         self.primary_data = primary_data
-#         self.secondary_data = secondary_data
-#         self.max_lag = max_lag
-#         self.nan_handling = nan_handling
-#         self.return_full = return_full
-#         self.use_bootstrap = use_bootstrap
-#         self.BOOTSTRAP_ITERATIONS = 1000
-#         self.time_interval_between_frames_in_seconds = float(time_interval_between_frames_in_seconds)
-#         self.index_max_lag_for_fit = index_max_lag_for_fit
-#         self.plot_name = plot_name
-#         self.save_plots = save_plots
-#         self.show_plot = show_plot
-#         self.color_channel = color_channel
-#         self.start_lag = start_lag
-#         self.line_color = line_color
-#         self.line_color_fit = line_color_fit
-#         self.plot_title = plot_title
-#         self.fit_type = fit_type
-#         self.de_correlation_threshold =  max(de_correlation_threshold, 0.0)
-#         self.use_linear_projection_for_lag_0 = use_linear_projection_for_lag_0
-#         self.normalize_plot_with_g0 = normalize_plot_with_g0
-#         self.correct_baseline = correct_baseline
-#         self.baseline_method = baseline_method
-#         self.baseline_plateau_fraction = float(baseline_plateau_fraction)
-#         self.baseline_percentile = float(baseline_percentile)
-#         self.baseline_smooth_window = int(baseline_smooth_window)
-#         if self.baseline_smooth_window % 2 == 0:
-#             self.baseline_smooth_window += 1
-#         self.baseline_min_points = int(baseline_min_points)
-#         self.baseline_weight_by_pairs = bool(baseline_weight_by_pairs)
-
-#         if baseline_offset is None:
-#             self.baseline_offset = int(primary_data.shape[1] // 2)
-#         else:
-#             self.baseline_offset = baseline_offset
-#         if correct_baseline:
-#             self.plot_individual_trajectories = False
-#         self.use_global_mean = use_global_mean
-#         self.remove_outliers = remove_outliers
-#         self.MAD_THRESHOLD_FACTOR = MAD_THRESHOLD_FACTOR
-#         self.plot_individual_trajectories = plot_individual_trajectories
-#         self.y_axes_min_max_list_values = y_axes_min_max_list_values
-#         self.x_axes_min_max_list_values = x_axes_min_max_list_values
-#         self.multi_tau = multi_tau
-#         self.multi_tau_raw_points = multi_tau_raw_points
-#         self.multi_tau_bins_per_stage = multi_tau_bins_per_stage
-#         self.figsize = figsize
-
-#     # ------------------------- helpers -------------------------
-
-#     @staticmethod
-#     def _trim_nans_from_edges(data):
-#         mask = ~np.isnan(data)
-#         if not np.any(mask):
-#             return np.array([])
-#         start_idx = np.argmax(mask)
-#         end_idx = len(mask) - np.argmax(mask[::-1])
-#         return data[start_idx:end_idx]
-
-#     @staticmethod
-#     def _forward_fill_func(data):
-#         not_nan = ~np.isnan(data)
-#         if not np.any(not_nan):
-#             return np.array([])
-#         first_valid_index = np.argmax(not_nan)
-#         last_valid_index = len(data) - np.argmax(not_nan[::-1]) - 1
-#         trimmed = data[first_valid_index:last_valid_index + 1]
-#         mask_ff = np.isnan(trimmed)
-#         idx = np.where(~mask_ff, np.arange(len(trimmed)), 0)
-#         np.maximum.accumulate(idx, out=idx)
-#         filled = trimmed[idx]
-#         result = np.full_like(data, np.nan)
-#         result[first_valid_index:last_valid_index + 1] = filled
-#         return result
-
-#     @staticmethod
-#     def _running_median(x, w):
-#         if len(x) < w:
-#             return x.copy()
-#         y = np.copy(x)
-#         half = w // 2
-#         for i in range(len(x)):
-#             lo = max(0, i - half)
-#             hi = min(len(x), i + half + 1)
-#             y[i] = np.nanmedian(x[lo:hi])
-#         return y
-
-#     def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False, lag_range=None):
-#         """
-#         Robust baseline estimator with optional lag range restriction.
-#             Strategy:
-#                 1) Work on positive lags (exclude τ=0) to find plateau.
-#                 2) Smooth with running median (baseline_smooth_window).
-#                 3) Find earliest index after self.start_lag where |d/dτ| <= 2*MAD and the condition holds
-#                 for at least baseline_min_points.
-#                 4) If detection fails, use the last `baseline_plateau_fraction` of positive lags.
-#                 5) Take a weighted trimmed mean (10–90% by default) over that window.
-
-#             Returns: scalar baseline B (float).
-#             if np.all(~np.isfinite(mean_corr)):
-#             return 0.0
-#         Parameters
-#         ----------
-#         lag_range : tuple or None
-#             If provided, (min_lag, max_lag) to restrict baseline estimation region.
-#             For example, (0, self.max_lag) to only use lags from 0 to max_lag.
-#         """
-#         if np.all(~np.isfinite(mean_corr)):
-#             return 0.0
-
-#         # Select positive-lag branch
-#         if symmetric:
-#             center = len(lags) // 2
-#             pos_corr = mean_corr[center + 1:]
-#             pos_lags = lags[center + 1:]
-#             pos_w = (weights[center + 1:] if weights is not None else None)
-#         else:
-#             pos_corr = mean_corr[1:] if len(mean_corr) > 1 else mean_corr.copy()
-#             pos_lags = lags[1:] if len(lags) > 1 else lags.copy()
-#             pos_w = (weights[1:] if (weights is not None and len(weights) > 1) else None)
-
-#         if lag_range is not None:
-#             min_lag, max_lag = lag_range
-#             mask = (pos_lags >= min_lag) & (pos_lags <= max_lag)
-#             pos_corr = pos_corr[mask]
-#             pos_lags = pos_lags[mask]
-#             if pos_w is not None:
-#                 pos_w = pos_w[mask]
-
-#         if len(pos_corr) < max(self.baseline_min_points, 3):
-#             return np.nanpercentile(pos_corr[np.isfinite(pos_corr)], self.baseline_percentile) if np.any(np.isfinite(pos_corr)) else 0.0
-
-#         # Smooth and derivative
-#         y = self._running_median(pos_corr, self.baseline_smooth_window)
-#         dy = np.gradient(y, pos_lags) if len(pos_lags) > 1 else np.zeros_like(y)
-#         mad = np.nanmedian(np.abs(dy - np.nanmedian(dy))) if np.any(np.isfinite(dy)) else 0.0
-#         if mad == 0 or not np.isfinite(mad):
-#             mad = np.nanstd(dy) if np.isfinite(np.nanstd(dy)) and np.nanstd(dy) > 0 else 1.0
-
-#         # Start after requested start_lag
-#         start_idx = np.searchsorted(pos_lags, self.start_lag)
-
-#         # Find plateau candidates: |dy| <= 2*MAD for a consecutive run >= baseline_min_points
-#         good = np.isfinite(dy) & (np.abs(dy) <= 2.0 * mad)
-#         good[:start_idx] = False
-
-#         plateau_start = None
-#         run = 0
-#         for i in range(len(good)):
-#             if good[i]:
-#                 run += 1
-#                 if run >= self.baseline_min_points:
-#                     plateau_start = i - self.baseline_min_points + 1
-#                     break
-#             else:
-#                 run = 0
-
-#         if plateau_start is None:
-#             # Fallback window: last fraction of positive lags
-#             frac = np.clip(self.baseline_plateau_fraction, 0.05, 0.8)
-#             n = len(pos_corr)
-#             win_start = int(n * (1.0 - frac))
-#             win = pos_corr[win_start:]
-#             ww = (pos_w[win_start:] if (self.baseline_weight_by_pairs and pos_w is not None) else None)
-#         else:
-#             win = pos_corr[plateau_start:]
-#             ww = (pos_w[plateau_start:] if (self.baseline_weight_by_pairs and pos_w is not None) else None)
-
-#         # Trim outliers (10–90%) and compute (weighted) mean
-#         if not np.any(np.isfinite(win)):
-#             return 0.0
-#         finite_mask = np.isfinite(win)
-#         win = win[finite_mask]
-#         ww = (ww[finite_mask] if ww is not None else None)
-
-#         lo = np.nanpercentile(win, self.baseline_percentile)
-#         hi = np.nanpercentile(win, 100.0 - self.baseline_percentile)
-#         keep = (win >= lo) & (win <= hi)
-#         win = win[keep]
-#         if ww is not None:
-#             ww = ww[keep]
-#             if np.any(ww > 0):
-#                 return float(np.nansum(ww * win) / np.nansum(ww))
-#         return float(np.nanmean(win))
-
-#     # ------------------------- main -------------------------
-
-#     def run(self):
-#         """
-#         Execute the correlation calculations with optional bootstrap error estimation.
-#         Returns:
-#             (mean_correlation, error_correlation, lags, correlations_array, dwell_time)
-#         """
-
-#         if self.max_lag is None:
-#             self.max_lag = self.primary_data.shape[1] - 1
-#         else:
-#             if self.max_lag >= self.primary_data.shape[1]:
-#                 raise ValueError("Max lag cannot be greater than the length of the time series.")
-
-#         # Prepare forward fill function if needed
-#         if self.nan_handling == "forward_fill":
-#             local_forward_fill = self._forward_fill_func
-#         else:
-#             local_forward_fill = lambda arr: arr
-
-#         # Global means for constant denominator if requested
-#         global_mean_data1 = np.nanmean(self.primary_data)
-#         if self.secondary_data is not None:
-#             global_mean_data2 = np.nanmean(self.secondary_data)
-#         else:
-#             global_mean_data2 = global_mean_data1
-
-#         # -------- linear (uniform) lags path --------
-#         if not self.multi_tau:
-#             def process_sample_linear(i):
-#                 try:
-#                     data1 = self._trim_nans_from_edges(self.primary_data[i, :])
-#                     data2 = self._trim_nans_from_edges(self.secondary_data[i, :]) if self.secondary_data is not None else None
-#                     if data2 is None:
-#                         data2 = data1
-
-#                     # nan handling
-#                     if self.nan_handling == "mean":
-#                         m1 = np.nanmean(data1) if len(data1) > 0 else 0.0
-#                         m2 = np.nanmean(data2) if len(data2) > 0 else 0.0
-#                         data1 = np.nan_to_num(data1, nan=m1)
-#                         data2 = np.nan_to_num(data2, nan=m2)
-#                     elif self.nan_handling == "forward_fill":
-#                         data1 = local_forward_fill(data1)
-#                         data2 = local_forward_fill(data2)
-#                     # Ensure same length before masking to avoid broadcast errors
-#                     elif self.nan_handling == "ignore":
-#                         if len(data1) != len(data2):
-#                             Nmin = min(len(data1), len(data2))
-#                             data1 = data1[:Nmin]
-#                             data2 = data2[:Nmin]
-#                         valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-#                         data1 = data1[valid_mask]
-#                         data2 = data2[valid_mask]
-#                     elif self.nan_handling == "zeros":
-#                         data1 = np.nan_to_num(data1)
-#                         data2 = np.nan_to_num(data2)
-#                     # align lengths
-#                     N0 = min(len(data1), len(data2))
-#                     if N0 < 5:
-#                         L = 2 * self.max_lag + 1
-#                         return np.full(L, np.nan), np.zeros(L)
-#                     data1 = data1[:N0]
-#                     data2 = data2[:N0]
-#                     # constant denominator
-#                     if self.use_global_mean:
-#                         denom = global_mean_data1 * global_mean_data2
-#                     else:
-#                         denom = np.nanmean(data1) * np.nanmean(data2)
-#                     if not np.isfinite(denom) or denom == 0:
-#                         L = 2 * self.max_lag + 1
-#                         return np.full(L, np.nan), np.zeros(L)
-#                     # center
-#                     c1 = data1 - (global_mean_data1 if self.use_global_mean else np.nanmean(data1))
-#                     c2 = data2 - (global_mean_data2 if self.use_global_mean else np.nanmean(data2))
-#                     # correlation on centered signals
-#                     raw = np.correlate(c2, c1, mode="full")  # swapped order so +j means data2 after data1
-#                     mid = N0 - 1
-#                     desired_len = 2 * self.max_lag + 1
-#                     out = np.full(desired_len, np.nan)
-#                     weights = np.zeros(desired_len, dtype=np.float64)
-#                     # per-lag average (divide by overlap), then normalize by constant denom
-#                     for j in range(-self.max_lag, self.max_lag + 1):
-#                         idx_raw = mid + j
-#                         if 0 <= idx_raw < len(raw):
-#                             overlap = N0 - abs(j)
-#                             if overlap >= max(10, int(0.05 * N0)):
-#                                 val = (raw[idx_raw] / overlap) / denom
-#                                 out[j + self.max_lag] = val
-#                                 weights[j + self.max_lag] = overlap
-#                     return out, weights
-#                 except Exception as e:
-#                     L = 2 * self.max_lag + 1
-#                     print(f"Error in process_sample_linear for sample {i}: {e}")
-#                     return np.full(L, np.nan), np.zeros(L)
-
-#             results = Parallel(n_jobs=-1)(
-#                 delayed(process_sample_linear)(i) for i in range(self.primary_data.shape[0])
-#             )
-#             correlations_array = np.stack([r[0] for r in results], axis=0)
-#             pair_weights_array = np.stack([r[1] for r in results], axis=0)
-#             lag_weights_total = np.nansum(pair_weights_array, axis=0)
-
-#         # -------- multi-tau path (positive lags) --------
-#         else:
-#             N0 = self.primary_data.shape[1]
-#             global_lags_idx = []
-#             current_length = N0
-#             dt_factor = 1
-#             stage = 0
-#             while True:
-#                 if stage == 0:
-#                     start_i = 0
-#                     end_i = min(self.multi_tau_raw_points - 1, self.max_lag, current_length - 1)
-#                 else:
-#                     start_i = self.multi_tau_bins_per_stage // 2
-#                     end_i = min(self.multi_tau_bins_per_stage + start_i - 1,
-#                                 int(self.max_lag // dt_factor), current_length - 1)
-#                 if start_i > end_i:
-#                     break
-#                 for i_val in range(start_i, end_i + 1):
-#                     lag_val = i_val * dt_factor
-#                     if lag_val <= self.max_lag:
-#                         global_lags_idx.append(lag_val)
-#                 new_length = current_length // 2
-#                 if new_length < 2:
-#                     break
-#                 current_length = new_length
-#                 dt_factor *= 2
-#                 stage += 1
-#             global_lags_idx = np.array(sorted(set(global_lags_idx)), dtype=int)
-#             idx_map = {lag: idx for idx, lag in enumerate(global_lags_idx)}
-
-#             def process_sample_multi_tau(i):
-#                 try:
-#                     data1 = self._trim_nans_from_edges(self.primary_data[i, :])
-#                     data2 = self._trim_nans_from_edges(self.secondary_data[i, :]) if self.secondary_data is not None else None
-#                     if data2 is None:
-#                         data2 = data1
-#                     # nan handling
-#                     if self.nan_handling == "mean":
-#                         m1 = np.nanmean(data1) if len(data1) > 0 else 0.0
-#                         m2 = np.nanmean(data2) if len(data2) > 0 else 0.0
-#                         data1 = np.nan_to_num(data1, nan=m1)
-#                         data2 = np.nan_to_num(data2, nan=m2)
-#                     elif self.nan_handling == "forward_fill":
-#                         data1 = local_forward_fill(data1)
-#                         data2 = local_forward_fill(data2)
-#                     elif self.nan_handling == "ignore":
-#                         # Ensure same length before masking to avoid broadcast errors
-#                         if len(data1) != len(data2):
-#                             Nmin = min(len(data1), len(data2))
-#                             data1 = data1[:Nmin]
-#                             data2 = data2[:Nmin]
-#                         valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-#                         data1 = data1[valid_mask]
-#                         data2 = data2[valid_mask]
-#                     elif self.nan_handling == "zeros":
-#                         data1 = np.nan_to_num(data1)
-#                         data2 = np.nan_to_num(data2)
-#                     N = min(len(data1), len(data2))
-#                     if N < 5:
-#                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-#                     data1 = data1[:N]
-#                     data2 = data2[:N]
-#                     # constant denominator
-#                     if self.use_global_mean:
-#                         denom = global_mean_data1 * global_mean_data2
-#                     else:
-#                         denom = np.nanmean(data1) * np.nanmean(data2)
-#                     if not np.isfinite(denom) or denom == 0:
-#                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-#                     # centered for covariance
-#                     mean1 = (global_mean_data1 if self.use_global_mean else np.nanmean(data1))
-#                     mean2 = (global_mean_data2 if self.use_global_mean else np.nanmean(data2))
-#                     c1_full = data1 - mean1
-#                     c2_full = data2 - mean2
-#                     out = np.full(len(global_lags_idx), np.nan, dtype=np.float64)
-#                     wv  = np.zeros(len(global_lags_idx), dtype=np.float64)
-#                     MIN_OVERLAP = 5
-#                     stage = 0
-#                     current_c1 = c1_full.copy()
-#                     current_c2 = c2_full.copy()
-#                     current_raw1 = data1.copy()
-#                     current_raw2 = data2.copy()
-#                     dt = 1
-#                     while True:
-#                         curN = len(current_c1)
-#                         if curN < MIN_OVERLAP:
-#                             break
-#                         if stage == 0:
-#                             start_i = 0
-#                             end_i = min(self.multi_tau_raw_points - 1, self.max_lag, curN - 1)
-#                         else:
-#                             start_i = self.multi_tau_bins_per_stage // 2
-#                             end_i = min(self.multi_tau_bins_per_stage + start_i - 1,
-#                                         int(self.max_lag // dt), curN - 1)
-#                         if start_i > end_i:
-#                             break
-#                         for j in range(start_i, end_i + 1):
-#                             overlap = curN - j
-#                             if overlap < MIN_OVERLAP:
-#                                 continue
-#                             raw_sum = np.nansum(current_c1[:curN - j] * current_c2[j:curN])
-#                             lag_index = j * dt
-#                             idx = idx_map.get(lag_index, None)
-#                             if idx is not None:
-#                                 out[idx] = (raw_sum / overlap) / denom
-#                                 wv[idx]  = overlap
-#                         # prepare next stage (downsample by 2)
-#                         new_len = curN // 2
-#                         if new_len < 2:
-#                             break
-#                         new_raw1 = 0.5 * (current_raw1[:2*new_len:2] + current_raw1[1:2*new_len:2])
-#                         if self.secondary_data is None:
-#                             new_raw2 = new_raw1
-#                         else:
-#                             new_raw2 = 0.5 * (current_raw2[:2*new_len:2] + current_raw2[1:2*new_len:2])
-#                         if self.use_global_mean:
-#                             m1 = global_mean_data1
-#                             m2 = global_mean_data2
-#                         else:
-#                             m1 = np.nanmean(new_raw1)
-#                             m2 = np.nanmean(new_raw2)
-#                         current_c1 = new_raw1 - m1
-#                         current_c2 = new_raw2 - m2
-#                         current_raw1 = new_raw1
-#                         current_raw2 = new_raw2
-#                         dt *= 2
-#                         stage += 1
-#                     return out, wv
-#                 except Exception as e:
-#                     print(f"Error in process_sample_multi_tau for sample {i}: {e}")
-#                     return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-#             results = Parallel(n_jobs=-1)(
-#                 delayed(process_sample_multi_tau)(i) for i in range(self.primary_data.shape[0])
-#             )
-#             correlations_array = np.stack([r[0] for r in results], axis=0)
-#             pair_weights_array = np.stack([r[1] for r in results], axis=0)
-#             lag_weights_total = np.nansum(pair_weights_array, axis=0)
-#         # ----- Outlier trajectories removal (unchanged policy) -----
-#         if self.remove_outliers and correlations_array.size > 0:
-#             traj_means = np.nanmean(correlations_array, axis=1)
-#             median_mean = np.nanmedian(traj_means)
-#             mad = np.nanmedian(np.abs(traj_means - median_mean))
-#             keep_mask = np.ones_like(traj_means, dtype=bool) if (mad == 0 or np.isnan(mad)) else (
-#                 np.abs(traj_means - median_mean) < self.MAD_THRESHOLD_FACTOR * mad
-#             )
-#             num_removed = np.sum(~keep_mask)
-#             correlations_array = correlations_array[keep_mask, :]
-#         # ----- If nothing valid remains -----
-#         if correlations_array.shape[0] == 0:
-#             length = correlations_array.shape[1] if correlations_array.ndim > 1 else (
-#                 (len(global_lags_idx) if self.multi_tau else (2 * self.max_lag + 1))
-#             )
-#             mean_correlation = np.full(length, np.nan)
-#             error_correlation = np.full_like(mean_correlation, np.nan)
-#             if not self.multi_tau:
-#                 lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
-#             else:
-#                 lags = global_lags_idx * self.time_interval_between_frames_in_seconds
-#             return mean_correlation, error_correlation, lags, correlations_array, None
-#         # ----- Mean & baseline correction -----
-#         mean_correlation = np.nanmean(correlations_array, axis=0)
-#         if not self.multi_tau:
-#             lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
-#             symmetric = True
-#         else:
-#             lags = global_lags_idx * self.time_interval_between_frames_in_seconds
-#             symmetric = False
-
-#         def apply_baseline(c, lag_weights):
-#             if not self.correct_baseline or self.baseline_method == 'none':
-#                 return c, 0.0
-#             if self.baseline_method == 'exp_tail':
-#                 # optional exponential tail fit A*exp(-t/tau) + B over positive lags (robust to NaNs)
-#                 if symmetric:
-#                     pos_idx0 = len(c) // 2 + 1
-#                 else:
-#                     pos_idx0 = 1
-#                 tt = lags[pos_idx0:]
-#                 yy = c[pos_idx0:]
-#                 mask = np.isfinite(tt) & np.isfinite(yy)
-#                 if np.sum(mask) < 3:
-#                     B = np.nanpercentile(yy[np.isfinite(yy)], self.baseline_percentile) if np.any(np.isfinite(yy)) else 0.0
-#                 else:
-#                     try:
-#                         y_fit = yy[mask]
-#                         t_fit = tt[mask]
-#                         # guard initial guesses
-#                         B_guess = np.nanpercentile(y_fit, 10)
-#                         A_guess = (c[0] if np.isfinite(c[0]) else np.nanmax(y_fit)) - B_guess
-#                         tau_guess = (t_fit[-1] - t_fit[0]) / 2.0 if len(t_fit) > 1 else 1.0
-#                         popt, _ = curve_fit(lambda t, A, tau, B: A*np.exp(-t/tau) + B,
-#                                             t_fit, y_fit, p0=[A_guess, tau_guess, B_guess],
-#                                             maxfev=10000)
-#                         B = float(popt[2])
-#                     except Exception:
-#                         B = np.nanpercentile(y_fit, self.baseline_percentile) if np.any(np.isfinite(y_fit)) else 0.0
-#                 return c - B, B
-#             elif self.baseline_method in ('auto_plateau', 'percentile'):
-#                 w = (lag_weights if self.baseline_weight_by_pairs else None)
-#                 B = self._estimate_baseline(c, lags, weights=w, symmetric=symmetric, lag_range=(0, self.max_lag * self.time_interval_between_frames_in_seconds))
-#                 return c - B, B
-#             else:
-#                 return c, 0.0
-#         mean_correlation, B_used = apply_baseline(mean_correlation, lag_weights_total)
-#         # ----- Bootstrap error -----
-#         num_kept = correlations_array.shape[0]
-#         if self.use_bootstrap and num_kept > 1:
-#             def single_bootstrap_iteration(_):
-#                 rng = np.random.default_rng()
-#                 idx = rng.choice(num_kept, size=num_kept, replace=True)
-#                 sample = correlations_array[idx, :]
-#                 m = np.nanmean(sample, axis=0)
-#                 m, _ = apply_baseline(m, lag_weights_total)
-#                 return m
-#             all_means = np.array(
-#                 Parallel(n_jobs=-1)(
-#                     delayed(single_bootstrap_iteration)(_) for _ in range(self.BOOTSTRAP_ITERATIONS)
-#                 ),
-#                 dtype=np.float64
-#             )
-#             error_correlation = np.nanstd(all_means, axis=0)
-#         else:
-#             error_correlation = np.nanstd(correlations_array, axis=0) / np.sqrt(num_kept)
-#         # ----- Linear projection for lag=0 (unchanged policy) -----
-#         if self.use_linear_projection_for_lag_0 and not self.multi_tau:
-#             center_idx = self.max_lag
-#             if self.secondary_data is None:
-#                 if center_idx - 6 >= 0 and center_idx - 1 >= 0:
-#                     x = lags[center_idx - 6: center_idx - 1]
-#                     y = mean_correlation[center_idx - 5: center_idx]
-#                     if len(x) > 1 and np.all(np.isfinite(y)):
-#                         _, intercept, _, _, _ = linregress(x, y)
-#                         mean_correlation[center_idx] = intercept
-#                 if center_idx < len(error_correlation):
-#                     error_correlation[center_idx] = 0.0
-#             else:
-#                 if center_idx - 6 >= 0 and center_idx - 1 >= 0:
-#                     x_bef = lags[center_idx - 6: center_idx - 1]
-#                     y_bef = mean_correlation[center_idx - 5: center_idx]
-#                     corr_before = linregress(x_bef, y_bef).intercept if len(x_bef) > 1 and np.all(np.isfinite(y_bef)) else mean_correlation[center_idx]
-#                 else:
-#                     corr_before = mean_correlation[center_idx]
-#                 if center_idx + 6 < len(mean_correlation):
-#                     x_aft = lags[center_idx + 1: center_idx + 6]
-#                     y_aft = mean_correlation[center_idx + 1: center_idx + 6]
-#                     corr_after = linregress(x_aft, y_aft).intercept if len(x_aft) > 1 and np.all(np.isfinite(y_aft)) else mean_correlation[center_idx]
-#                 else:
-#                     corr_after = mean_correlation[center_idx]
-#                 mean_correlation[center_idx] = np.nanmax([corr_before, corr_after])
-#                 if center_idx < len(error_correlation):
-#                     error_correlation[center_idx] = 0.0
-
-#         # ----- Return only positive lags if requested (uniform-lag path) -----
-#         if not self.multi_tau and not self.return_full:
-#             center_idx = self.max_lag
-#             mean_correlation = mean_correlation[center_idx:]
-#             error_correlation = error_correlation[center_idx:]
-#             correlations_array = correlations_array[:, center_idx:]
-#             lags = lags[center_idx:]
-#         # ----- Plot (unchanged) -----
-#         dwell_time = None
-#         if self.show_plot:
-#             if self.secondary_data is None:
-#                 dwell_time = Plots().plot_autocorrelation(
-#                     mean_correlation=mean_correlation,
-#                     error_correlation=error_correlation,
-#                     lags=lags,
-#                     correlations_array=correlations_array,
-#                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
-#                     index_max_lag_for_fit=self.index_max_lag_for_fit,
-#                     start_lag=self.start_lag,
-#                     plot_name=self.plot_name,
-#                     save_plots=self.save_plots,
-#                     line_color=self.line_color,
-#                     line_color_fit=self.line_color_fit,
-#                     plot_title=self.plot_title,
-#                     fit_type=self.fit_type,
-#                     de_correlation_threshold=self.de_correlation_threshold,
-#                     normalize_plot_with_g0=self.normalize_plot_with_g0,
-#                     plot_individual_trajectories=self.plot_individual_trajectories,
-#                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
-#                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
-#                     figsize=self.figsize,
-#                 )
-#             else:
-#                 dwell_time = Plots().plot_crosscorrelation(
-#                     intensity_array_ch0=self.primary_data,
-#                     intensity_array_ch1=self.secondary_data,
-#                     mean_correlation=mean_correlation,
-#                     error_correlation=error_correlation,
-#                     lags=lags,
-#                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
-#                     plot_name=self.plot_name,
-#                     save_plots=self.save_plots,
-#                     line_color=self.line_color,
-#                     plot_title=self.plot_title,
-#                     normalize_plot_with_g0=self.normalize_plot_with_g0,
-#                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
-#                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
-
-#                 )
-
-#         return mean_correlation, error_correlation, lags, correlations_array, dwell_time
-
 class Correlation:
     """
     A class for calculating auto/cross-correlation with robust baseline correction and
@@ -7746,24 +7050,21 @@ class Correlation:
 
     Key improvements (vs previous):
       • Constant denominator across τ (⟨a⟩·⟨b⟩), avoiding lag-dependent bias.
-      • Proper overlap weighting across traces of different lengths as per Coulon & Larson (2016).
-      • Robust 'auto_plateau' baseline estimation finding the last contiguous plateau.
-      • Bounded exponential tail fitting to prevent curve_fit overflow.
-      • Mathematically exact handling of missing data/NaNs without shifting or breaking the temporal lag axis.
-      • Multi-tau path returns weights to help plateau estimation and properly averages valid points.
+      • Robust 'auto_plateau' baseline estimation with weighted trimmed mean.
+      • Same baseline workflow applied inside bootstrap iterations.
+      • Works with incomplete / unequal-length / NaN-riddled data.
+      • Multi-tau path returns weights to help plateau estimation.
 
-    Note on baseline drift:
-      Per-trajectory linear detrending is intentionally NOT performed here. The per-trajectory
-      mean subtraction (c = I - <I>) already removes DC offsets. Residual slow drift (e.g. from
-      cell-to-cell expression heterogeneity or minor illumination non-uniformity) should be
-      handled via correct_baseline=True with baseline_method='auto_plateau', which subtracts
-      the long-lag plateau of the ensemble-averaged ACF without distorting Var(I) or G(0).
+    Attributes (new/updated):
+        baseline_method (str): 'auto_plateau' (default), 'exp_tail', 'percentile', or 'none'.
+        baseline_plateau_fraction (float): Fraction of the *positive-lag* range used as a fallback (default 0.25).
+        baseline_percentile (float): Percentile used in percentile fallback (default 10.0).
+        baseline_smooth_window (int): Odd window (points) for smoothing before derivative (default 7).
+        baseline_min_points (int): Minimum points required in plateau window (default 5).
+        baseline_weight_by_pairs (bool): Weight baseline by overlap counts if available (default True).
+        use_global_mean (bool): If True, denominator uses global means; else per-trace means (still constant across τ).
 
-    nan_handling values:
-      'zeros'        — replace NaN with 0 before correlation (fast, slight underestimate of G(0))
-      'mean'         — replace NaN with per-trajectory mean
-      'forward_fill' — forward-fill NaN gaps
-      'ignore'       — leave NaN in place; validity masks (mask1/mask2) handle exclusion
+    All other arguments preserved from your original signature for compatibility.
     """
 
     def __init__(
@@ -7800,16 +7101,17 @@ class Correlation:
         multi_tau=False,
         multi_tau_raw_points: int = 20,
         multi_tau_bins_per_stage: int = 8,
-        baseline_method: str = 'auto_plateau',     # 'auto_plateau' | 'exp_tail' | 'percentile' | 'manual' | 'none'
-        baseline_manual_range: tuple = None,       # (min_time, max_time) fallback for when automatic behaviors fail
-        baseline_plateau_fraction: float = 0.25,   
-        baseline_percentile: float = 10.0,         
-        baseline_smooth_window: int = 7,           
+        # --- New baseline parameters ---
+        baseline_method: str = 'auto_plateau',     # 'auto_plateau' | 'exp_tail' | 'percentile' | 'none'
+        baseline_plateau_fraction: float = 0.25,   # fallback: last fraction of positive lags
+        baseline_percentile: float = 10.0,         # fallback percentile (for 'percentile' and last-tail guards)
+        baseline_smooth_window: int = 7,           # odd number
         baseline_min_points: int = 5,
         baseline_weight_by_pairs: bool = True,
         figsize=(8, 6),
-        detrend_photobleaching=False,
+        detrend_photobleaching: bool = False,
     ):
+        # Optional shift to remove leading NaNs
         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
             if data1.ndim != 1:
                 raise ValueError("Both data1 and data2 must be 1D arrays.")
@@ -7844,6 +7146,7 @@ class Correlation:
             if secondary_data is not None:
                 secondary_data = secondary_data_shifted
 
+        # Store attributes
         self.primary_data = primary_data
         self.secondary_data = secondary_data
         self.max_lag = max_lag
@@ -7867,7 +7170,6 @@ class Correlation:
         self.normalize_plot_with_g0 = normalize_plot_with_g0
         self.correct_baseline = correct_baseline
         self.baseline_method = baseline_method
-        self.baseline_manual_range = baseline_manual_range
         self.baseline_plateau_fraction = float(baseline_plateau_fraction)
         self.baseline_percentile = float(baseline_percentile)
         self.baseline_smooth_window = int(baseline_smooth_window)
@@ -7894,7 +7196,16 @@ class Correlation:
         self.figsize = figsize
         self.detrend_photobleaching = detrend_photobleaching
 
-    # ========================= helpers =========================
+    # ------------------------- helpers -------------------------
+
+    @staticmethod
+    def _trim_nans_from_edges(data):
+        mask = ~np.isnan(data)
+        if not np.any(mask):
+            return np.array([])
+        start_idx = np.argmax(mask)
+        end_idx = len(mask) - np.argmax(mask[::-1])
+        return data[start_idx:end_idx]
 
     @staticmethod
     def _forward_fill_func(data):
@@ -7924,39 +7235,30 @@ class Correlation:
             y[i] = np.nanmedian(x[lo:hi])
         return y
 
-    @staticmethod
-    def _weighted_mean(corr_arr, weight_arr):
-        """
-        Overlap-weighted average across traces (Coulon & Larson 2016, Eq. 9).
-        Each trace j at lag τ is weighted by the number of overlapping pairs used.
-        """
-        valid = ~np.isnan(corr_arr)
-        w_sum = np.nansum(np.where(valid, weight_arr, 0), axis=0)
-        weighted_vals = np.nansum(np.where(valid, corr_arr * weight_arr, 0), axis=0)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            res = np.where(w_sum > 0, weighted_vals / w_sum, np.nan)
-        return res
-
-    # ========================= baseline =========================
-
     def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False, lag_range=None):
         """
-        Robust baseline estimator.
-        
-        Strategy:
-            1) Work on positive lags (exclude τ=0).
-            2) Smooth with running median.
-            3) Find ALL runs where |d/dτ| <= 2*MAD for >= baseline_min_points consecutive points.
-            4) Take the LAST such run (largest lags = true baseline).
-            5) If no run found, fall back to last `baseline_plateau_fraction` of positive lags.
-            6) Compute weighted trimmed mean over that window.
-        
-        Returns: scalar baseline B (float).
+        Robust baseline estimator with optional lag range restriction.
+            Strategy:
+                1) Work on positive lags (exclude τ=0) to find plateau.
+                2) Smooth with running median (baseline_smooth_window).
+                3) Find earliest index after self.start_lag where |d/dτ| <= 2*MAD and the condition holds
+                for at least baseline_min_points.
+                4) If detection fails, use the last `baseline_plateau_fraction` of positive lags.
+                5) Take a weighted trimmed mean (10–90% by default) over that window.
+
+            Returns: scalar baseline B (float).
+            if np.all(~np.isfinite(mean_corr)):
+            return 0.0
+        Parameters
+        ----------
+        lag_range : tuple or None
+            If provided, (min_lag, max_lag) to restrict baseline estimation region.
+            For example, (0, self.max_lag) to only use lags from 0 to max_lag.
         """
         if np.all(~np.isfinite(mean_corr)):
             return 0.0
 
-        # --- Select positive-lag branch ---
+        # Select positive-lag branch
         if symmetric:
             center = len(lags) // 2
             pos_corr = mean_corr[center + 1:]
@@ -7967,13 +7269,9 @@ class Correlation:
             pos_lags = lags[1:] if len(lags) > 1 else lags.copy()
             pos_w = (weights[1:] if (weights is not None and len(weights) > 1) else None)
 
-        # --- Optional lag range restriction ---
         if lag_range is not None:
             min_lag, max_lag = lag_range
             mask = (pos_lags >= min_lag) & (pos_lags <= max_lag)
-            # FIX #7: fallback to full range if mask is empty
-            if not np.any(mask):
-                mask = np.ones(len(pos_lags), dtype=bool) 
             pos_corr = pos_corr[mask]
             pos_lags = pos_lags[mask]
             if pos_w is not None:
@@ -7982,60 +7280,33 @@ class Correlation:
         if len(pos_corr) < max(self.baseline_min_points, 3):
             return np.nanpercentile(pos_corr[np.isfinite(pos_corr)], self.baseline_percentile) if np.any(np.isfinite(pos_corr)) else 0.0
 
-        # --- Fast override for 'percentile' method ---
-        if self.baseline_method == 'percentile':
-            finite_mask = np.isfinite(pos_corr)
-            if not np.any(finite_mask):
-                return 0.0
-            return float(np.nanpercentile(pos_corr[finite_mask], self.baseline_percentile))
-
-        # --- Smooth and compute derivative ---
+        # Smooth and derivative
         y = self._running_median(pos_corr, self.baseline_smooth_window)
         dy = np.gradient(y, pos_lags) if len(pos_lags) > 1 else np.zeros_like(y)
-        
-        finite_dy = dy[np.isfinite(dy)]
-        if len(finite_dy) > 0:
-            med_dy = np.nanmedian(finite_dy)
-            mad = np.nanmedian(np.abs(finite_dy - med_dy))
-            if mad == 0:
-                mad = np.nanstd(finite_dy)
-        else:
-            mad = 1.0
-            
+        mad = np.nanmedian(np.abs(dy - np.nanmedian(dy))) if np.any(np.isfinite(dy)) else 0.0
         if mad == 0 or not np.isfinite(mad):
-            mad = 1.0
+            mad = np.nanstd(dy) if np.isfinite(np.nanstd(dy)) and np.nanstd(dy) > 0 else 1.0
 
-        # --- Start after requested start_lag ---
+        # Start after requested start_lag
         start_idx = np.searchsorted(pos_lags, self.start_lag)
 
-        # --- Find ALL plateau candidates ---
-        good = np.isfinite(dy) & (np.abs(dy) <= max(2.0 * mad, 1e-5))
-        if start_idx < len(good):
-            good[:start_idx] = False
+        # Find plateau candidates: |dy| <= 2*MAD for a consecutive run >= baseline_min_points
+        good = np.isfinite(dy) & (np.abs(dy) <= 2.0 * mad)
+        good[:start_idx] = False
 
-        # FIX #4: Collect ALL qualifying runs, then take the LAST one.
-        # The last plateau at the largest lags is where the correlation
-        # has truly decayed to baseline (Coulon & Larson §2.5).
-        runs = []
-        current_run_start = None
+        plateau_start = None
+        run = 0
         for i in range(len(good)):
             if good[i]:
-                if current_run_start is None:
-                    current_run_start = i
+                run += 1
+                if run >= self.baseline_min_points:
+                    plateau_start = i - self.baseline_min_points + 1
+                    break
             else:
-                if current_run_start is not None:
-                    if i - current_run_start >= self.baseline_min_points:
-                        runs.append((current_run_start, i))
-                    current_run_start = None
-        # Handle run that extends to the end of the array
-        if current_run_start is not None and len(good) - current_run_start >= self.baseline_min_points:
-            runs.append((current_run_start, len(good)))
+                run = 0
 
-        plateau_start = runs[-1][0] if runs else None
-
-        # --- Select window ---
         if plateau_start is None:
-            # Fallback: last fraction of positive lags
+            # Fallback window: last fraction of positive lags
             frac = np.clip(self.baseline_plateau_fraction, 0.05, 0.8)
             n = len(pos_corr)
             win_start = int(n * (1.0 - frac))
@@ -8045,71 +7316,39 @@ class Correlation:
             win = pos_corr[plateau_start:]
             ww = (pos_w[plateau_start:] if (self.baseline_weight_by_pairs and pos_w is not None) else None)
 
-        # --- Trimmed weighted mean ---
-        finite_mask = np.isfinite(win)
-        if not np.any(finite_mask):
+        # Trim outliers (10–90%) and compute (weighted) mean
+        if not np.any(np.isfinite(win)):
             return 0.0
-            
+        finite_mask = np.isfinite(win)
         win = win[finite_mask]
         ww = (ww[finite_mask] if ww is not None else None)
 
         lo = np.nanpercentile(win, self.baseline_percentile)
         hi = np.nanpercentile(win, 100.0 - self.baseline_percentile)
-        
-        keep = (win >= lo) & (win <= hi) if lo != hi else np.ones_like(win, dtype=bool)
+        keep = (win >= lo) & (win <= hi)
         win = win[keep]
-        
         if ww is not None:
             ww = ww[keep]
             if np.any(ww > 0):
                 return float(np.nansum(ww * win) / np.nansum(ww))
-                
-        if len(win) == 0:
-            return 0.0
         return float(np.nanmean(win))
 
-    # ========================= main =========================
+    # ------------------------- main -------------------------
 
     def run(self):
-        # ── Step 1: resolve default max_lag from array width ──────────────────
+        """
+        Execute the correlation calculations with optional bootstrap error estimation.
+        Returns:
+            (mean_correlation, error_correlation, lags, correlations_array, dwell_time)
+        """
+
         if self.max_lag is None:
             self.max_lag = self.primary_data.shape[1] - 1
-        elif self.max_lag >= self.primary_data.shape[1]:
-            # Clamp silently instead of raising — the caller may not know the
-            # exact data length in advance (e.g. NaN-padded arrays from GUI).
-            self.max_lag = self.primary_data.shape[1] - 1
-            logging.debug(
-                f"Correlation: max_lag clamped to {self.max_lag} "
-                f"(array width is {self.primary_data.shape[1]} frames)"
-            )
+        else:
+            if self.max_lag >= self.primary_data.shape[1]:
+                raise ValueError("Max lag cannot be greater than the length of the time series.")
 
-        # ── Step 2: clamp to the effective valid-data span ────────────────────
-        # Some traces may be NaN-padded after the real signal ends (e.g. a 400-
-        # point array where data actually stops at frame 200).  Computing lags
-        # beyond the longest valid span produces only NaN rows in the output,
-        # which can confuse downstream fitting.  We clamp proactively here.
-        all_data = (
-            [self.primary_data, self.secondary_data]
-            if self.secondary_data is not None
-            else [self.primary_data]
-        )
-        max_valid_span = 0
-        for arr in all_data:
-            for row in arr:
-                valid_idx = np.where(np.isfinite(row))[0]
-                if len(valid_idx) > 0:
-                    span = valid_idx[-1] - valid_idx[0] + 1
-                    max_valid_span = max(max_valid_span, span)
-
-        if max_valid_span > 0 and self.max_lag >= max_valid_span:
-            clamped = max_valid_span - 1
-            logging.debug(
-                f"Correlation: max_lag clamped from {self.max_lag} to {clamped} "
-                f"based on effective valid data span ({max_valid_span} frames)"
-            )
-            self.max_lag = clamped
-
-        # ── Step 2b: optional per-trajectory exponential detrend ──────────
+        # Optional per-trajectory exponential detrend (e.g. photobleaching)
         if self.detrend_photobleaching:
             _util = Utilities()
             self.primary_data = _util.detrend_trajectories(
@@ -8120,86 +7359,86 @@ class Correlation:
                     self.secondary_data, method='exponential'
                 )
 
-        local_forward_fill = self._forward_fill_func if self.nan_handling == "forward_fill" else lambda arr: arr
+        # Prepare forward fill function if needed
+        if self.nan_handling == "forward_fill":
+            local_forward_fill = self._forward_fill_func
+        else:
+            local_forward_fill = lambda arr: arr
 
+        # Global means for constant denominator if requested
         global_mean_data1 = np.nanmean(self.primary_data)
         if self.secondary_data is not None:
             global_mean_data2 = np.nanmean(self.secondary_data)
         else:
             global_mean_data2 = global_mean_data1
 
+        # -------- linear (uniform) lags path --------
         if not self.multi_tau:
             def process_sample_linear(i):
                 try:
-                    data1 = self.primary_data[i, :].copy()
-                    data2 = self.secondary_data[i, :].copy() if self.secondary_data is not None else data1.copy()
+                    data1 = self._trim_nans_from_edges(self.primary_data[i, :])
+                    data2 = self._trim_nans_from_edges(self.secondary_data[i, :]) if self.secondary_data is not None else None
+                    if data2 is None:
+                        data2 = data1
 
-                    # Trim leading/trailing NaN region (keep co-valid range)
-                    valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-                    if not np.any(valid_mask):
-                        L = 2 * self.max_lag + 1
-                        return np.full(L, np.nan), np.zeros(L)
-                        
-                    start_idx = np.argmax(valid_mask)
-                    end_idx = len(valid_mask) - np.argmax(valid_mask[::-1])
-                    data1 = data1[start_idx:end_idx]
-                    data2 = data2[start_idx:end_idx]
-
-                    # NaN handling within the trimmed region
+                    # nan handling
                     if self.nan_handling == "mean":
-                        m1 = np.nanmean(data1) if np.any(~np.isnan(data1)) else 0.0
-                        m2 = np.nanmean(data2) if np.any(~np.isnan(data2)) else 0.0
+                        m1 = np.nanmean(data1) if len(data1) > 0 else 0.0
+                        m2 = np.nanmean(data2) if len(data2) > 0 else 0.0
                         data1 = np.nan_to_num(data1, nan=m1)
                         data2 = np.nan_to_num(data2, nan=m2)
                     elif self.nan_handling == "forward_fill":
                         data1 = local_forward_fill(data1)
                         data2 = local_forward_fill(data2)
+                    # Preserve temporal structure: align lengths but keep
+                    # NaN positions in place.  Masks handle exclusion below.
                     elif self.nan_handling == "ignore":
-                        pass  # NaN positions excluded via mask1/mask2 below — no fill needed
+                        if len(data1) != len(data2):
+                            Nmin = min(len(data1), len(data2))
+                            data1 = data1[:Nmin]
+                            data2 = data2[:Nmin]
                     elif self.nan_handling == "zeros":
-                        data1 = np.nan_to_num(data1, nan=0.0)
-                        data2 = np.nan_to_num(data2, nan=0.0)
-                    
-                    N0 = len(data1)
+                        data1 = np.nan_to_num(data1)
+                        data2 = np.nan_to_num(data2)
+                    # align lengths
+                    N0 = min(len(data1), len(data2))
                     if N0 < 5:
                         L = 2 * self.max_lag + 1
                         return np.full(L, np.nan), np.zeros(L)
-
-                    # Constant denominator (Coulon & Larson Eq. 1-2)
+                    data1 = data1[:N0]
+                    data2 = data2[:N0]
+                    # constant denominator
                     if self.use_global_mean:
                         denom = global_mean_data1 * global_mean_data2
-                        m1_center = global_mean_data1
-                        m2_center = global_mean_data2
                     else:
                         denom = np.nanmean(data1) * np.nanmean(data2)
-                        m1_center = np.nanmean(data1)
-                        m2_center = np.nanmean(data2)
-
                     if not np.isfinite(denom) or denom == 0:
                         L = 2 * self.max_lag + 1
                         return np.full(L, np.nan), np.zeros(L)
-
-                    c1 = data1 - m1_center
-                    c2 = data2 - m2_center
-
-                    # Use masks for proper NaN-aware overlap counting
-                    c1_clean = np.where(np.isnan(c1), 0.0, c1)
-                    c2_clean = np.where(np.isnan(c2), 0.0, c2)
-                    mask1 = (~np.isnan(c1)).astype(np.float64)
-                    mask2 = (~np.isnan(c2)).astype(np.float64)
-
-                    raw = np.correlate(c2_clean, c1_clean, mode="full")
-                    overlap_counts = np.correlate(mask2, mask1, mode="full")
-
+                    # center
+                    c1 = data1 - (global_mean_data1 if self.use_global_mean else np.nanmean(data1))
+                    c2 = data2 - (global_mean_data2 if self.use_global_mean else np.nanmean(data2))
+                    # Build validity masks for NaN-aware overlap counting
+                    # (active for 'ignore'; for other modes data is already NaN-free)
+                    use_masks = np.any(np.isnan(c1)) or np.any(np.isnan(c2))
+                    if use_masks:
+                        mask1 = (~np.isnan(c1)).astype(np.float64)
+                        mask2 = (~np.isnan(c2)).astype(np.float64)
+                        c1 = np.nan_to_num(c1, nan=0.0)
+                        c2 = np.nan_to_num(c2, nan=0.0)
+                    # correlation on centered signals
+                    raw = np.correlate(c2, c1, mode="full")  # swapped order so +j means data2 after data1
+                    if use_masks:
+                        overlap_counts = np.correlate(mask2, mask1, mode="full")
                     mid = N0 - 1
                     desired_len = 2 * self.max_lag + 1
                     out = np.full(desired_len, np.nan)
                     weights = np.zeros(desired_len, dtype=np.float64)
-
+                    # per-lag average (divide by overlap), then normalize by constant denom
                     for j in range(-self.max_lag, self.max_lag + 1):
                         idx_raw = mid + j
                         if 0 <= idx_raw < len(raw):
-                            overlap = overlap_counts[idx_raw]
+                            overlap = overlap_counts[idx_raw] if use_masks else (N0 - abs(j))
                             if overlap >= max(10, int(0.05 * N0)):
                                 val = (raw[idx_raw] / overlap) / denom
                                 out[j + self.max_lag] = val
@@ -8217,8 +7456,8 @@ class Correlation:
             pair_weights_array = np.stack([r[1] for r in results], axis=0)
             lag_weights_total = np.nansum(pair_weights_array, axis=0)
 
+        # -------- multi-tau path (positive lags) --------
         else:
-            # -------- multi-tau path --------
             N0 = self.primary_data.shape[1]
             global_lags_idx = []
             current_length = N0
@@ -8249,69 +7488,65 @@ class Correlation:
 
             def process_sample_multi_tau(i):
                 try:
-                    data1 = self.primary_data[i, :].copy()
-                    data2 = self.secondary_data[i, :].copy() if self.secondary_data is not None else data1.copy()
-
-                    valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
-                    if not np.any(valid_mask):
-                        return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-                        
-                    start_idx = np.argmax(valid_mask)
-                    end_idx = len(valid_mask) - np.argmax(valid_mask[::-1])
-                    data1 = data1[start_idx:end_idx]
-                    data2 = data2[start_idx:end_idx]
-
+                    data1 = self._trim_nans_from_edges(self.primary_data[i, :])
+                    data2 = self._trim_nans_from_edges(self.secondary_data[i, :]) if self.secondary_data is not None else None
+                    if data2 is None:
+                        data2 = data1
+                    # nan handling
                     if self.nan_handling == "mean":
-                        m1 = np.nanmean(data1) if np.any(~np.isnan(data1)) else 0.0
-                        m2 = np.nanmean(data2) if np.any(~np.isnan(data2)) else 0.0
+                        m1 = np.nanmean(data1) if len(data1) > 0 else 0.0
+                        m2 = np.nanmean(data2) if len(data2) > 0 else 0.0
                         data1 = np.nan_to_num(data1, nan=m1)
                         data2 = np.nan_to_num(data2, nan=m2)
                     elif self.nan_handling == "forward_fill":
                         data1 = local_forward_fill(data1)
                         data2 = local_forward_fill(data2)
                     elif self.nan_handling == "ignore":
-                        pass  # NaN positions excluded via mask1/mask2 below — no fill needed
+                        # Preserve temporal structure: align lengths but keep
+                        # NaN positions in place.  Masks handle exclusion below.
+                        if len(data1) != len(data2):
+                            Nmin = min(len(data1), len(data2))
+                            data1 = data1[:Nmin]
+                            data2 = data2[:Nmin]
                     elif self.nan_handling == "zeros":
-                        data1 = np.nan_to_num(data1, nan=0.0)
-                        data2 = np.nan_to_num(data2, nan=0.0)
-
-                    N = len(data1)
+                        data1 = np.nan_to_num(data1)
+                        data2 = np.nan_to_num(data2)
+                    N = min(len(data1), len(data2))
                     if N < 5:
                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-
+                    data1 = data1[:N]
+                    data2 = data2[:N]
+                    # constant denominator
                     if self.use_global_mean:
                         denom = global_mean_data1 * global_mean_data2
-                        m1_center = global_mean_data1
-                        m2_center = global_mean_data2
                     else:
                         denom = np.nanmean(data1) * np.nanmean(data2)
-                        m1_center = np.nanmean(data1)
-                        m2_center = np.nanmean(data2)
-
                     if not np.isfinite(denom) or denom == 0:
                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-
-                    c1 = data1 - m1_center
-                    c2 = data2 - m2_center
-
-                    # FIX #5: Use explicit validity masks for NaN-aware overlap counting
-                    c1_clean = np.where(np.isnan(c1), 0.0, c1)
-                    c2_clean = np.where(np.isnan(c2), 0.0, c2)
-                    mask1 = (~np.isnan(c1)).astype(np.float64)
-                    mask2 = (~np.isnan(c2)).astype(np.float64)
-
+                    # centered for covariance
+                    mean1 = (global_mean_data1 if self.use_global_mean else np.nanmean(data1))
+                    mean2 = (global_mean_data2 if self.use_global_mean else np.nanmean(data2))
+                    c1_full = data1 - mean1
+                    c2_full = data2 - mean2
+                    # Build validity masks for NaN-aware overlap counting
+                    use_masks = np.any(np.isnan(c1_full)) or np.any(np.isnan(c2_full))
+                    if use_masks:
+                        mask1_full = (~np.isnan(c1_full)).astype(np.float64)
+                        mask2_full = (~np.isnan(c2_full)).astype(np.float64)
+                        c1_full = np.nan_to_num(c1_full, nan=0.0)
+                        c2_full = np.nan_to_num(c2_full, nan=0.0)
                     out = np.full(len(global_lags_idx), np.nan, dtype=np.float64)
                     wv  = np.zeros(len(global_lags_idx), dtype=np.float64)
-                    
                     MIN_OVERLAP = 5
                     stage = 0
-                    
-                    current_c1 = c1_clean.copy()
-                    current_c2 = c2_clean.copy()
-                    current_m1 = mask1.copy()
-                    current_m2 = mask2.copy()
+                    current_c1 = c1_full.copy()
+                    current_c2 = c2_full.copy()
+                    current_raw1 = data1.copy()
+                    current_raw2 = data2.copy()
+                    if use_masks:
+                        current_m1 = mask1_full.copy()
+                        current_m2 = mask2_full.copy()
                     dt = 1
-
                     while True:
                         curN = len(current_c1)
                         if curN < MIN_OVERLAP:
@@ -8325,10 +7560,11 @@ class Correlation:
                                         int(self.max_lag // dt), curN - 1)
                         if start_i > end_i:
                             break
-                        
                         for j in range(start_i, end_i + 1):
-                            # FIX #5: Use mask-based overlap, not geometric
-                            overlap = np.sum(current_m1[:curN - j] * current_m2[j:curN])
+                            if use_masks:
+                                overlap = np.sum(current_m1[:curN - j] * current_m2[j:curN])
+                            else:
+                                overlap = curN - j
                             if overlap < MIN_OVERLAP:
                                 continue
                             raw_sum = np.sum(current_c1[:curN - j] * current_c2[j:curN])
@@ -8337,42 +7573,44 @@ class Correlation:
                             if idx is not None:
                                 out[idx] = (raw_sum / overlap) / denom
                                 wv[idx]  = overlap
-
-                        # Downsample by factor of 2 (Coulon & Larson §2.1.2)
+                        # prepare next stage (downsample by 2)
                         new_len = curN // 2
                         if new_len < 2:
                             break
-                        
-                        # Proper NaN-aware downsampling using validity masks
-                        v1 = current_c1[:2*new_len].reshape(new_len, 2)
-                        v2 = current_c2[:2*new_len].reshape(new_len, 2)
-                        vm1 = current_m1[:2*new_len].reshape(new_len, 2)
-                        vm2 = current_m2[:2*new_len].reshape(new_len, 2)
-
-                        sum_m1 = np.sum(vm1, axis=1)
-                        sum_m2 = np.sum(vm2, axis=1)
-
-                        current_c1 = np.where(sum_m1 > 0, np.sum(v1, axis=1) / sum_m1, 0.0)
-                        current_c2 = np.where(sum_m2 > 0, np.sum(v2, axis=1) / sum_m2, 0.0)
-                        current_m1 = np.where(sum_m1 > 0, 1.0, 0.0)
-                        current_m2 = np.where(sum_m2 > 0, 1.0, 0.0)
-
+                        new_raw1 = 0.5 * (current_raw1[:2*new_len:2] + current_raw1[1:2*new_len:2])
+                        if self.secondary_data is None:
+                            new_raw2 = new_raw1
+                        else:
+                            new_raw2 = 0.5 * (current_raw2[:2*new_len:2] + current_raw2[1:2*new_len:2])
+                        if self.use_global_mean:
+                            m1 = global_mean_data1
+                            m2 = global_mean_data2
+                        else:
+                            m1 = np.nanmean(new_raw1)
+                            m2 = np.nanmean(new_raw2)
+                        current_c1 = new_raw1 - m1
+                        current_c2 = new_raw2 - m2
+                        current_raw1 = new_raw1
+                        current_raw2 = new_raw2
+                        if use_masks:
+                            # A downsampled bin is valid if either sub-bin was valid
+                            new_m1 = np.minimum(current_m1[:2*new_len:2] + current_m1[1:2*new_len:2], 1.0)
+                            new_m2 = np.minimum(current_m2[:2*new_len:2] + current_m2[1:2*new_len:2], 1.0)
+                            current_m1 = new_m1
+                            current_m2 = new_m2
                         dt *= 2
                         stage += 1
                     return out, wv
                 except Exception as e:
                     print(f"Error in process_sample_multi_tau for sample {i}: {e}")
                     return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
-            
             results = Parallel(n_jobs=-1)(
                 delayed(process_sample_multi_tau)(i) for i in range(self.primary_data.shape[0])
             )
             correlations_array = np.stack([r[0] for r in results], axis=0)
             pair_weights_array = np.stack([r[1] for r in results], axis=0)
-
-        # ===== Remove outlier trajectories =====
-        # keep_mask_ is always set so callers can use it (e.g. to filter cell_id arrays)
-        self.keep_mask_ = np.ones(correlations_array.shape[0], dtype=bool)
+            lag_weights_total = np.nansum(pair_weights_array, axis=0)
+        # ----- Outlier trajectories removal (unchanged policy) -----
         if self.remove_outliers and correlations_array.size > 0:
             traj_means = np.nanmean(correlations_array, axis=1)
             median_mean = np.nanmedian(traj_means)
@@ -8380,11 +7618,9 @@ class Correlation:
             keep_mask = np.ones_like(traj_means, dtype=bool) if (mad == 0 or np.isnan(mad)) else (
                 np.abs(traj_means - median_mean) < self.MAD_THRESHOLD_FACTOR * mad
             )
-            self.keep_mask_ = keep_mask  # expose for callers
-            # FIX #2: Filter BOTH arrays consistently
+            num_removed = np.sum(~keep_mask)
             correlations_array = correlations_array[keep_mask, :]
-            pair_weights_array = pair_weights_array[keep_mask, :]
-
+        # ----- If nothing valid remains -----
         if correlations_array.shape[0] == 0:
             length = correlations_array.shape[1] if correlations_array.ndim > 1 else (
                 (len(global_lags_idx) if self.multi_tau else (2 * self.max_lag + 1))
@@ -8396,11 +7632,8 @@ class Correlation:
             else:
                 lags = global_lags_idx * self.time_interval_between_frames_in_seconds
             return mean_correlation, error_correlation, lags, correlations_array, None
-
-        # ===== FIX #1: Overlap-weighted mean (Coulon & Larson Eq. 9) =====
-        mean_correlation = self._weighted_mean(correlations_array, pair_weights_array)
-        lag_weights_total = np.nansum(np.where(~np.isnan(correlations_array), pair_weights_array, 0), axis=0)
-        
+        # ----- Mean & baseline correction -----
+        mean_correlation = np.nanmean(correlations_array, axis=0)
         if not self.multi_tau:
             lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
             symmetric = True
@@ -8408,171 +7641,62 @@ class Correlation:
             lags = global_lags_idx * self.time_interval_between_frames_in_seconds
             symmetric = False
 
-        # ===== Baseline correction =====
         def apply_baseline(c, lag_weights):
             if not self.correct_baseline or self.baseline_method == 'none':
                 return c, 0.0
-
-            # FIX #8: Handle 'manual' method with correct attribute name
-            if self.baseline_method == 'manual' or self.baseline_method == 'fixed_range':
-                if self.baseline_manual_range is not None:
-                    t_min, t_max = self.baseline_manual_range
-                    mask = (np.abs(lags) >= t_min) & (np.abs(lags) <= t_max) & np.isfinite(c)
-                    if np.any(mask):
-                        if self.baseline_weight_by_pairs and lag_weights is not None and np.sum(lag_weights[mask]) > 0:
-                            B = float(np.average(c[mask], weights=lag_weights[mask]))
-                        else:
-                            B = float(np.mean(c[mask]))
-                    else:
-                        B = 0.0
-                else:
-                    B = 0.0
-                return c - B, B
-
-            # FIX #9: Bounded exponential tail fit
             if self.baseline_method == 'exp_tail':
+                # optional exponential tail fit A*exp(-t/tau) + B over positive lags (robust to NaNs)
                 if symmetric:
-                    center_idx = len(c) // 2
-                    pos_idx0 = center_idx + 1
-                    c_zero = c[center_idx]
+                    pos_idx0 = len(c) // 2 + 1
                 else:
                     pos_idx0 = 1
-                    c_zero = c[0]
                 tt = lags[pos_idx0:]
                 yy = c[pos_idx0:]
                 mask = np.isfinite(tt) & np.isfinite(yy)
-                if np.sum(mask) < 4:
+                if np.sum(mask) < 3:
                     B = np.nanpercentile(yy[np.isfinite(yy)], self.baseline_percentile) if np.any(np.isfinite(yy)) else 0.0
                 else:
                     try:
                         y_fit = yy[mask]
                         t_fit = tt[mask]
-                        B_guess = np.nanpercentile(y_fit, self.baseline_percentile)
-                        c0_val = c_zero if np.isfinite(c_zero) else np.nanmax(y_fit)
-                        A_guess = c0_val - B_guess
-                        if not np.isfinite(A_guess): A_guess = 1.0
-                        tau_guess = max((t_fit[-1] - t_fit[0]) / 3.0, 1e-3)
-                        
-                        min_y, max_y = np.nanmin(y_fit), np.nanmax(y_fit)
-                        ptp_y = max_y - min_y if max_y > min_y else 1e-3
-                        bounds = ([-np.inf, 1e-6, min_y - ptp_y], [np.inf, np.inf, max_y + ptp_y])
-                        
+                        # guard initial guesses
+                        B_guess = np.nanpercentile(y_fit, 10)
+                        A_guess = (c[0] if np.isfinite(c[0]) else np.nanmax(y_fit)) - B_guess
+                        tau_guess = (t_fit[-1] - t_fit[0]) / 2.0 if len(t_fit) > 1 else 1.0
                         popt, _ = curve_fit(lambda t, A, tau, B: A*np.exp(-t/tau) + B,
                                             t_fit, y_fit, p0=[A_guess, tau_guess, B_guess],
-                                            bounds=bounds, maxfev=10000)
+                                            maxfev=10000)
                         B = float(popt[2])
                     except Exception:
                         B = np.nanpercentile(y_fit, self.baseline_percentile) if np.any(np.isfinite(y_fit)) else 0.0
                 return c - B, B
-                
             elif self.baseline_method in ('auto_plateau', 'percentile'):
                 w = (lag_weights if self.baseline_weight_by_pairs else None)
-
-                # Cap the baseline search window to the well-sampled region.
-                # Using the full max_lag range as the ceiling is dangerous: at
-                # long lags there are very few averaging pairs, so the ACF is
-                # pure noise and can have a large negative mean.  If auto_plateau
-                # mis-identifies that noisy tail as "the plateau", it subtracts a
-                # strongly negative B from the whole ACF.
-                #
-                # Strategy:
-                #   a) Hard floor: last lag with non-zero pair weight — positions
-                #      beyond this have no statistical support at all.
-                #   b) Soft floor: use only the first (1 - baseline_plateau_fraction)
-                #      of the reliable range for the *decay* portion, i.e. search
-                #      for the plateau starting at the last baseline_plateau_fraction.
-                #      This prevents a transient dip early in the tail from being
-                #      chosen over the true plateau.
-                full_max_lag_s = self.max_lag * self.time_interval_between_frames_in_seconds
-
-                # a) Find the last lag with real pair-weight support
-                if w is not None and np.any(w > 0):
-                    valid_lag_indices = np.where(np.isfinite(c) & (w > 0))[0]
-                else:
-                    valid_lag_indices = np.where(np.isfinite(c))[0]
-
-                if len(valid_lag_indices) > 0:
-                    last_valid_idx = valid_lag_indices[-1]
-                    last_valid_lag_s = float(np.abs(lags[last_valid_idx]))
-                else:
-                    last_valid_lag_s = full_max_lag_s
-
-                # b) The search ceiling is the minimum of the reliable range and
-                #    the full max_lag.  Never exceed full_max_lag.
-                search_ceiling_s = min(last_valid_lag_s, full_max_lag_s)
-
-                B = self._estimate_baseline(
-                    c, lags, weights=w, symmetric=symmetric,
-                    lag_range=(0, search_ceiling_s),
-                )
+                B = self._estimate_baseline(c, lags, weights=w, symmetric=symmetric, lag_range=(0, self.max_lag * self.time_interval_between_frames_in_seconds))
                 return c - B, B
             else:
                 return c, 0.0
-
         mean_correlation, B_used = apply_baseline(mean_correlation, lag_weights_total)
-        
-        # ===== Bootstrap with overlap weights (Coulon & Larson §2.6) =====
+        # ----- Bootstrap error -----
         num_kept = correlations_array.shape[0]
         if self.use_bootstrap and num_kept > 1:
-            def single_bootstrap_iteration(seed):
-                # Seed from iteration index so results are reproducible across
-                # runs with the same data (unseeded RNG = different every call).
-                rng = np.random.default_rng(seed)
+            def single_bootstrap_iteration(_):
+                rng = np.random.default_rng()
                 idx = rng.choice(num_kept, size=num_kept, replace=True)
-                sample_corr = correlations_array[idx, :]
-                sample_weights = pair_weights_array[idx, :]
-                # Weighted mean per Coulon & Larson Eq. 9
-                m = self._weighted_mean(sample_corr, sample_weights)
-                # Recompute total weights for this bootstrap sample
-                w_tot = np.nansum(np.where(~np.isnan(sample_corr), sample_weights, 0), axis=0)
-                # Apply baseline inside the bootstrap loop (Coulon & Larson §2.6)
-                m, _ = apply_baseline(m, w_tot)
+                sample = correlations_array[idx, :]
+                m = np.nanmean(sample, axis=0)
+                m, _ = apply_baseline(m, lag_weights_total)
                 return m
             all_means = np.array(
                 Parallel(n_jobs=-1)(
-                    delayed(single_bootstrap_iteration)(i) for i in range(self.BOOTSTRAP_ITERATIONS)
+                    delayed(single_bootstrap_iteration)(_) for _ in range(self.BOOTSTRAP_ITERATIONS)
                 ),
                 dtype=np.float64
             )
             error_correlation = np.nanstd(all_means, axis=0)
         else:
-            # Weighted SEM: accounts for unequal pair-count weights across traces.
-            # Unweighted std / sqrt(N) over-estimates error for short traces because
-            # they contribute high-variance long-lag values that are correctly
-            # down-weighted in the mean but not in the naive std.
-            #
-            #   σ²_w(τ) = Σ_j w_j(τ)·(G_j(τ) - G̅(τ))² / Σ_j w_j(τ)
-            #   N_eff(τ) = (Σ w_j)² / Σ w_j²   (Kish effective sample size)
-            #   SE(τ)    = σ_w(τ) / √N_eff(τ)
-            valid = ~np.isnan(correlations_array)
-            w = np.where(valid, pair_weights_array, 0.0)
-            w_sum = np.nansum(w, axis=0)                          # Σ w_j per lag
-            w_sum2 = np.nansum(w ** 2, axis=0)                   # Σ w_j² per lag
-            diff2 = np.where(valid,
-                             w * (correlations_array - mean_correlation[np.newaxis, :]) ** 2,
-                             0.0)
-            var_w = np.where(w_sum > 0, np.nansum(diff2, axis=0) / w_sum, np.nan)
-            n_eff = np.where(w_sum2 > 0, w_sum ** 2 / w_sum2, np.nan)
-            error_correlation = np.where(
-                n_eff > 1,
-                np.sqrt(var_w / n_eff),
-                np.nanstd(correlations_array, axis=0) / np.sqrt(max(num_kept, 1)),
-            )
-
-        # ===== Per-trace baseline correction for visual consistency =====
-        # Each trace gets its own tail baseline subtracted so that individual
-        # traces align visually with the baseline-corrected mean.
-        if B_used != 0:
-            n_lags = correlations_array.shape[1]
-            tail_start = max(1, int(n_lags * (1 - self.baseline_plateau_fraction)))
-            for i in range(num_kept):
-                tail_vals = correlations_array[i, tail_start:]
-                finite_mask = np.isfinite(tail_vals)
-                if np.any(finite_mask):
-                    correlations_array[i] -= np.nanmean(tail_vals[finite_mask])
-
-
-        # ===== FIX #6: Linear projection for lag=0 with aligned indices =====
+            error_correlation = np.nanstd(correlations_array, axis=0) / np.sqrt(num_kept)
+        # ----- Linear projection for lag=0 (unchanged policy) -----
         if self.use_linear_projection_for_lag_0 and not self.multi_tau:
             center_idx = self.max_lag
             if self.secondary_data is None:
@@ -8591,42 +7715,35 @@ class Correlation:
                     corr_before = linregress(x_bef, y_bef).intercept if len(x_bef) > 1 and np.all(np.isfinite(y_bef)) else mean_correlation[center_idx]
                 else:
                     corr_before = mean_correlation[center_idx]
-                
-                if center_idx + 6 <= len(mean_correlation):
+                if center_idx + 6 < len(mean_correlation):
                     x_aft = lags[center_idx + 1: center_idx + 6]
                     y_aft = mean_correlation[center_idx + 1: center_idx + 6]
                     corr_after = linregress(x_aft, y_aft).intercept if len(x_aft) > 1 and np.all(np.isfinite(y_aft)) else mean_correlation[center_idx]
                 else:
                     corr_after = mean_correlation[center_idx]
-                    
                 mean_correlation[center_idx] = np.nanmax([corr_before, corr_after])
                 if center_idx < len(error_correlation):
                     error_correlation[center_idx] = 0.0
 
-        # ===== Return only positive lags if requested =====
+        # ----- Return only positive lags if requested (uniform-lag path) -----
         if not self.multi_tau and not self.return_full:
             center_idx = self.max_lag
             mean_correlation = mean_correlation[center_idx:]
             error_correlation = error_correlation[center_idx:]
             correlations_array = correlations_array[:, center_idx:]
             lags = lags[center_idx:]
-
-        # Correct anchor index for start_lag in plotting
-        actual_start_lag_idx = np.where(lags >= 0)[0][0] + self.start_lag
-
+        # ----- Plot (unchanged) -----
         dwell_time = None
-        self.fit_params_ = None  # populated below if show_plot + exponential fit succeeds
         if self.show_plot:
             if self.secondary_data is None:
-                plots_obj = Plots()
-                dwell_time = plots_obj.plot_autocorrelation(
+                dwell_time = Plots().plot_autocorrelation(
                     mean_correlation=mean_correlation,
                     error_correlation=error_correlation,
                     lags=lags,
                     correlations_array=correlations_array,
                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
                     index_max_lag_for_fit=self.index_max_lag_for_fit,
-                    start_lag=actual_start_lag_idx,
+                    start_lag=self.start_lag,
                     plot_name=self.plot_name,
                     save_plots=self.save_plots,
                     line_color=self.line_color,
@@ -8640,7 +7757,6 @@ class Correlation:
                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
                     figsize=self.figsize,
                 )
-                self.fit_params_ = getattr(plots_obj, '_last_fit_params', None)  # exact A, tau_c, C
             else:
                 dwell_time = Plots().plot_crosscorrelation(
                     intensity_array_ch0=self.primary_data,
@@ -8656,9 +7772,931 @@ class Correlation:
                     normalize_plot_with_g0=self.normalize_plot_with_g0,
                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
+
                 )
 
         return mean_correlation, error_correlation, lags, correlations_array, dwell_time
+
+# class Correlation:
+#     """
+#     A class for calculating auto/cross-correlation with robust baseline correction and
+#     constant-denominator normalization.
+
+#     Key improvements (vs previous):
+#       • Constant denominator across τ (⟨a⟩·⟨b⟩), avoiding lag-dependent bias.
+#       • Proper overlap weighting across traces of different lengths as per Coulon & Larson (2016).
+#       • Robust 'auto_plateau' baseline estimation finding the last contiguous plateau.
+#       • Bounded exponential tail fitting to prevent curve_fit overflow.
+#       • Mathematically exact handling of missing data/NaNs without shifting or breaking the temporal lag axis.
+#       • Multi-tau path returns weights to help plateau estimation and properly averages valid points.
+
+#     Note on baseline drift:
+#       Per-trajectory linear detrending is intentionally NOT performed here. The per-trajectory
+#       mean subtraction (c = I - <I>) already removes DC offsets. Residual slow drift (e.g. from
+#       cell-to-cell expression heterogeneity or minor illumination non-uniformity) should be
+#       handled via correct_baseline=True with baseline_method='auto_plateau', which subtracts
+#       the long-lag plateau of the ensemble-averaged ACF without distorting Var(I) or G(0).
+
+#     nan_handling values:
+#       'zeros'        — replace NaN with 0 before correlation (fast, slight underestimate of G(0))
+#       'mean'         — replace NaN with per-trajectory mean
+#       'forward_fill' — forward-fill NaN gaps
+#       'ignore'       — leave NaN in place; validity masks (mask1/mask2) handle exclusion
+#     """
+
+#     def __init__(
+#         self,
+#         primary_data,
+#         secondary_data=None,
+#         max_lag=None,
+#         nan_handling='zeros',
+#         return_full=True,
+#         use_bootstrap=True,
+#         shift_data=False,
+#         show_plot=False,
+#         save_plots=False,
+#         plot_name='temp_AC.png',
+#         time_interval_between_frames_in_seconds=1,
+#         index_max_lag_for_fit=None,
+#         color_channel=0,
+#         start_lag=0,
+#         line_color='blue',
+#         line_color_fit ='red',
+#         correct_baseline=False,
+#         baseline_offset=None,
+#         use_global_mean=False,
+#         plot_title=None,
+#         fit_type='linear',
+#         de_correlation_threshold=0.01,
+#         use_linear_projection_for_lag_0=True,
+#         normalize_plot_with_g0=False,
+#         remove_outliers=True,
+#         MAD_THRESHOLD_FACTOR=6.0,
+#         plot_individual_trajectories=False,
+#         y_axes_min_max_list_values=None,
+#         x_axes_min_max_list_values=None,
+#         multi_tau=False,
+#         multi_tau_raw_points: int = 20,
+#         multi_tau_bins_per_stage: int = 8,
+#         baseline_method: str = 'auto_plateau',     # 'auto_plateau' | 'exp_tail' | 'percentile' | 'manual' | 'none'
+#         baseline_manual_range: tuple = None,       # (min_time, max_time) fallback for when automatic behaviors fail
+#         baseline_plateau_fraction: float = 0.25,   
+#         baseline_percentile: float = 10.0,         
+#         baseline_smooth_window: int = 7,           
+#         baseline_min_points: int = 5,
+#         baseline_weight_by_pairs: bool = True,
+#         figsize=(8, 6),
+#         detrend_photobleaching=False,
+#     ):
+#         def shift_and_fill(data1, data2=None, min_nan_threshold=3, fill_with_nans=True):
+#             if data1.ndim != 1:
+#                 raise ValueError("Both data1 and data2 must be 1D arrays.")
+#             nan_count = 0
+#             for value in data1:
+#                 if np.isnan(value):
+#                     nan_count += 1
+#                 else:
+#                     break
+#             if nan_count >= min_nan_threshold:
+#                 fill_value = np.nan if fill_with_nans else 0
+#                 new_data1 = np.full_like(data1, fill_value)
+#                 new_data1[: len(data1) - nan_count] = data1[nan_count:]
+#                 if data2 is not None:
+#                     new_data2 = np.full_like(data2, fill_value)
+#                     new_data2[: len(data2) - nan_count] = data2[nan_count:]
+#                 else:
+#                     new_data2 = None
+#                 return new_data1, new_data2
+#             return data1, data2
+
+#         if shift_data:
+#             primary_data_shifted = np.zeros_like(primary_data)
+#             secondary_data_shifted = np.zeros_like(secondary_data) if secondary_data is not None else None
+#             for i in range(primary_data.shape[0]):
+#                 if secondary_data is None:
+#                     primary_data_shifted[i, :], _ = shift_and_fill(primary_data[i, :], None, min_nan_threshold=2)
+#                 else:
+#                     p, s = shift_and_fill(primary_data[i, :], secondary_data[i, :], min_nan_threshold=2)
+#                     primary_data_shifted[i, :], secondary_data_shifted[i, :] = p, s
+#             primary_data = primary_data_shifted
+#             if secondary_data is not None:
+#                 secondary_data = secondary_data_shifted
+
+#         self.primary_data = primary_data
+#         self.secondary_data = secondary_data
+#         self.max_lag = max_lag
+#         self.nan_handling = nan_handling
+#         self.return_full = return_full
+#         self.use_bootstrap = use_bootstrap
+#         self.BOOTSTRAP_ITERATIONS = 1000
+#         self.time_interval_between_frames_in_seconds = float(time_interval_between_frames_in_seconds)
+#         self.index_max_lag_for_fit = index_max_lag_for_fit
+#         self.plot_name = plot_name
+#         self.save_plots = save_plots
+#         self.show_plot = show_plot
+#         self.color_channel = color_channel
+#         self.start_lag = start_lag
+#         self.line_color = line_color
+#         self.line_color_fit = line_color_fit
+#         self.plot_title = plot_title
+#         self.fit_type = fit_type
+#         self.de_correlation_threshold =  max(de_correlation_threshold, 0.0)
+#         self.use_linear_projection_for_lag_0 = use_linear_projection_for_lag_0
+#         self.normalize_plot_with_g0 = normalize_plot_with_g0
+#         self.correct_baseline = correct_baseline
+#         self.baseline_method = baseline_method
+#         self.baseline_manual_range = baseline_manual_range
+#         self.baseline_plateau_fraction = float(baseline_plateau_fraction)
+#         self.baseline_percentile = float(baseline_percentile)
+#         self.baseline_smooth_window = int(baseline_smooth_window)
+#         if self.baseline_smooth_window % 2 == 0:
+#             self.baseline_smooth_window += 1
+#         self.baseline_min_points = int(baseline_min_points)
+#         self.baseline_weight_by_pairs = bool(baseline_weight_by_pairs)
+
+#         if baseline_offset is None:
+#             self.baseline_offset = int(primary_data.shape[1] // 2)
+#         else:
+#             self.baseline_offset = baseline_offset
+#         if correct_baseline:
+#             self.plot_individual_trajectories = False
+#         self.use_global_mean = use_global_mean
+#         self.remove_outliers = remove_outliers
+#         self.MAD_THRESHOLD_FACTOR = MAD_THRESHOLD_FACTOR
+#         self.plot_individual_trajectories = plot_individual_trajectories
+#         self.y_axes_min_max_list_values = y_axes_min_max_list_values
+#         self.x_axes_min_max_list_values = x_axes_min_max_list_values
+#         self.multi_tau = multi_tau
+#         self.multi_tau_raw_points = multi_tau_raw_points
+#         self.multi_tau_bins_per_stage = multi_tau_bins_per_stage
+#         self.figsize = figsize
+#         self.detrend_photobleaching = detrend_photobleaching
+
+#     # ========================= helpers =========================
+
+#     @staticmethod
+#     def _forward_fill_func(data):
+#         not_nan = ~np.isnan(data)
+#         if not np.any(not_nan):
+#             return np.array([])
+#         first_valid_index = np.argmax(not_nan)
+#         last_valid_index = len(data) - np.argmax(not_nan[::-1]) - 1
+#         trimmed = data[first_valid_index:last_valid_index + 1]
+#         mask_ff = np.isnan(trimmed)
+#         idx = np.where(~mask_ff, np.arange(len(trimmed)), 0)
+#         np.maximum.accumulate(idx, out=idx)
+#         filled = trimmed[idx]
+#         result = np.full_like(data, np.nan)
+#         result[first_valid_index:last_valid_index + 1] = filled
+#         return result
+
+#     @staticmethod
+#     def _running_median(x, w):
+#         if len(x) < w:
+#             return x.copy()
+#         y = np.copy(x)
+#         half = w // 2
+#         for i in range(len(x)):
+#             lo = max(0, i - half)
+#             hi = min(len(x), i + half + 1)
+#             y[i] = np.nanmedian(x[lo:hi])
+#         return y
+
+#     @staticmethod
+#     def _weighted_mean(corr_arr, weight_arr):
+#         """
+#         Overlap-weighted average across traces (Coulon & Larson 2016, Eq. 9).
+#         Each trace j at lag τ is weighted by the number of overlapping pairs used.
+#         """
+#         valid = ~np.isnan(corr_arr)
+#         w_sum = np.nansum(np.where(valid, weight_arr, 0), axis=0)
+#         weighted_vals = np.nansum(np.where(valid, corr_arr * weight_arr, 0), axis=0)
+#         with np.errstate(divide='ignore', invalid='ignore'):
+#             res = np.where(w_sum > 0, weighted_vals / w_sum, np.nan)
+#         return res
+
+#     # ========================= baseline =========================
+
+#     def _estimate_baseline(self, mean_corr, lags, weights=None, symmetric=False, lag_range=None):
+#         """
+#         Robust baseline estimator.
+        
+#         Strategy:
+#             1) Work on positive lags (exclude τ=0).
+#             2) Smooth with running median.
+#             3) Find ALL runs where |d/dτ| <= 2*MAD for >= baseline_min_points consecutive points.
+#             4) Take the LAST such run (largest lags = true baseline).
+#             5) If no run found, fall back to last `baseline_plateau_fraction` of positive lags.
+#             6) Compute weighted trimmed mean over that window.
+        
+#         Returns: scalar baseline B (float).
+#         """
+#         if np.all(~np.isfinite(mean_corr)):
+#             return 0.0
+
+#         # --- Select positive-lag branch ---
+#         if symmetric:
+#             center = len(lags) // 2
+#             pos_corr = mean_corr[center + 1:]
+#             pos_lags = lags[center + 1:]
+#             pos_w = (weights[center + 1:] if weights is not None else None)
+#         else:
+#             pos_corr = mean_corr[1:] if len(mean_corr) > 1 else mean_corr.copy()
+#             pos_lags = lags[1:] if len(lags) > 1 else lags.copy()
+#             pos_w = (weights[1:] if (weights is not None and len(weights) > 1) else None)
+
+#         # --- Optional lag range restriction ---
+#         if lag_range is not None:
+#             min_lag, max_lag = lag_range
+#             mask = (pos_lags >= min_lag) & (pos_lags <= max_lag)
+#             # FIX #7: fallback to full range if mask is empty
+#             if not np.any(mask):
+#                 mask = np.ones(len(pos_lags), dtype=bool) 
+#             pos_corr = pos_corr[mask]
+#             pos_lags = pos_lags[mask]
+#             if pos_w is not None:
+#                 pos_w = pos_w[mask]
+
+#         if len(pos_corr) < max(self.baseline_min_points, 3):
+#             return np.nanpercentile(pos_corr[np.isfinite(pos_corr)], self.baseline_percentile) if np.any(np.isfinite(pos_corr)) else 0.0
+
+#         # --- Fast override for 'percentile' method ---
+#         if self.baseline_method == 'percentile':
+#             finite_mask = np.isfinite(pos_corr)
+#             if not np.any(finite_mask):
+#                 return 0.0
+#             return float(np.nanpercentile(pos_corr[finite_mask], self.baseline_percentile))
+
+#         # --- Smooth and compute derivative ---
+#         y = self._running_median(pos_corr, self.baseline_smooth_window)
+#         dy = np.gradient(y, pos_lags) if len(pos_lags) > 1 else np.zeros_like(y)
+        
+#         finite_dy = dy[np.isfinite(dy)]
+#         if len(finite_dy) > 0:
+#             med_dy = np.nanmedian(finite_dy)
+#             mad = np.nanmedian(np.abs(finite_dy - med_dy))
+#             if mad == 0:
+#                 mad = np.nanstd(finite_dy)
+#         else:
+#             mad = 1.0
+            
+#         if mad == 0 or not np.isfinite(mad):
+#             mad = 1.0
+
+#         # --- Start after requested start_lag ---
+#         start_idx = np.searchsorted(pos_lags, self.start_lag)
+
+#         # --- Find ALL plateau candidates ---
+#         good = np.isfinite(dy) & (np.abs(dy) <= max(2.0 * mad, 1e-5))
+#         if start_idx < len(good):
+#             good[:start_idx] = False
+
+#         # FIX #4: Collect ALL qualifying runs, then take the LAST one.
+#         # The last plateau at the largest lags is where the correlation
+#         # has truly decayed to baseline (Coulon & Larson §2.5).
+#         runs = []
+#         current_run_start = None
+#         for i in range(len(good)):
+#             if good[i]:
+#                 if current_run_start is None:
+#                     current_run_start = i
+#             else:
+#                 if current_run_start is not None:
+#                     if i - current_run_start >= self.baseline_min_points:
+#                         runs.append((current_run_start, i))
+#                     current_run_start = None
+#         # Handle run that extends to the end of the array
+#         if current_run_start is not None and len(good) - current_run_start >= self.baseline_min_points:
+#             runs.append((current_run_start, len(good)))
+
+#         plateau_start = runs[-1][0] if runs else None
+
+#         # --- Select window ---
+#         if plateau_start is None:
+#             # Fallback: last fraction of positive lags
+#             frac = np.clip(self.baseline_plateau_fraction, 0.05, 0.8)
+#             n = len(pos_corr)
+#             win_start = int(n * (1.0 - frac))
+#             win = pos_corr[win_start:]
+#             ww = (pos_w[win_start:] if (self.baseline_weight_by_pairs and pos_w is not None) else None)
+#         else:
+#             win = pos_corr[plateau_start:]
+#             ww = (pos_w[plateau_start:] if (self.baseline_weight_by_pairs and pos_w is not None) else None)
+
+#         # --- Trimmed weighted mean ---
+#         finite_mask = np.isfinite(win)
+#         if not np.any(finite_mask):
+#             return 0.0
+            
+#         win = win[finite_mask]
+#         ww = (ww[finite_mask] if ww is not None else None)
+
+#         lo = np.nanpercentile(win, self.baseline_percentile)
+#         hi = np.nanpercentile(win, 100.0 - self.baseline_percentile)
+        
+#         keep = (win >= lo) & (win <= hi) if lo != hi else np.ones_like(win, dtype=bool)
+#         win = win[keep]
+        
+#         if ww is not None:
+#             ww = ww[keep]
+#             if np.any(ww > 0):
+#                 return float(np.nansum(ww * win) / np.nansum(ww))
+                
+#         if len(win) == 0:
+#             return 0.0
+#         return float(np.nanmean(win))
+
+#     # ========================= main =========================
+
+#     def run(self):
+#         # ── Step 1: resolve default max_lag from array width ──────────────────
+#         if self.max_lag is None:
+#             self.max_lag = self.primary_data.shape[1] - 1
+#         elif self.max_lag >= self.primary_data.shape[1]:
+#             # Clamp silently instead of raising — the caller may not know the
+#             # exact data length in advance (e.g. NaN-padded arrays from GUI).
+#             self.max_lag = self.primary_data.shape[1] - 1
+#             logging.debug(
+#                 f"Correlation: max_lag clamped to {self.max_lag} "
+#                 f"(array width is {self.primary_data.shape[1]} frames)"
+#             )
+
+#         # ── Step 2: clamp to the effective valid-data span ────────────────────
+#         # Some traces may be NaN-padded after the real signal ends (e.g. a 400-
+#         # point array where data actually stops at frame 200).  Computing lags
+#         # beyond the longest valid span produces only NaN rows in the output,
+#         # which can confuse downstream fitting.  We clamp proactively here.
+#         all_data = (
+#             [self.primary_data, self.secondary_data]
+#             if self.secondary_data is not None
+#             else [self.primary_data]
+#         )
+#         max_valid_span = 0
+#         for arr in all_data:
+#             for row in arr:
+#                 valid_idx = np.where(np.isfinite(row))[0]
+#                 if len(valid_idx) > 0:
+#                     span = valid_idx[-1] - valid_idx[0] + 1
+#                     max_valid_span = max(max_valid_span, span)
+
+#         if max_valid_span > 0 and self.max_lag >= max_valid_span:
+#             clamped = max_valid_span - 1
+#             logging.debug(
+#                 f"Correlation: max_lag clamped from {self.max_lag} to {clamped} "
+#                 f"based on effective valid data span ({max_valid_span} frames)"
+#             )
+#             self.max_lag = clamped
+
+#         # ── Step 2b: optional per-trajectory exponential detrend ──────────
+#         if self.detrend_photobleaching:
+#             _util = Utilities()
+#             self.primary_data = _util.detrend_trajectories(
+#                 self.primary_data, method='exponential'
+#             )
+#             if self.secondary_data is not None:
+#                 self.secondary_data = _util.detrend_trajectories(
+#                     self.secondary_data, method='exponential'
+#                 )
+
+#         local_forward_fill = self._forward_fill_func if self.nan_handling == "forward_fill" else lambda arr: arr
+
+#         global_mean_data1 = np.nanmean(self.primary_data)
+#         if self.secondary_data is not None:
+#             global_mean_data2 = np.nanmean(self.secondary_data)
+#         else:
+#             global_mean_data2 = global_mean_data1
+
+#         if not self.multi_tau:
+#             def process_sample_linear(i):
+#                 try:
+#                     data1 = self.primary_data[i, :].copy()
+#                     data2 = self.secondary_data[i, :].copy() if self.secondary_data is not None else data1.copy()
+
+#                     # Trim leading/trailing NaN region (keep co-valid range)
+#                     valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
+#                     if not np.any(valid_mask):
+#                         L = 2 * self.max_lag + 1
+#                         return np.full(L, np.nan), np.zeros(L)
+                        
+#                     start_idx = np.argmax(valid_mask)
+#                     end_idx = len(valid_mask) - np.argmax(valid_mask[::-1])
+#                     data1 = data1[start_idx:end_idx]
+#                     data2 = data2[start_idx:end_idx]
+
+#                     # NaN handling within the trimmed region
+#                     if self.nan_handling == "mean":
+#                         m1 = np.nanmean(data1) if np.any(~np.isnan(data1)) else 0.0
+#                         m2 = np.nanmean(data2) if np.any(~np.isnan(data2)) else 0.0
+#                         data1 = np.nan_to_num(data1, nan=m1)
+#                         data2 = np.nan_to_num(data2, nan=m2)
+#                     elif self.nan_handling == "forward_fill":
+#                         data1 = local_forward_fill(data1)
+#                         data2 = local_forward_fill(data2)
+#                     elif self.nan_handling == "ignore":
+#                         pass  # NaN positions excluded via mask1/mask2 below — no fill needed
+#                     elif self.nan_handling == "zeros":
+#                         data1 = np.nan_to_num(data1, nan=0.0)
+#                         data2 = np.nan_to_num(data2, nan=0.0)
+                    
+#                     N0 = len(data1)
+#                     if N0 < 5:
+#                         L = 2 * self.max_lag + 1
+#                         return np.full(L, np.nan), np.zeros(L)
+
+#                     # Constant denominator (Coulon & Larson Eq. 1-2)
+#                     if self.use_global_mean:
+#                         denom = global_mean_data1 * global_mean_data2
+#                         m1_center = global_mean_data1
+#                         m2_center = global_mean_data2
+#                     else:
+#                         denom = np.nanmean(data1) * np.nanmean(data2)
+#                         m1_center = np.nanmean(data1)
+#                         m2_center = np.nanmean(data2)
+
+#                     if not np.isfinite(denom) or denom == 0:
+#                         L = 2 * self.max_lag + 1
+#                         return np.full(L, np.nan), np.zeros(L)
+
+#                     c1 = data1 - m1_center
+#                     c2 = data2 - m2_center
+
+#                     # Use masks for proper NaN-aware overlap counting
+#                     c1_clean = np.where(np.isnan(c1), 0.0, c1)
+#                     c2_clean = np.where(np.isnan(c2), 0.0, c2)
+#                     mask1 = (~np.isnan(c1)).astype(np.float64)
+#                     mask2 = (~np.isnan(c2)).astype(np.float64)
+
+#                     raw = np.correlate(c2_clean, c1_clean, mode="full")
+#                     overlap_counts = np.correlate(mask2, mask1, mode="full")
+
+#                     mid = N0 - 1
+#                     desired_len = 2 * self.max_lag + 1
+#                     out = np.full(desired_len, np.nan)
+#                     weights = np.zeros(desired_len, dtype=np.float64)
+
+#                     for j in range(-self.max_lag, self.max_lag + 1):
+#                         idx_raw = mid + j
+#                         if 0 <= idx_raw < len(raw):
+#                             overlap = overlap_counts[idx_raw]
+#                             if overlap >= max(10, int(0.05 * N0)):
+#                                 val = (raw[idx_raw] / overlap) / denom
+#                                 out[j + self.max_lag] = val
+#                                 weights[j + self.max_lag] = overlap
+#                     return out, weights
+#                 except Exception as e:
+#                     L = 2 * self.max_lag + 1
+#                     print(f"Error in process_sample_linear for sample {i}: {e}")
+#                     return np.full(L, np.nan), np.zeros(L)
+
+#             results = Parallel(n_jobs=-1)(
+#                 delayed(process_sample_linear)(i) for i in range(self.primary_data.shape[0])
+#             )
+#             correlations_array = np.stack([r[0] for r in results], axis=0)
+#             pair_weights_array = np.stack([r[1] for r in results], axis=0)
+#             lag_weights_total = np.nansum(pair_weights_array, axis=0)
+
+#         else:
+#             # -------- multi-tau path --------
+#             N0 = self.primary_data.shape[1]
+#             global_lags_idx = []
+#             current_length = N0
+#             dt_factor = 1
+#             stage = 0
+#             while True:
+#                 if stage == 0:
+#                     start_i = 0
+#                     end_i = min(self.multi_tau_raw_points - 1, self.max_lag, current_length - 1)
+#                 else:
+#                     start_i = self.multi_tau_bins_per_stage // 2
+#                     end_i = min(self.multi_tau_bins_per_stage + start_i - 1,
+#                                 int(self.max_lag // dt_factor), current_length - 1)
+#                 if start_i > end_i:
+#                     break
+#                 for i_val in range(start_i, end_i + 1):
+#                     lag_val = i_val * dt_factor
+#                     if lag_val <= self.max_lag:
+#                         global_lags_idx.append(lag_val)
+#                 new_length = current_length // 2
+#                 if new_length < 2:
+#                     break
+#                 current_length = new_length
+#                 dt_factor *= 2
+#                 stage += 1
+#             global_lags_idx = np.array(sorted(set(global_lags_idx)), dtype=int)
+#             idx_map = {lag: idx for idx, lag in enumerate(global_lags_idx)}
+
+#             def process_sample_multi_tau(i):
+#                 try:
+#                     data1 = self.primary_data[i, :].copy()
+#                     data2 = self.secondary_data[i, :].copy() if self.secondary_data is not None else data1.copy()
+
+#                     valid_mask = ~np.isnan(data1) & ~np.isnan(data2)
+#                     if not np.any(valid_mask):
+#                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
+                        
+#                     start_idx = np.argmax(valid_mask)
+#                     end_idx = len(valid_mask) - np.argmax(valid_mask[::-1])
+#                     data1 = data1[start_idx:end_idx]
+#                     data2 = data2[start_idx:end_idx]
+
+#                     if self.nan_handling == "mean":
+#                         m1 = np.nanmean(data1) if np.any(~np.isnan(data1)) else 0.0
+#                         m2 = np.nanmean(data2) if np.any(~np.isnan(data2)) else 0.0
+#                         data1 = np.nan_to_num(data1, nan=m1)
+#                         data2 = np.nan_to_num(data2, nan=m2)
+#                     elif self.nan_handling == "forward_fill":
+#                         data1 = local_forward_fill(data1)
+#                         data2 = local_forward_fill(data2)
+#                     elif self.nan_handling == "ignore":
+#                         pass  # NaN positions excluded via mask1/mask2 below — no fill needed
+#                     elif self.nan_handling == "zeros":
+#                         data1 = np.nan_to_num(data1, nan=0.0)
+#                         data2 = np.nan_to_num(data2, nan=0.0)
+
+#                     N = len(data1)
+#                     if N < 5:
+#                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
+
+#                     if self.use_global_mean:
+#                         denom = global_mean_data1 * global_mean_data2
+#                         m1_center = global_mean_data1
+#                         m2_center = global_mean_data2
+#                     else:
+#                         denom = np.nanmean(data1) * np.nanmean(data2)
+#                         m1_center = np.nanmean(data1)
+#                         m2_center = np.nanmean(data2)
+
+#                     if not np.isfinite(denom) or denom == 0:
+#                         return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
+
+#                     c1 = data1 - m1_center
+#                     c2 = data2 - m2_center
+
+#                     # FIX #5: Use explicit validity masks for NaN-aware overlap counting
+#                     c1_clean = np.where(np.isnan(c1), 0.0, c1)
+#                     c2_clean = np.where(np.isnan(c2), 0.0, c2)
+#                     mask1 = (~np.isnan(c1)).astype(np.float64)
+#                     mask2 = (~np.isnan(c2)).astype(np.float64)
+
+#                     out = np.full(len(global_lags_idx), np.nan, dtype=np.float64)
+#                     wv  = np.zeros(len(global_lags_idx), dtype=np.float64)
+                    
+#                     MIN_OVERLAP = 5
+#                     stage = 0
+                    
+#                     current_c1 = c1_clean.copy()
+#                     current_c2 = c2_clean.copy()
+#                     current_m1 = mask1.copy()
+#                     current_m2 = mask2.copy()
+#                     dt = 1
+
+#                     while True:
+#                         curN = len(current_c1)
+#                         if curN < MIN_OVERLAP:
+#                             break
+#                         if stage == 0:
+#                             start_i = 0
+#                             end_i = min(self.multi_tau_raw_points - 1, self.max_lag, curN - 1)
+#                         else:
+#                             start_i = self.multi_tau_bins_per_stage // 2
+#                             end_i = min(self.multi_tau_bins_per_stage + start_i - 1,
+#                                         int(self.max_lag // dt), curN - 1)
+#                         if start_i > end_i:
+#                             break
+                        
+#                         for j in range(start_i, end_i + 1):
+#                             # FIX #5: Use mask-based overlap, not geometric
+#                             overlap = np.sum(current_m1[:curN - j] * current_m2[j:curN])
+#                             if overlap < MIN_OVERLAP:
+#                                 continue
+#                             raw_sum = np.sum(current_c1[:curN - j] * current_c2[j:curN])
+#                             lag_index = j * dt
+#                             idx = idx_map.get(lag_index, None)
+#                             if idx is not None:
+#                                 out[idx] = (raw_sum / overlap) / denom
+#                                 wv[idx]  = overlap
+
+#                         # Downsample by factor of 2 (Coulon & Larson §2.1.2)
+#                         new_len = curN // 2
+#                         if new_len < 2:
+#                             break
+                        
+#                         # Proper NaN-aware downsampling using validity masks
+#                         v1 = current_c1[:2*new_len].reshape(new_len, 2)
+#                         v2 = current_c2[:2*new_len].reshape(new_len, 2)
+#                         vm1 = current_m1[:2*new_len].reshape(new_len, 2)
+#                         vm2 = current_m2[:2*new_len].reshape(new_len, 2)
+
+#                         sum_m1 = np.sum(vm1, axis=1)
+#                         sum_m2 = np.sum(vm2, axis=1)
+
+#                         current_c1 = np.where(sum_m1 > 0, np.sum(v1, axis=1) / sum_m1, 0.0)
+#                         current_c2 = np.where(sum_m2 > 0, np.sum(v2, axis=1) / sum_m2, 0.0)
+#                         current_m1 = np.where(sum_m1 > 0, 1.0, 0.0)
+#                         current_m2 = np.where(sum_m2 > 0, 1.0, 0.0)
+
+#                         dt *= 2
+#                         stage += 1
+#                     return out, wv
+#                 except Exception as e:
+#                     print(f"Error in process_sample_multi_tau for sample {i}: {e}")
+#                     return np.full(len(global_lags_idx), np.nan), np.zeros(len(global_lags_idx))
+            
+#             results = Parallel(n_jobs=-1)(
+#                 delayed(process_sample_multi_tau)(i) for i in range(self.primary_data.shape[0])
+#             )
+#             correlations_array = np.stack([r[0] for r in results], axis=0)
+#             pair_weights_array = np.stack([r[1] for r in results], axis=0)
+
+#         # ===== Remove outlier trajectories =====
+#         # keep_mask_ is always set so callers can use it (e.g. to filter cell_id arrays)
+#         self.keep_mask_ = np.ones(correlations_array.shape[0], dtype=bool)
+#         if self.remove_outliers and correlations_array.size > 0:
+#             traj_means = np.nanmean(correlations_array, axis=1)
+#             median_mean = np.nanmedian(traj_means)
+#             mad = np.nanmedian(np.abs(traj_means - median_mean))
+#             keep_mask = np.ones_like(traj_means, dtype=bool) if (mad == 0 or np.isnan(mad)) else (
+#                 np.abs(traj_means - median_mean) < self.MAD_THRESHOLD_FACTOR * mad
+#             )
+#             self.keep_mask_ = keep_mask  # expose for callers
+#             # FIX #2: Filter BOTH arrays consistently
+#             correlations_array = correlations_array[keep_mask, :]
+#             pair_weights_array = pair_weights_array[keep_mask, :]
+
+#         if correlations_array.shape[0] == 0:
+#             length = correlations_array.shape[1] if correlations_array.ndim > 1 else (
+#                 (len(global_lags_idx) if self.multi_tau else (2 * self.max_lag + 1))
+#             )
+#             mean_correlation = np.full(length, np.nan)
+#             error_correlation = np.full_like(mean_correlation, np.nan)
+#             if not self.multi_tau:
+#                 lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
+#             else:
+#                 lags = global_lags_idx * self.time_interval_between_frames_in_seconds
+#             return mean_correlation, error_correlation, lags, correlations_array, None
+
+#         # ===== FIX #1: Overlap-weighted mean (Coulon & Larson Eq. 9) =====
+#         mean_correlation = self._weighted_mean(correlations_array, pair_weights_array)
+#         lag_weights_total = np.nansum(np.where(~np.isnan(correlations_array), pair_weights_array, 0), axis=0)
+        
+#         if not self.multi_tau:
+#             lags = np.arange(-self.max_lag, self.max_lag + 1) * self.time_interval_between_frames_in_seconds
+#             symmetric = True
+#         else:
+#             lags = global_lags_idx * self.time_interval_between_frames_in_seconds
+#             symmetric = False
+
+#         # ===== Baseline correction =====
+#         def apply_baseline(c, lag_weights):
+#             if not self.correct_baseline or self.baseline_method == 'none':
+#                 return c, 0.0
+
+#             # FIX #8: Handle 'manual' method with correct attribute name
+#             if self.baseline_method == 'manual' or self.baseline_method == 'fixed_range':
+#                 if self.baseline_manual_range is not None:
+#                     t_min, t_max = self.baseline_manual_range
+#                     mask = (np.abs(lags) >= t_min) & (np.abs(lags) <= t_max) & np.isfinite(c)
+#                     if np.any(mask):
+#                         if self.baseline_weight_by_pairs and lag_weights is not None and np.sum(lag_weights[mask]) > 0:
+#                             B = float(np.average(c[mask], weights=lag_weights[mask]))
+#                         else:
+#                             B = float(np.mean(c[mask]))
+#                     else:
+#                         B = 0.0
+#                 else:
+#                     B = 0.0
+#                 return c - B, B
+
+#             # FIX #9: Bounded exponential tail fit
+#             if self.baseline_method == 'exp_tail':
+#                 if symmetric:
+#                     center_idx = len(c) // 2
+#                     pos_idx0 = center_idx + 1
+#                     c_zero = c[center_idx]
+#                 else:
+#                     pos_idx0 = 1
+#                     c_zero = c[0]
+#                 tt = lags[pos_idx0:]
+#                 yy = c[pos_idx0:]
+#                 mask = np.isfinite(tt) & np.isfinite(yy)
+#                 if np.sum(mask) < 4:
+#                     B = np.nanpercentile(yy[np.isfinite(yy)], self.baseline_percentile) if np.any(np.isfinite(yy)) else 0.0
+#                 else:
+#                     try:
+#                         y_fit = yy[mask]
+#                         t_fit = tt[mask]
+#                         B_guess = np.nanpercentile(y_fit, self.baseline_percentile)
+#                         c0_val = c_zero if np.isfinite(c_zero) else np.nanmax(y_fit)
+#                         A_guess = c0_val - B_guess
+#                         if not np.isfinite(A_guess): A_guess = 1.0
+#                         tau_guess = max((t_fit[-1] - t_fit[0]) / 3.0, 1e-3)
+                        
+#                         min_y, max_y = np.nanmin(y_fit), np.nanmax(y_fit)
+#                         ptp_y = max_y - min_y if max_y > min_y else 1e-3
+#                         bounds = ([-np.inf, 1e-6, min_y - ptp_y], [np.inf, np.inf, max_y + ptp_y])
+                        
+#                         popt, _ = curve_fit(lambda t, A, tau, B: A*np.exp(-t/tau) + B,
+#                                             t_fit, y_fit, p0=[A_guess, tau_guess, B_guess],
+#                                             bounds=bounds, maxfev=10000)
+#                         B = float(popt[2])
+#                     except Exception:
+#                         B = np.nanpercentile(y_fit, self.baseline_percentile) if np.any(np.isfinite(y_fit)) else 0.0
+#                 return c - B, B
+                
+#             elif self.baseline_method in ('auto_plateau', 'percentile'):
+#                 w = (lag_weights if self.baseline_weight_by_pairs else None)
+
+#                 # Cap the baseline search window to the well-sampled region.
+#                 # Using the full max_lag range as the ceiling is dangerous: at
+#                 # long lags there are very few averaging pairs, so the ACF is
+#                 # pure noise and can have a large negative mean.  If auto_plateau
+#                 # mis-identifies that noisy tail as "the plateau", it subtracts a
+#                 # strongly negative B from the whole ACF.
+#                 #
+#                 # Strategy:
+#                 #   a) Hard floor: last lag with non-zero pair weight — positions
+#                 #      beyond this have no statistical support at all.
+#                 #   b) Soft floor: use only the first (1 - baseline_plateau_fraction)
+#                 #      of the reliable range for the *decay* portion, i.e. search
+#                 #      for the plateau starting at the last baseline_plateau_fraction.
+#                 #      This prevents a transient dip early in the tail from being
+#                 #      chosen over the true plateau.
+#                 full_max_lag_s = self.max_lag * self.time_interval_between_frames_in_seconds
+
+#                 # a) Find the last lag with real pair-weight support
+#                 if w is not None and np.any(w > 0):
+#                     valid_lag_indices = np.where(np.isfinite(c) & (w > 0))[0]
+#                 else:
+#                     valid_lag_indices = np.where(np.isfinite(c))[0]
+
+#                 if len(valid_lag_indices) > 0:
+#                     last_valid_idx = valid_lag_indices[-1]
+#                     last_valid_lag_s = float(np.abs(lags[last_valid_idx]))
+#                 else:
+#                     last_valid_lag_s = full_max_lag_s
+
+#                 # b) The search ceiling is the minimum of the reliable range and
+#                 #    the full max_lag.  Never exceed full_max_lag.
+#                 search_ceiling_s = min(last_valid_lag_s, full_max_lag_s)
+
+#                 B = self._estimate_baseline(
+#                     c, lags, weights=w, symmetric=symmetric,
+#                     lag_range=(0, search_ceiling_s),
+#                 )
+#                 return c - B, B
+#             else:
+#                 return c, 0.0
+
+#         mean_correlation, B_used = apply_baseline(mean_correlation, lag_weights_total)
+        
+#         # ===== Bootstrap with overlap weights (Coulon & Larson §2.6) =====
+#         num_kept = correlations_array.shape[0]
+#         if self.use_bootstrap and num_kept > 1:
+#             def single_bootstrap_iteration(seed):
+#                 # Seed from iteration index so results are reproducible across
+#                 # runs with the same data (unseeded RNG = different every call).
+#                 rng = np.random.default_rng(seed)
+#                 idx = rng.choice(num_kept, size=num_kept, replace=True)
+#                 sample_corr = correlations_array[idx, :]
+#                 sample_weights = pair_weights_array[idx, :]
+#                 # Weighted mean per Coulon & Larson Eq. 9
+#                 m = self._weighted_mean(sample_corr, sample_weights)
+#                 # Recompute total weights for this bootstrap sample
+#                 w_tot = np.nansum(np.where(~np.isnan(sample_corr), sample_weights, 0), axis=0)
+#                 # Apply baseline inside the bootstrap loop (Coulon & Larson §2.6)
+#                 m, _ = apply_baseline(m, w_tot)
+#                 return m
+#             all_means = np.array(
+#                 Parallel(n_jobs=-1)(
+#                     delayed(single_bootstrap_iteration)(i) for i in range(self.BOOTSTRAP_ITERATIONS)
+#                 ),
+#                 dtype=np.float64
+#             )
+#             error_correlation = np.nanstd(all_means, axis=0)
+#         else:
+#             # Weighted SEM: accounts for unequal pair-count weights across traces.
+#             # Unweighted std / sqrt(N) over-estimates error for short traces because
+#             # they contribute high-variance long-lag values that are correctly
+#             # down-weighted in the mean but not in the naive std.
+#             #
+#             #   σ²_w(τ) = Σ_j w_j(τ)·(G_j(τ) - G̅(τ))² / Σ_j w_j(τ)
+#             #   N_eff(τ) = (Σ w_j)² / Σ w_j²   (Kish effective sample size)
+#             #   SE(τ)    = σ_w(τ) / √N_eff(τ)
+#             valid = ~np.isnan(correlations_array)
+#             w = np.where(valid, pair_weights_array, 0.0)
+#             w_sum = np.nansum(w, axis=0)                          # Σ w_j per lag
+#             w_sum2 = np.nansum(w ** 2, axis=0)                   # Σ w_j² per lag
+#             diff2 = np.where(valid,
+#                              w * (correlations_array - mean_correlation[np.newaxis, :]) ** 2,
+#                              0.0)
+#             var_w = np.where(w_sum > 0, np.nansum(diff2, axis=0) / w_sum, np.nan)
+#             n_eff = np.where(w_sum2 > 0, w_sum ** 2 / w_sum2, np.nan)
+#             error_correlation = np.where(
+#                 n_eff > 1,
+#                 np.sqrt(var_w / n_eff),
+#                 np.nanstd(correlations_array, axis=0) / np.sqrt(max(num_kept, 1)),
+#             )
+
+#         # ===== Per-trace baseline correction for visual consistency =====
+#         # Each trace gets its own tail baseline subtracted so that individual
+#         # traces align visually with the baseline-corrected mean.
+#         if B_used != 0:
+#             n_lags = correlations_array.shape[1]
+#             tail_start = max(1, int(n_lags * (1 - self.baseline_plateau_fraction)))
+#             for i in range(num_kept):
+#                 tail_vals = correlations_array[i, tail_start:]
+#                 finite_mask = np.isfinite(tail_vals)
+#                 if np.any(finite_mask):
+#                     correlations_array[i] -= np.nanmean(tail_vals[finite_mask])
+
+
+#         # ===== FIX #6: Linear projection for lag=0 with aligned indices =====
+#         if self.use_linear_projection_for_lag_0 and not self.multi_tau:
+#             center_idx = self.max_lag
+#             if self.secondary_data is None:
+#                 if center_idx - 5 >= 0:
+#                     x = lags[center_idx - 5: center_idx]
+#                     y = mean_correlation[center_idx - 5: center_idx]
+#                     if len(x) > 1 and np.all(np.isfinite(y)):
+#                         _, intercept, _, _, _ = linregress(x, y)
+#                         mean_correlation[center_idx] = intercept
+#                 if center_idx < len(error_correlation):
+#                     error_correlation[center_idx] = 0.0
+#             else:
+#                 if center_idx - 5 >= 0:
+#                     x_bef = lags[center_idx - 5: center_idx]
+#                     y_bef = mean_correlation[center_idx - 5: center_idx]
+#                     corr_before = linregress(x_bef, y_bef).intercept if len(x_bef) > 1 and np.all(np.isfinite(y_bef)) else mean_correlation[center_idx]
+#                 else:
+#                     corr_before = mean_correlation[center_idx]
+                
+#                 if center_idx + 6 <= len(mean_correlation):
+#                     x_aft = lags[center_idx + 1: center_idx + 6]
+#                     y_aft = mean_correlation[center_idx + 1: center_idx + 6]
+#                     corr_after = linregress(x_aft, y_aft).intercept if len(x_aft) > 1 and np.all(np.isfinite(y_aft)) else mean_correlation[center_idx]
+#                 else:
+#                     corr_after = mean_correlation[center_idx]
+                    
+#                 mean_correlation[center_idx] = np.nanmax([corr_before, corr_after])
+#                 if center_idx < len(error_correlation):
+#                     error_correlation[center_idx] = 0.0
+
+#         # ===== Return only positive lags if requested =====
+#         if not self.multi_tau and not self.return_full:
+#             center_idx = self.max_lag
+#             mean_correlation = mean_correlation[center_idx:]
+#             error_correlation = error_correlation[center_idx:]
+#             correlations_array = correlations_array[:, center_idx:]
+#             lags = lags[center_idx:]
+
+#         # Correct anchor index for start_lag in plotting
+#         actual_start_lag_idx = np.where(lags >= 0)[0][0] + self.start_lag
+
+#         dwell_time = None
+#         self.fit_params_ = None  # populated below if show_plot + exponential fit succeeds
+#         if self.show_plot:
+#             if self.secondary_data is None:
+#                 plots_obj = Plots()
+#                 dwell_time = plots_obj.plot_autocorrelation(
+#                     mean_correlation=mean_correlation,
+#                     error_correlation=error_correlation,
+#                     lags=lags,
+#                     correlations_array=correlations_array,
+#                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
+#                     index_max_lag_for_fit=self.index_max_lag_for_fit,
+#                     start_lag=actual_start_lag_idx,
+#                     plot_name=self.plot_name,
+#                     save_plots=self.save_plots,
+#                     line_color=self.line_color,
+#                     line_color_fit=self.line_color_fit,
+#                     plot_title=self.plot_title,
+#                     fit_type=self.fit_type,
+#                     de_correlation_threshold=self.de_correlation_threshold,
+#                     normalize_plot_with_g0=self.normalize_plot_with_g0,
+#                     plot_individual_trajectories=self.plot_individual_trajectories,
+#                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
+#                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
+#                     figsize=self.figsize,
+#                 )
+#                 self.fit_params_ = getattr(plots_obj, '_last_fit_params', None)  # exact A, tau_c, C
+#             else:
+#                 dwell_time = Plots().plot_crosscorrelation(
+#                     intensity_array_ch0=self.primary_data,
+#                     intensity_array_ch1=self.secondary_data,
+#                     mean_correlation=mean_correlation,
+#                     error_correlation=error_correlation,
+#                     lags=lags,
+#                     time_interval_between_frames_in_seconds=self.time_interval_between_frames_in_seconds,
+#                     plot_name=self.plot_name,
+#                     save_plots=self.save_plots,
+#                     line_color=self.line_color,
+#                     plot_title=self.plot_title,
+#                     normalize_plot_with_g0=self.normalize_plot_with_g0,
+#                     y_axes_min_max_list_values=self.y_axes_min_max_list_values,
+#                     x_axes_min_max_list_values=self.x_axes_min_max_list_values,
+#                 )
+
+#         return mean_correlation, error_correlation, lags, correlations_array, dwell_time
 
 
 class Utilities():

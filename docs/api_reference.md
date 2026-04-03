@@ -770,10 +770,11 @@ __init__(primary_data, secondary_data=None, max_lag=None,
          plot_individual_trajectories=False, y_axes_min_max_list_values=None,
          x_axes_min_max_list_values=None, multi_tau=False,
          multi_tau_raw_points=20, multi_tau_bins_per_stage=8,
-         baseline_method='auto_plateau', baseline_manual_range=None,
+         baseline_method='auto_plateau',
          baseline_plateau_fraction=0.25, baseline_percentile=10.0,
          baseline_smooth_window=7, baseline_min_points=5,
-         baseline_weight_by_pairs=True, figsize=(8, 6))
+         baseline_weight_by_pairs=True, figsize=(8, 6),
+         detrend_photobleaching=False)
 ```
 
 **Methods:** `run()`
