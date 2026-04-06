@@ -180,23 +180,27 @@ import microlive.microscopy as mi
 
 # Load images from a Leica .lif file
 reader = mi.ReadLif("experiment.lif")
-images = reader.get_images()
+(list_images, list_names, pixel_XY, pixel_Z,
+ channel_names, num_channels, *_) = reader.read()
 
 # Access image data
-image = reader.list_images[0]
+image = list_images[0]
 print(f"Image shape: {image.shape}")  # (T, Z, Y, X, C)
 
 # Run Cellpose segmentation
-cellpose = mi.Cellpose(image_for_segmentation=image[0, 0, :, :, 0])
+cellpose = mi.Cellpose(image=image[0, 0, :, :, 0])
 masks = cellpose.calculate_masks()
 
 # Spot detection
 spots = mi.SpotDetection(
-    image=image,
-    spot_size_yx=5,
-    threshold=100
+    image=image[0],  # Single time point [Z, Y, X, C]
+    channels_spots=[0],
+    channels_cytosol=[],
+    channels_nucleus=[],
+    masks_complete_cells=masks,
+    yx_spot_size_in_px=5,
+    threshold_for_spot_detection=100
 )
-detected = spots.detect_spots()
 ```
 
 ---
@@ -214,6 +218,7 @@ microlive/
 │   │   └── main.py               # CLI entry point
 │   ├── utils/                    # Utility modules
 │   │   ├── device.py             # GPU detection
+│   │   ├── model_downloader.py   # ML model provisioning
 │   │   └── resources.py          # Resource paths
 │   ├── data/                     # ML models and resources
 │   └── pipelines/                # Analysis pipeline modules
@@ -232,7 +237,6 @@ microlive/
 ├── installation/                 # Environment files
 │   ├── microlive.yml             # Conda env (macOS / CPU)
 │   └── microlive_cuda.yml        # Conda env (NVIDIA GPU)
-├── tests/                        # Test suite
 ├── pyproject.toml                # Package configuration
 └── LICENSE                       # GPL v3 License
 ```
@@ -249,18 +253,17 @@ This project is licensed under the GNU General Public License v3 (GPLv3). See [L
 
 If you use MicroLive in your research, please cite:
 
-> **Aguilera LU, Raymond WS, Sears RM, Nowling NL, Munsky B, Zhao N.** *MicroLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* bioRxiv, 2025.  
-> DOI: [10.1101/2025.09.25.678587](https://doi.org/10.1101/2025.09.25.678587)
+> **Aguilera LU, Raymond WS, Sears RM, Nowling NL, Munsky B, Zhao N.** *MicroLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy.* Bioinformatics Advances, 2026; vbag095.
+> DOI: [10.1093/bioadv/vbag095](https://doi.org/10.1093/bioadv/vbag095)
 
 ```bibtex
-@article{aguilera2025microlive,
+@article{aguilera2026microlive,
   title={MicroLive: An Image Processing Toolkit for Quantifying Live-cell Single-Molecule Microscopy},
   author={Aguilera, Luis U and Raymond, William S and Sears, Rhiannon M and Nowling, Nathan L and Munsky, Brian and Zhao, Ning},
-  journal={bioRxiv},
-  pages={2025--09},
-  year={2025},
-  publisher={Cold Spring Harbor Laboratory},
-  doi={10.1101/2025.09.25.678587}
+  journal={Bioinformatics Advances},
+  pages={vbag095},
+  year={2026},
+  doi={10.1093/bioadv/vbag095}
 }
 ```
 

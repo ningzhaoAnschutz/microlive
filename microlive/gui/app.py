@@ -103,7 +103,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from functools import partial
 from scipy.optimize import curve_fit
-from scipy.ndimage import gaussian_filter, label, center_of_mass, distance_transform_edt
+from scipy.ndimage import gaussian_filter, distance_transform_edt
 from scipy.spatial.distance import cdist
 from scipy.stats import linregress
 from skimage.draw import line as skimage_draw_line
@@ -128,7 +128,7 @@ def configure_logging_and_styles():
     and a logging filter to suppress specific stylesheet parse warnings.
     """
     # Setup standard logging
-    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'micro_gui.log')
+    log_file = Path(__file__).resolve().parent / 'micro_gui.log'
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -308,6 +308,7 @@ class Plots:
                             plot_title=None, fit_type='linear', de_correlation_threshold=0.05,
                             normalize_plot_with_g0=False, axes=None, max_lag_index=None, plot_individual_trajectories=False,
                             y_min_percentile=None, y_max_percentile=None, verbose=False):
+        """Plot autocorrelation with optional linear or exponential decay fit."""
         
         def single_exponential_decay(tau, A, tau_c, C):
             return A * np.exp(-tau / tau_c) + C
@@ -460,6 +461,7 @@ class Plots:
                             line_color='blue', plot_title=None,
                             normalize_plot_with_g0=True, axes=None,
                             max_lag_index=None, y_min_percentile=None, y_max_percentile=None):
+        """Plot cross-correlation with smoothed overlay and tau_max annotation."""
         if axes is None:
             fig = Figure(figsize=(6, 4))
             ax = fig.add_subplot(111)
@@ -564,6 +566,7 @@ class Metadata:
             setattr(self, key, value)
 
     def write_metadata(self):
+        """Write comprehensive metadata report to text file."""
         line_width = 70
         separator = '=' * line_width
         sub_separator = '-' * line_width
@@ -1856,6 +1859,7 @@ class GUI(QMainWindow):
                 self.time_interval_value = val if ok else default_t
 
     def onChannelParamsChanged(self, channel, params):
+        """Handle display parameter changes for a channel and refresh all views."""
         self.channelDisplayParams[channel] = params
         if self.merged_mode:
             self.merge_color_channels()
@@ -1868,6 +1872,7 @@ class GUI(QMainWindow):
 
     
     def create_channel_buttons(self):
+        """Create per-channel selection buttons for all tab button layouts."""
         for btn in self.channel_buttons_display:
             btn.setParent(None)
         self.channel_buttons_display = []
@@ -1961,6 +1966,7 @@ class GUI(QMainWindow):
         return final_array
 
     def open_image(self):
+        """Open one or more image files (LIF, CZI, TIFF) via file dialog."""
         options = QFileDialog.Options()
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -2015,6 +2021,7 @@ class GUI(QMainWindow):
         self.image_tree.expandAll()
 
     def on_tree_item_clicked(self, item, column):
+        """Handle image tree selection and load the corresponding image."""
         info = item.data(0, Qt.UserRole) or {}
         if info.get('tif'):
             # Load as single-scene TIFF
@@ -2387,6 +2394,7 @@ class GUI(QMainWindow):
 
 
     def load_lif_image(self, file_path, image_index):
+        """Load a specific image from a LIF/CZI/TIFF file and initialize GUI state."""
         reader, names, yx_um, z_um, channels, nch, intervals, bd, list_laser_lines, list_intensities, list_wave_ranges = self.loaded_lif_files[file_path]
         self.lif_reader = reader
         self.list_names = names
@@ -2561,6 +2569,7 @@ class GUI(QMainWindow):
             self.play_button_tracking_vis.setText("Pause")
 
     def update_channel(self, channel):
+        """Switch the active display channel and refresh the image view."""
         self.current_channel = channel
         self._sync_tracking_channel()
         self.merged_mode = False
@@ -2594,6 +2603,7 @@ class GUI(QMainWindow):
     # Note: update_channel_crops removed - Crops tab has been deprecated
 
     def update_frame(self, value):
+        """Update the current time frame and refresh all active views."""
         self.current_frame = value
         total_frames = getattr(self, 'total_frames', 1)
         frame_text = f"{value}/{total_frames - 1}"
@@ -2695,6 +2705,7 @@ class GUI(QMainWindow):
         self.plot_image()
 
     def plot_image(self):
+        """Render the current frame and channel in the Display tab canvas."""
         # Check if ax_display is still valid (in the figure's axes list)
         ax_valid = (hasattr(self, 'ax_display') and 
                    self.ax_display is not None and 
@@ -3103,6 +3114,7 @@ class GUI(QMainWindow):
             self.current_channel = 0
 
     def on_channel_tab_changed(self, index):
+        """Handle channel tab selection and switch display or merge mode."""
         if not self.merged_mode:
             self.current_channel = index
             self.plot_image()
@@ -3112,6 +3124,7 @@ class GUI(QMainWindow):
             self.update_tracking_sliders()
 
     def compute_merged_image(self, use_brightness_slider=False):
+        """Compute a multi-channel color-merged image using per-channel LUT colormaps."""
         if self.image_stack is None:
             return None
         # Get current frame's multi-channel image
@@ -3173,6 +3186,7 @@ class GUI(QMainWindow):
         return merged_img
 
     def merge_color_channels(self):
+        """Create and display the merged multi-channel color composite."""
         if self.image_stack is None:
             # Silently return if no image - this can happen when closing files in merge mode
             return
@@ -3209,6 +3223,7 @@ class GUI(QMainWindow):
 
 
     def control_panel_image_properties(self, parent_layout):
+        """Build the Display tab control panel with sliders, buttons, and image info."""
         self.channelControlsTabs = QTabWidget()
         self.channelControlsTabs.setStyleSheet("""
         QTabBar::tab {
@@ -3750,6 +3765,7 @@ class GUI(QMainWindow):
 
 
     def next_frame(self):
+        """Advance to the next time frame in the active tab's playback loop."""
         if getattr(self, 'total_frames', 0) == 0:
             return
         self.current_frame = (self.current_frame + 1) % self.total_frames
@@ -4123,6 +4139,7 @@ class GUI(QMainWindow):
     # update_segmentation_frame and update_segmentation_channel respectively.
 
     def run_cellpose_cyto(self):
+        """Run Cellpose cytoplasm segmentation on the current image."""
         if self.image_stack is None:
             return
         
@@ -4264,6 +4281,7 @@ class GUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"Cytosol segmentation failed: {str(e)}")
 
     def run_cellpose_nuc(self):
+        """Run Cellpose nucleus segmentation on the current image."""
         if self.image_stack is None:
             return
             
@@ -4406,6 +4424,7 @@ class GUI(QMainWindow):
             QMessageBox.critical(self, "Error", f"Nucleus segmentation failed: {str(e)}")
 
     def synchronize_and_plot_cellpose(self):
+        """Synchronize cytoplasm and nucleus Cellpose masks and refresh the view."""
         # Synchronize if both exist
         if self.cellpose_masks_cyto is not None and self.cellpose_masks_nuc is not None:
              self.cellpose_masks_cyto, self.cellpose_masks_nuc = mi.CellSegmentation.synchronize_masks(
@@ -4444,6 +4463,7 @@ class GUI(QMainWindow):
         self.reset_tracking_tab()
 
     def clear_cellpose_masks(self):
+        """Reset all Cellpose mask data and restore default UI state."""
         self.cellpose_masks_cyto = None
         self.cellpose_masks_nuc = None
         # Clear TYX masks too
@@ -5133,6 +5153,7 @@ class GUI(QMainWindow):
 
 
     def create_segmentation_channel_buttons(self):
+        """Create per-channel selection buttons for the Segmentation tab."""
         for btn in self.segmentation_channel_buttons:
             btn.setParent(None)
         self.segmentation_channel_buttons = []
@@ -5143,6 +5164,7 @@ class GUI(QMainWindow):
             self.segmentation_channel_buttons.append(btn)
 
     def update_segmentation_channel(self, channel_index):
+        """Switch the active segmentation display channel."""
         # Get current sub-tab
         current_subtab = getattr(self, 'segmentation_method_tabs', None)
         current_index = current_subtab.currentIndex() if current_subtab is not None else -1
@@ -5174,6 +5196,7 @@ class GUI(QMainWindow):
                 self.plot_segmentation()
 
     def update_segmentation_frame(self, value):
+        """Update the segmentation view for a new time frame."""
         # Get current sub-tab
         current_subtab = getattr(self, 'segmentation_method_tabs', None)
         current_index = current_subtab.currentIndex() if current_subtab is not None else -1
@@ -5216,6 +5239,7 @@ class GUI(QMainWindow):
                 self.plot_segmentation()
 
     def run_watershed_segmentation(self):
+        """Execute watershed-based cell segmentation on the current image."""
         if self.image_stack is not None:
             # Use registered image if available
             image_to_use = self.get_current_image_source()
@@ -5279,6 +5303,7 @@ class GUI(QMainWindow):
             print("No image loaded")
 
     def update_watershed_threshold_factor(self, value):
+        """Update the threshold factor for watershed segmentation and re-segment."""
         # Convert slider value (int) to float factor (value/100)
         self.watershed_threshold_factor = value / 100.0
         
@@ -5345,6 +5370,7 @@ class GUI(QMainWindow):
         self.statusBar().showMessage(f"{msg}. Cells: {n_cells}")
 
     def update_segmentation_source(self, state):
+        """Toggle between using original or photobleaching-corrected image for segmentation."""
         if state == Qt.Checked:
             self.compute_max_proj_segmentation()
             self.use_max_proj_for_segmentation = True
@@ -5375,6 +5401,7 @@ class GUI(QMainWindow):
             self.plot_segmentation()
 
     def compute_max_proj_segmentation(self):
+        """Compute maximum Z-projection for segmentation display."""
         if self.image_stack is None:
             return
         # Use registered image if available
@@ -5443,6 +5470,7 @@ class GUI(QMainWindow):
 
 
     def plot_segmentation(self):
+        """Render segmentation masks with boundaries and cell labels."""
         self.figure_segmentation.clear()
         self.ax_segmentation = self.figure_segmentation.add_subplot(111)
         self.ax_segmentation.set_facecolor('black')
@@ -7873,6 +7901,7 @@ class GUI(QMainWindow):
 # =============================================================================
 
     def compute_photobleaching(self):
+        """Compute and optionally apply photobleaching correction to the image stack."""
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
@@ -8965,6 +8994,7 @@ class GUI(QMainWindow):
             """)
 
     def detect_spots_all_frames(self):
+        """Run spot detection across all frames for the active channel."""
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
@@ -9532,6 +9562,7 @@ class GUI(QMainWindow):
         self.plot_tracking()
 
     def plot_tracking(self):
+        """Render the Tracking tab view with detected spots and trajectory overlays."""
         # Check if ax_tracking is still valid (in the figure's axes list)
         ax_valid = (hasattr(self, 'ax_tracking') and 
                    self.ax_tracking is not None and 
@@ -10085,6 +10116,7 @@ class GUI(QMainWindow):
 
 
     def perform_particle_tracking(self):
+        """Launch particle tracking in a background thread for the active channel."""
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image Loaded", "Please load an image first.")
             return
@@ -10207,6 +10239,7 @@ class GUI(QMainWindow):
         progress_dialog.close()
 
     def on_tracking_finished(self, list_dataframes_trajectories):
+        """Process completed tracking results and update GUI state."""
         try:
             tracking_channel = getattr(self, '_last_tracking_run_channel', self.current_channel)
             
@@ -11099,6 +11132,7 @@ class GUI(QMainWindow):
 # =============================================================================
 
     def plot_intensity_histogram(self):
+        """Plot spot intensity distribution histogram from tracking data."""
         if self.df_tracking.empty:
             self.figure_distribution.clear()
             ax = self.figure_distribution.add_subplot(111)
@@ -11583,6 +11617,7 @@ class GUI(QMainWindow):
 
 
     def compute_correlations(self):
+        """Compute auto- and cross-correlation functions from tracked intensity data."""
         # Update slider ranges based on current data
         self._update_correlation_sliders_for_data()
         
@@ -12854,6 +12889,7 @@ class GUI(QMainWindow):
 
 
     def extract_colocalization_data(self, save_df=True):
+        """Extract colocalization metrics and save results to CSV."""
         if not self.colocalization_results:
             logging.warning("No colocalization results!")
             QMessageBox.warning(self, "No Data", "No colocalization data available.")
@@ -15853,6 +15889,7 @@ class GUI(QMainWindow):
             self.user_comment_textedit.setEnabled(False)
 
     def export_selected_items(self):
+        """Export user-selected data items (images, masks, tracks, plots) to disk."""
         options = QFileDialog.Options()
         parent_folder = QFileDialog.getExistingDirectory(
             self,
@@ -18183,6 +18220,7 @@ class GUI(QMainWindow):
 
 
     def display_correlation_plot(self):
+        """Render auto- and cross-correlation results in the Correlation tab."""
         fig = self.figure_correlation
         fig.clear()
         fig.patch.set_facecolor('black')
@@ -18387,6 +18425,7 @@ class GUI(QMainWindow):
 
 
     def plot_intensity_time_course(self):
+        """Plot per-cell intensity time courses in the Time Course tab."""
         channel_text = self.time_course_channel_combo.currentText()
         data_type = self.data_type_combo.currentText()
         lower_percentile = self.min_percentile_spinbox.value()
@@ -18703,6 +18742,7 @@ class GUI(QMainWindow):
     
     
     def on_tab_change(self, index):
+        """Handle main tab switch: stop playback and refresh the target tab's view."""
         # Stop any running playback when switching tabs
         self.stop_all_playback()
         

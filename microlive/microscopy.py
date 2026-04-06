@@ -53,7 +53,7 @@ from skimage.morphology import erosion, binary_erosion, disk, remove_small_objec
 from skimage.measure import find_contours, profile_line
 #from skimage import measure, filters
 from skimage.segmentation import watershed
-from skimage.feature import peak_local_max, blob_log
+from skimage.feature import blob_log
 
 ### Scipy imports
 from scipy import signal, ndimage
@@ -63,7 +63,7 @@ from scipy.optimize import curve_fit, linear_sum_assignment
 from scipy.spatial.distance import cdist
 from scipy.stats import linregress, pearsonr
 from scipy.signal import find_peaks
-from scipy.ndimage import center_of_mass
+
 
 ### Big FISH imports
 import bigfish.stack as stack
