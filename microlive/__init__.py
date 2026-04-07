@@ -7,23 +7,22 @@ and single-molecule measurements.
 
 Example usage:
     # Programmatic API
-    from microlive import microscopy as mi
-    # Or: import microlive.microscopy as mi
+    import microlive.microscopy as mi
     
     # Load and analyze images
     reader = mi.ReadLif("experiment.lif")
-    images = reader.get_images()
+    (list_images, *_) = reader.read()
     
     # Run segmentation
-    seg = mi.CellSegmentation(images[0])
-    masks = seg.calculate_masks()
+    cellpose = mi.Cellpose(image=list_images[0][0, 0, :, :, 0])
+    masks = cellpose.calculate_masks()
 
 Authors:
     Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears,
     Nathan L. Nowling, Brian Munsky, Ning Zhao
 """
 
-__version__ = "1.0.33"
+__version__ = "1.0.34"
 __author__ = "Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao"
 
 # Package name (for backward compatibility)
