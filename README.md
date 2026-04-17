@@ -227,7 +227,7 @@ microlive/
 │   ├── run_simulation.py         # CLI runner
 │   ├── visualize_results.py      # Visualization tools
 │   ├── config_*.yaml             # Configuration examples
-│   └── tests/                    # 8-test validation suite (100% pass)
+│   └── tests/                    # 9-test validation suite (100% pass)
 ├── docs/                         # Documentation
 │   ├── user_guide.md             # User manual
 │   ├── tutorial.md               # Step-by-step tutorials
