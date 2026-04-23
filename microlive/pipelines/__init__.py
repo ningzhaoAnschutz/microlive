@@ -7,6 +7,8 @@ Available pipelines:
     - pipeline_particle_tracking: Full particle tracking workflow
     - pipeline_FRAP: FRAP (Fluorescence Recovery After Photobleaching) analysis
     - pipeline_folding_efficiency: Protein folding efficiency quantification
+    - pipeline_multicell_spot_detection: Multi-cell spot detection and
+      quantification for fixed-cell datasets (TIFF, LIF, or folder of TIFFs)
     - pipeline_spot_detection_no_tracking: Spot detection without linking
 """
 
@@ -15,3 +17,4 @@ Available pipelines:
 #
 #   from microlive.pipelines.pipeline_particle_tracking import pipeline_particle_tracking
 #   from microlive.pipelines.pipeline_FRAP import run_frap_pipeline
+#   from microlive.pipelines.pipeline_multicell_spot_detection import pipeline_multicell_spot_detection

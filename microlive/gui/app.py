@@ -1103,26 +1103,33 @@ class GUI(QMainWindow):
                 return (self.cellpose_masks_nuc > 0).astype(np.uint8)
         return self.segmentation_mask
 
-    def _format_time_interval(self, value):
+    def _format_time_interval(self, value, reference_interval=None):
         """Format time interval for display, handling small values appropriately.
         
         Args:
-            value: Time interval in seconds
+            value: Time value in seconds.
+            reference_interval: Optional. When provided, the unit (µs, ms, s)
+                is chosen based on this reference value instead of ``value``
+                itself. Use for timestamp overlays so that all frames share
+                the same unit (determined by the experiment's time interval).
             
         Returns:
-            Formatted string with appropriate unit (ms or s)
+            Formatted string with appropriate unit (µs, ms, or s).
         """
         if value is None:
             return "N/A"
         try:
             val = float(value)
-            if val < 0.001:
+            # Use reference_interval to pick the unit when available;
+            # fall back to the value itself (original behaviour for metadata).
+            scale_ref = float(reference_interval) if reference_interval is not None else val
+            if scale_ref < 0.001:
                 # Sub-millisecond: show in microseconds
                 return f"{val * 1e6:.2f} µs"
-            elif val < 1:
+            elif scale_ref < 1:
                 # Millisecond range: show in ms
                 return f"{val * 1000:.2f} ms"
-            elif val < 10:
+            elif scale_ref < 10:
                 # 1-10 seconds: show with 2 decimals
                 return f"{val:.2f} s"
             else:
@@ -2817,7 +2824,7 @@ class GUI(QMainWindow):
                 self.ax_display.imshow(img_to_show, cmap=cmap_imagej, vmin=0, vmax=1)
             if self.display_time_text_checkbox.isChecked():
                 current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
-                time_str = self._format_time_interval(current_time)
+                time_str = self._format_time_interval(current_time, reference_interval=self.time_interval_value)
                 self.ax_display.text(0.05, 0.95, time_str, transform=self.ax_display.transAxes,
                                     verticalalignment='top', color='white', fontsize=12,
                                     bbox=dict(facecolor='black', alpha=0.5, pad=2))
@@ -10001,7 +10008,7 @@ class GUI(QMainWindow):
                                                     fontweight='bold', alpha=0.9)
         if self.tracking_time_text_checkbox.isChecked():
             current_time = self.current_frame * (float(self.time_interval_value) if self.time_interval_value else 1)
-            time_str = self._format_time_interval(current_time)
+            time_str = self._format_time_interval(current_time, reference_interval=self.time_interval_value)
             self.ax_tracking.text(0.05, 0.99, time_str,
                                    transform=self.ax_tracking.transAxes,
                                    verticalalignment='top',
@@ -15279,7 +15286,7 @@ class GUI(QMainWindow):
         if hasattr(self, 'checkbox_show_timestamp') and self.checkbox_show_timestamp.isChecked():
             if getattr(self, 'time_interval_value', None) is not None:
                 time_val = float(self.current_frame) * float(self.time_interval_value)
-                ts = self._format_time_interval(time_val)
+                ts = self._format_time_interval(time_val, reference_interval=self.time_interval_value)
                 ax_main.text(
                     5, 5,
                     ts,

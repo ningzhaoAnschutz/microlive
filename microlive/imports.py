@@ -48,6 +48,7 @@ import matplotlib.patches as patches
 from matplotlib.ticker import MaxNLocator
 from matplotlib.patches import Rectangle
 from skimage.io import imread
+from matplotlib.lines import Line2D
 from skimage.measure import regionprops
 from skimage import exposure  # for adaptive histogram equalization
 from skimage.filters import threshold_local
