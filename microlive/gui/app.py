@@ -16138,6 +16138,7 @@ class GUI(QMainWindow):
                 metadata={
                     'axes': order,
                     'PhysicalSizeX': physical_size_x,
+                    'PhysicalSizeY': physical_size_x,  # XY voxels are isotropic
                     'PhysicalSizeZ': physical_size_z,
                     'TimeIncrement': time_interval,
                     'TimeIncrementUnit': 's',
