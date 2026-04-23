@@ -1295,89 +1295,158 @@ def render_fov_overview(
 
 
 def render_spots_per_cell_boxplot(df_all_cells, channels_spots, save_path):
-    """Box/whisker plot of spots per cell, one box per image, per channel.
+    """Box/whisker + swarm plot of spots per cell, one box per image, per channel.
 
-    Uses ``total_spots_ch_{ch}`` so the count reflects single-molecule spots
-    only (not cluster contents). Red dot marks the mean; red labels annotate
-    each box with ``mean (n cells)``.
+    White-face boxplot with red median line, black whiskers/caps, and a
+    swarm overlay of individual cell counts. Prints mean +/- SEM per image
+    to stdout for quick inspection. Styled after publication-quality figures
+    (Arial font, thick spines, whis=[5, 95]).
     """
     if df_all_cells.empty:
         return
 
+    sns.set_style('ticks')
     image_names = sorted(df_all_cells['image_name'].unique())
-    width_per_box = max(1.2, 8.0 / max(1, len(image_names)))
-    fig_w = max(6.0, width_per_box * len(image_names))
+    n_images = len(image_names)
+    fig_w = max(4.0, min(3.0 * n_images, 14.0))
     fig, axes = plt.subplots(1, len(channels_spots),
-                             figsize=(fig_w * len(channels_spots), 5),
-                             squeeze=False)
+                             figsize=(fig_w * len(channels_spots), 6),
+                             facecolor='white', squeeze=False)
     axes = axes[0]
+
     for i, ch in enumerate(channels_spots):
         col = f'total_spots_ch_{ch}'
         if col not in df_all_cells.columns:
             continue
-        data = [df_all_cells.loc[df_all_cells['image_name'] == name, col].values
-                for name in image_names]
-        axes[i].boxplot(
-            data, labels=image_names, showmeans=True,
-            meanprops=dict(marker='o', markerfacecolor='red',
-                           markeredgecolor='red', markersize=6, zorder=5),
-            medianprops=dict(color='steelblue', linewidth=2, zorder=4),
-            boxprops=dict(zorder=2), whiskerprops=dict(zorder=2),
-            capprops=dict(zorder=2), showfliers=False
+
+        ax = axes[i]
+        ax.set_facecolor('white')
+
+        df_plot = df_all_cells[['image_name', col]].rename(
+            columns={col: 'spots', 'image_name': 'Image'})
+
+        sns.boxplot(
+            x='Image', y='spots', data=df_plot,
+            order=image_names, ax=ax,
+            showfliers=False, width=0.35, whis=[5, 95],
+            boxprops={'facecolor': 'white', 'edgecolor': 'black'},
+            medianprops={'color': 'red', 'linewidth': 2},
+            whiskerprops={'color': 'black', 'linewidth': 1.5},
+            capprops={'color': 'black', 'linewidth': 1.5},
+            linewidth=1.5,
+        )
+        sns.swarmplot(
+            x='Image', y='spots', data=df_plot,
+            order=image_names, ax=ax,
+            color='black', size=4,
         )
 
-        # Overlay individual points with jitter
-        for j, vals in enumerate(data, start=1):
+        ax.set_title(f'Channel {ch} - spots per cell',
+                     fontsize=14, fontname='Arial', color='black')
+        ax.set_xlabel('Image', fontsize=14, fontname='Arial', color='black')
+        ax.set_ylabel('Spots per cell', fontsize=14, fontname='Arial', color='black')
+        ax.tick_params(axis='x', rotation=45, labelsize=12, colors='black',
+                       width=2, length=6)
+        ax.tick_params(axis='y', labelsize=12, colors='black', width=2, length=6)
+        for lbl in ax.get_xticklabels():
+            lbl.set_fontname('Arial')
+            lbl.set_ha('right')
+        for lbl in ax.get_yticklabels():
+            lbl.set_fontname('Arial')
+        for spine in ax.spines.values():
+            spine.set_linewidth(2.0)
+            spine.set_color('black')
+
+        # Print mean +/- SEM per image to stdout
+        print(f'\n  Channel {ch} spots per cell:')
+        for name in image_names:
+            vals = df_plot.loc[df_plot['Image'] == name, 'spots'].dropna().values
             if len(vals) == 0:
                 continue
-            x_jitter = np.random.normal(j, 0.05, size=len(vals))
-            axes[i].plot(x_jitter, vals, 'o', color='dodgerblue', alpha=0.6,
-                         markersize=4, zorder=3)
+            mean = vals.mean()
+            sem = vals.std() / (len(vals) ** 0.5) if len(vals) > 1 else 0
+            print(f'    {name}: {mean:.1f} +/- {sem:.2f}  (n={len(vals)})')
 
-            # Annotate each box with mean (n)
-            axes[i].annotate(f"{vals.mean():.1f} (n={len(vals)})",
-                              xy=(j, vals.max()), xytext=(0, 5),
-                              textcoords='offset points',
-                              ha='center', fontsize=8, color='dimgray')
-        axes[i].set_title(f'Channel {ch} - spots per cell')
-        axes[i].set_xlabel('Image')
-        axes[i].set_ylabel('Spots per cell')
-        axes[i].tick_params(axis='x', rotation=45)
-        axes[i].grid(True, axis='y', alpha=0.3)
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
 
 def render_batch_summary_plot(df_all_cells, channels_spots, save_path):
-    """Boxplot + stripplot: per-cell total spots across images, per channel."""
+    """Box/whisker + swarm plot of total mRNA per cell across images.
+
+    Uses mrna_in_nuc + mrna_in_cyto as the y-axis value (total mRNA per cell,
+    including cluster-size contributions). Delegates to the same publication-
+    quality styling as render_spots_per_cell_boxplot.
+    """
     if df_all_cells.empty:
         return
+
+    sns.set_style('ticks')
+    image_names = sorted(df_all_cells['image_name'].unique())
+    n_images = len(image_names)
+    fig_w = max(4.0, min(3.0 * n_images, 14.0))
     fig, axes = plt.subplots(1, len(channels_spots),
-                             figsize=(8 * len(channels_spots), 6), squeeze=False)
+                             figsize=(fig_w * len(channels_spots), 6),
+                             facecolor='white', squeeze=False)
     axes = axes[0]
+
     for i, ch in enumerate(channels_spots):
         col_nuc = f'mrna_in_nuc_ch_{ch}'
         col_cyto = f'mrna_in_cyto_ch_{ch}'
         if col_nuc not in df_all_cells.columns:
             continue
 
-        # Calculate total mRNA per cell
+        ax = axes[i]
+        ax.set_facecolor('white')
+
         df_plot = df_all_cells[['image_name']].copy()
-        df_plot['total_mrna'] = df_all_cells[col_nuc] + df_all_cells[col_cyto]
+        df_plot['mRNA'] = df_all_cells[col_nuc] + df_all_cells[col_cyto]
+        df_plot = df_plot.rename(columns={'image_name': 'Image'})
 
-        sns.boxplot(data=df_plot, x='image_name', y='total_mrna',
-                    ax=axes[i], color='lightgray', showfliers=False)
-        sns.stripplot(data=df_plot, x='image_name', y='total_mrna',
-                      ax=axes[i], color='dodgerblue', alpha=0.7, jitter=True, size=5)
+        sns.boxplot(
+            x='Image', y='mRNA', data=df_plot,
+            order=image_names, ax=ax,
+            showfliers=False, width=0.35, whis=[5, 95],
+            boxprops={'facecolor': 'white', 'edgecolor': 'black'},
+            medianprops={'color': 'red', 'linewidth': 2},
+            whiskerprops={'color': 'black', 'linewidth': 1.5},
+            capprops={'color': 'black', 'linewidth': 1.5},
+            linewidth=1.5,
+        )
+        sns.swarmplot(
+            x='Image', y='mRNA', data=df_plot,
+            order=image_names, ax=ax,
+            color='black', size=4,
+        )
 
-        axes[i].set_title(f'Channel {ch} - mRNA per cell')
-        axes[i].set_xlabel('Image')
-        axes[i].set_ylabel('mRNA count per cell')
-        axes[i].tick_params(axis='x', rotation=45)
+        ax.set_title(f'Channel {ch} - mRNA per cell',
+                     fontsize=14, fontname='Arial', color='black')
+        ax.set_xlabel('Image', fontsize=14, fontname='Arial', color='black')
+        ax.set_ylabel('mRNA per cell', fontsize=14, fontname='Arial', color='black')
+        ax.tick_params(axis='x', rotation=45, labelsize=12, colors='black',
+                       width=2, length=6)
+        ax.tick_params(axis='y', labelsize=12, colors='black', width=2, length=6)
+        for lbl in ax.get_xticklabels():
+            lbl.set_fontname('Arial')
+            lbl.set_ha('right')
+        for lbl in ax.get_yticklabels():
+            lbl.set_fontname('Arial')
+        for spine in ax.spines.values():
+            spine.set_linewidth(2.0)
+            spine.set_color('black')
+
+        print(f'\n  Channel {ch} mRNA per cell:')
+        for name in image_names:
+            vals = df_plot.loc[df_plot['Image'] == name, 'mRNA'].dropna().values
+            if len(vals) == 0:
+                continue
+            mean = vals.mean()
+            sem = vals.std() / (len(vals) ** 0.5) if len(vals) > 1 else 0
+            print(f'    {name}: {mean:.1f} +/- {sem:.2f}  (n={len(vals)})')
 
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
 
