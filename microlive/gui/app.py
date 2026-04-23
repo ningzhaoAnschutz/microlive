@@ -3485,12 +3485,15 @@ class GUI(QMainWindow):
         scroll_info.setMaximumHeight(350)
         display_right_layout.addWidget(scroll_info)
         # Export buttons
-        self.export_displayed_image_button = QPushButton("Export Image", self)
+        self.export_displayed_image_button = QPushButton("Export PNG", self)
         self.export_displayed_image_button.clicked.connect(self.export_displayed_image_as_png)
+        self.export_tif_button = QPushButton("Export TIF", self)
+        self.export_tif_button.clicked.connect(self.export_ome_tif_dialog)
         self.export_video_button = QPushButton("Export Video", self)
         self.export_video_button.clicked.connect(self.export_displayed_video)
         export_buttons_layout = QHBoxLayout()
         export_buttons_layout.addWidget(self.export_displayed_image_button)
+        export_buttons_layout.addWidget(self.export_tif_button)
         export_buttons_layout.addWidget(self.export_video_button)
         display_right_layout.addLayout(export_buttons_layout)
         # Time & background checkboxes
@@ -16074,17 +16077,44 @@ class GUI(QMainWindow):
         for unique_key, chk in self.export_items_map.items():
             chk.setChecked(False)
 
-    def _export_ome_tif(self, out_folder: Path):
+    def export_ome_tif_dialog(self):
+        """Prompt the user to save the full image stack as OME-TIFF.
+
+        Presents a save-file dialog with a metadata-derived default filename.
         """
-        Export the entire image stack as OME-TIFF into out_folder.
+        if self.image_stack is None:
+            QMessageBox.warning(self, "No Image",
+                                "No image to export. Please load an image first.")
+            return
+        default_filename = self.get_default_export_filename(
+            prefix=None, extension="ome.tif")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export OME-TIF",
+            default_filename,
+            "OME-TIF Files (*.ome.tif);;All Files (*)")
+        if not file_path:
+            return
+        self._export_ome_tif(out_folder=None, out_path=Path(file_path))
+        QMessageBox.information(self, "Export Successful",
+                                f"OME-TIF exported to:\n{file_path}")
+
+    def _export_ome_tif(self, out_folder: Path, out_path: Path = None):
+        """Export the entire image stack as OME-TIFF.
+
+        Args:
+            out_folder: Directory to save into (filename auto-generated).
+                        Ignored when out_path is provided.
+            out_path: Optional. Full file path to write to. When provided,
+                      out_folder is ignored.
         """
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image", "No image to export.")
             return
-        # Choose a filename
-        default_filename = self.get_default_export_filename(prefix=None, extension=None)
-        filename = f"{default_filename}.ome.tif"
-        out_path = out_folder / filename
+        if out_path is None:
+            default_filename = self.get_default_export_filename(prefix=None, extension=None)
+            filename = f"{default_filename}.ome.tif"
+            out_path = out_folder / filename
         temp_image = np.moveaxis(self.image_stack, 4, 1)  # move last axis to second place => (T, C, Z, Y, X)
         shape = temp_image.shape  # e.g. (T, C, Z, Y, X)
         bit_depth = 16 if self.bit_depth is None else self.bit_depth
@@ -16619,19 +16649,19 @@ class GUI(QMainWindow):
 
     def export_tracking_video(self):
         """
-        Export the tracking visualization as a video (MP4 or GIF), including any colormaps,
+        Export the tracking visualization as a video (AVI, MP4, or GIF), including any colormaps,
         overlays, and a scalebar (if voxel size is set).
         """
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image", "No image to export. Please load an image first.")
             return
-        default_filename = self.get_default_export_filename(prefix="tracking_video", extension="mp4")
+        default_filename = self.get_default_export_filename(prefix="tracking_video", extension="avi")
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Tracking Video",
             default_filename,
-            "MP4 Video (*.mp4);;GIF (*.gif)",
+            "AVI Video (*.avi);;MP4 Video (*.mp4);;GIF (*.gif)",
             options=options
         )
         if not file_path:
@@ -16670,28 +16700,35 @@ class GUI(QMainWindow):
             for frame in frames:
                 out.write(frame)
             out.release()
+        elif ext == ".avi":
+            height, width, _ = frames[0].shape
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            out = cv2.VideoWriter(file_path, fourcc, 10, (width, height), True)
+            for frame in frames:
+                out.write(frame)
+            out.release()
         else:
-            QMessageBox.warning(self, "Export Error", "Unsupported file extension. Please choose .gif or .mp4")
+            QMessageBox.warning(self, "Export Error", "Unsupported file extension. Please choose .avi, .mp4, or .gif")
             return
         QMessageBox.information(self, "Export Video", f"Tracking video exported successfully to:\n{file_path}")
 
 
     def export_displayed_video(self):
         """
-        Export the currently displayed image (in the Display tab) as a video (MP4 or GIF),
+        Export the currently displayed image (in the Display tab) as a video (AVI, MP4, or GIF),
         preserving colormaps, overlays, timestamp, and including a scalebar if voxel size is set.
         """
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image", "No image to export. Please load an image first.")
             return
 
-        default_filename = self.get_default_export_filename(prefix="video", extension="mp4")
+        default_filename = self.get_default_export_filename(prefix="video", extension="avi")
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Displayed Video",
             default_filename,
-            "MP4 Video (*.mp4);;GIF (*.gif)",
+            "AVI Video (*.avi);;MP4 Video (*.mp4);;GIF (*.gif)",
             options=options
         )
         if not file_path:
@@ -16737,8 +16774,18 @@ class GUI(QMainWindow):
                     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
                 out.write(frame)
             out.release()
+        elif ext == ".avi":
+            height, width = frames[0].shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            isColor = True if (frames[0].ndim == 3 and frames[0].shape[2] == 3) else False
+            out = cv2.VideoWriter(file_path, fourcc, 10, (width, height), isColor=isColor)
+            for frame in frames:
+                if not isColor and frame.ndim == 2:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                out.write(frame)
+            out.release()
         else:
-            QMessageBox.warning(self, "Export Error", "Unsupported file extension. Please choose .gif or .mp4")
+            QMessageBox.warning(self, "Export Error", "Unsupported file extension. Please choose .avi, .mp4, or .gif")
             return
         QMessageBox.information(self, "Export Video", f"Video exported successfully to:\n{file_path}")
 
@@ -16985,18 +17032,18 @@ class GUI(QMainWindow):
             QMessageBox.critical(self, "Export Failed", f"An error occurred while exporting image:\n{e}")
 
     def export_tracking_visualization_video(self):
-        """Export the tracking visualization as a video (MP4 or GIF)."""
+        """Export the tracking visualization as a video (AVI, MP4, or GIF)."""
         if self.df_tracking.empty:
             QMessageBox.warning(self, "No Data", "No tracking data available to export.")
             return
         if self.image_stack is None:
             QMessageBox.warning(self, "No Image", "No image loaded.")
             return
-        default_filename = self.get_default_export_filename(prefix="tracking_visualization_video", extension="mp4")
+        default_filename = self.get_default_export_filename(prefix="tracking_visualization_video", extension="avi")
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Export Tracking Visualization Video", default_filename,
-            "MP4 Video (*.mp4);;GIF (*.gif)", options=options
+            "AVI Video (*.avi);;MP4 Video (*.mp4);;GIF (*.gif)", options=options
         )
         if not file_path:
             return
@@ -17023,8 +17070,15 @@ class GUI(QMainWindow):
                 for frame in frames:
                     out.write(frame)
                 out.release()
+            elif ext == ".avi":
+                height, width, _ = frames[0].shape
+                fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                out = cv2.VideoWriter(file_path, fourcc, 10, (width, height))
+                for frame in frames:
+                    out.write(frame)
+                out.release()
             else:
-                QMessageBox.warning(self, "Export Error", "Unsupported file extension. Please choose .mp4 or .gif")
+                QMessageBox.warning(self, "Export Error", "Unsupported file extension. Please choose .avi, .mp4, or .gif")
                 return
             QMessageBox.information(self, "Export Video", f"Tracking video exported successfully to:\n{file_path}")
         except Exception as e:
