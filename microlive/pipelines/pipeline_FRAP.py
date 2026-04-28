@@ -324,12 +324,29 @@ def segment_image(image_TXY, step_size=5, pretrained_model_segmentation='auto', 
     
     # Initialize models
     if pretrained_model_segmentation is not None and pretrained_model_segmentation != 'nuclei':
-        logger.info(f"Using pretrained model for nuclei segmentation")
-        model_nucleus = models.CellposeModel(
-            gpu=use_gpu,
-            pretrained_model=pretrained_model_segmentation
-        )
-    else:
+        # Validate that the custom model file exists before attempting to load
+        _model_path = pathlib.Path(pretrained_model_segmentation)
+        if not _model_path.exists():
+            logger.warning(
+                f"Custom model not found at '{pretrained_model_segmentation}'. "
+                f"Falling back to default Cellpose nuclei model."
+            )
+            pretrained_model_segmentation = None
+        else:
+            try:
+                logger.info(f"Using pretrained model for nuclei segmentation")
+                model_nucleus = models.CellposeModel(
+                    gpu=use_gpu,
+                    pretrained_model=pretrained_model_segmentation
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load custom model: {e}. "
+                    f"Falling back to default Cellpose nuclei model."
+                )
+                pretrained_model_segmentation = None
+
+    if pretrained_model_segmentation is None or pretrained_model_segmentation == 'nuclei':
         logger.info("Using default Cellpose nuclei model")
         model_nucleus = models.CellposeModel(
             gpu=use_gpu,
@@ -491,8 +508,13 @@ def create_image_arrays(list_concatenated_images, selected_image=0, FRAP_channel
     image_TXY = image_TZXYC[:,0,:,:,FRAP_channel_to_quantify] # shape (T X Y)
     image_TXY_8bit = (image_TXY - np.min(image_TXY)) / (np.max(image_TXY) - np.min(image_TXY)) * 255
 
-    # create image_TXY_8bit_stable_FRAP_channel
-    if FRAP_channel_to_quantify == 0:
+    # Determine stable reference channel for segmentation
+    num_channels = image_TZXYC.shape[-1]
+    if num_channels == 1:
+        # Single-channel data: use the same channel for both quantification and segmentation
+        stable_FRAP_channel = 0
+        logger.info("Single-channel image detected — using channel 0 for both quantification and segmentation")
+    elif FRAP_channel_to_quantify == 0:
         stable_FRAP_channel = 1
     else:
         stable_FRAP_channel = 0
@@ -706,7 +728,8 @@ def detect_roi_by_difference(
     frap_time,           # int
     min_diameter,        # float
     stable_FRAP_channel, # int
-    max_roi_displacement_px=None
+    max_roi_displacement_px=None,
+    roi_drop_threshold=0.6,  # fraction of baseline; post-bleach must be <= baseline * threshold
 ):
     """
     Detect the FRAP ROI by comparing pre- and post-bleach frames, then
@@ -718,8 +741,9 @@ def detect_roi_by_difference(
     """
 
     T = image_TZXYC.shape[0]
+    num_channels = image_TZXYC.shape[-1]
     z = 0
-    ch = stable_FRAP_channel
+    ch = min(stable_FRAP_channel, num_channels - 1)  # clamp to valid channel range
 
     # sanity check
     if frap_time <= 0 or frap_time >= T:
@@ -796,7 +820,7 @@ def detect_roi_by_difference(
         drop      = roi_int[frap_time+1]
         recovery  = roi_int[-1] - roi_int[frap_time]
 
-        if drop <= baseline*0.6: # and recovery >= drop*0.1:
+        if drop <= baseline * roi_drop_threshold:
             # success
             df = pd.DataFrame({
                 'frame': np.arange(T),
@@ -914,12 +938,17 @@ def find_frap_roi(
     list_selected_frame_values_real_time=None,
     mask_intensity_background=None,
     use_frap_time_for_roi_detection=True,
-    max_roi_displacement_px=5
+    max_roi_displacement_px=5,
+    roi_drop_threshold=0.6,
 ):
     """
     New function to find FRAP ROI using difference or tracking.
     Returns (mean_roi_frap, mean_roi_frap_normalized, coordinates_roi, df_selected_trajectory)
     """
+    # Clamp stable_FRAP_channel for single-channel data
+    num_channels = image_TZXYC.shape[-1]
+    if num_channels == 1:
+        stable_FRAP_channel = 0
     coordinates_roi = None
     df_selected_trajectory = None
     if use_frap_time_for_roi_detection:
@@ -931,6 +960,7 @@ def find_frap_roi(
             min_diameter,
             stable_FRAP_channel,
             max_roi_displacement_px,
+            roi_drop_threshold=roi_drop_threshold,
         )
     else:
         coordinates_roi, df_selected_trajectory = detect_roi_by_tracking(

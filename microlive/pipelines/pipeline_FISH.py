@@ -17,7 +17,7 @@ The pipeline supports:
 
 Example:
     >>> from pathlib import Path
-    >>> from microlive.pipelines.pipeline_multicell_spot_detection import (
+    >>> from microlive.pipelines.pipeline_FISH import (
     ...     pipeline_multicell_spot_detection,
     ... )
     >>> df_spots, df_cells, summary = pipeline_multicell_spot_detection(
@@ -1616,11 +1616,12 @@ def pipeline_multicell_spot_detection(
     threshold_sensitivity=1.0,
     threshold_method='elbow',
     save_masks=True,
-    save_per_cell_crops=True,
+    save_per_cell_crops=False,
     crop_padding_px=10,
     crop_mode='max_proj',
     visualization_z_slice=None,
     save_pdf_report=True,
+    save_individual_images=False,
     list_images_to_process=None,
     continue_on_error=True,
     show_plot=False,
@@ -1673,11 +1674,18 @@ def pipeline_multicell_spot_detection(
               true knee of the spots-vs-threshold curve. Recommended for
               FISH data with dense spot populations.
         save_masks: Save segmentation masks as TIFFs. Defaults to True.
-        save_per_cell_crops: Save per-cell cropped visualizations. Defaults to True.
+        save_per_cell_crops: Save per-cell crop PNGs to disk. Per-cell crops
+            are always rendered for the PDF report regardless of this setting.
+            Defaults to False.
         crop_padding_px: Padding (pixels) around each cell's bbox. Defaults to 10.
         crop_mode: 'max_proj' or 'z_slice'. Defaults to 'max_proj'.
         visualization_z_slice: Z-slice for spot overlays. None = max projection.
         save_pdf_report: Concatenate per-image overlays into a PDF. Defaults to True.
+        save_individual_images: Save intermediate visualization PNGs to disk
+            (raw_channels, segmentation, spots_overlay, gallery, fov_overview).
+            When False (default), these are rendered to a temporary directory
+            for PDF embedding only, then cleaned up. Set True to restore the
+            legacy behavior of writing all PNGs to per-image subfolders.
         list_images_to_process: Names or indices to process. None = all.
         continue_on_error: Skip failing images and keep going. Defaults to True.
         show_plot: Display plots interactively (notebook use). Defaults to False.
@@ -1705,6 +1713,10 @@ def pipeline_multicell_spot_detection(
         results_folder_path = data_path.parent / f"results_multicell_{stem}"
     results_folder_path = Path(results_folder_path)
     results_folder_path.mkdir(parents=True, exist_ok=True)
+
+    # Temporary directory for intermediate PNGs used by the PDF builder.
+    # Cleaned up at the end of the function.
+    tmp_dir = Path(tempfile.mkdtemp(prefix='fish_pipeline_'))
 
     # --- Load images ---
     list_images, list_names, pixel_xy_nm, voxel_z_nm, lif_channel_names = load_images(
@@ -1757,8 +1769,10 @@ def pipeline_multicell_spot_detection(
     thresholds_per_image = {}
 
     for idx, (image_TZYXC, name) in enumerate(zip(list_images, list_names)):
-        image_dir = results_folder_path / name
+        image_dir = results_folder_path / 'images' / name
         image_dir.mkdir(parents=True, exist_ok=True)
+        tmp_image_dir = tmp_dir / name
+        tmp_image_dir.mkdir(parents=True, exist_ok=True)
         print(f"[{idx + 1}/{len(list_images)}] Processing {name} "
               f"(shape={image_TZYXC.shape})")
 
@@ -1774,12 +1788,12 @@ def pipeline_multicell_spot_detection(
             n_cells = int(np.max(mask_cyto)) if mask_cyto is not None else 0
             print(f"    segmentation: {n_cells} cells")
 
-            # --- Visualize inputs and segmentation ---
+            # --- Visualize inputs and segmentation (to temp dir) ---
             render_raw_channels(image_TZYXC, channel_names,
-                                 image_dir / 'raw_channels.png')
+                                 tmp_image_dir / 'raw_channels.png')
             render_segmentation(image_TZYXC, mask_cyto, mask_nuc, mask_cno,
                                  channel_cytosol, channel_nucleus,
-                                 image_dir / 'segmentation.png')
+                                 tmp_image_dir / 'segmentation.png')
 
             if save_masks and mask_cyto is not None:
                 tifffile.imwrite(str(image_dir / 'mask_cytosol.tif'),
@@ -1802,7 +1816,7 @@ def pipeline_multicell_spot_detection(
                 image_TZYXC, channels_spots, thresholds,
                 yx_spot_size_in_px, z_spot_size_in_px, list_voxels,
                 max_spots_for_threshold,
-                save_plot_prefix=(image_dir / 'threshold_elbow')
+                save_plot_prefix=(tmp_image_dir / 'threshold_elbow')
                 if any(t is None for t in thresholds) else None,
                 threshold_sensitivity=threshold_sensitivity,
                 threshold_method=threshold_method,
@@ -1833,42 +1847,64 @@ def pipeline_multicell_spot_detection(
                 df_cells.to_csv(image_dir / 'cells.csv', index=False)
                 all_cells_df.append(df_cells)
 
-            # --- Render overlays and per-cell crops ---
-            overlay_path = image_dir / 'spots_overlay.png'
+            # --- Render overlays (to temp dir) ---
+            overlay_path = tmp_image_dir / 'spots_overlay.png'
             render_spots_overlay(image_TZYXC, df_spots, mask_cyto, mask_nuc,
                                   channels_spots, overlay_path,
                                   visualization_z_slice=visualization_z_slice)
             overlay_paths.append(overlay_path)
             overlay_labels.append(name)
 
+            # --- Per-cell crops and galleries (to temp dir) ---
             image_extra_pages = []
             image_cell_dir = None
+            pixel_size_um = pixel_xy_nm / 1000.0
+
+            # Always render per-cell crops and galleries for the PDF
+            tmp_cell_dir = tmp_image_dir / 'per_cell'
+            render_per_cell_crops(
+                image_TZYXC, df_spots, mask_cyto, mask_nuc,
+                channels_spots, tmp_cell_dir,
+                crop_padding_px=crop_padding_px, crop_mode=crop_mode,
+                pixel_size_um=pixel_size_um,
+            )
+            image_cell_dir = tmp_cell_dir
+
+            gallery_path = tmp_image_dir / 'all_cells_gallery.png'
+            render_all_cells_gallery(
+                image_TZYXC, df_spots, mask_cyto, mask_nuc,
+                channels_spots, gallery_path,
+                crop_padding_px=crop_padding_px, crop_mode=crop_mode,
+                pixel_size_um=pixel_size_um,
+            )
+
+            fov_path = tmp_image_dir / 'fov_overview.png'
+            render_fov_overview(
+                image_TZYXC, mask_cyto, mask_nuc,
+                channel_nucleus, channels_spots,
+                fov_path, pixel_size_um=pixel_size_um,
+            )
+
+            # Build PDF extra pages: raw channels, segmentation first,
+            # then gallery, FOV, then threshold diagnostics at the end
+            image_extra_pages.append(('Raw channels', tmp_image_dir / 'raw_channels.png'))
+            image_extra_pages.append(('Segmentation', tmp_image_dir / 'segmentation.png'))
+            image_extra_pages.append(('All cells gallery', gallery_path))
+            image_extra_pages.append(('FOV overview', fov_path))
+            threshold_pngs = sorted(tmp_image_dir.glob('threshold_*.png'))
+            for thr_png in threshold_pngs:
+                image_extra_pages.append(('Threshold selection', thr_png))
+
+            # Optionally copy per-cell crops to permanent disk location
             if save_per_cell_crops:
-                pixel_size_um = pixel_xy_nm / 1000.0
-                render_per_cell_crops(
-                    image_TZYXC, df_spots, mask_cyto, mask_nuc,
-                    channels_spots, image_dir / 'per_cell',
-                    crop_padding_px=crop_padding_px, crop_mode=crop_mode,
-                    pixel_size_um=pixel_size_um,
-                )
-                image_cell_dir = image_dir / 'per_cell'
+                disk_cell_dir = image_dir / 'per_cell'
+                shutil.copytree(tmp_cell_dir, disk_cell_dir,
+                                dirs_exist_ok=True)
 
-                gallery_path = image_dir / 'all_cells_gallery.png'
-                render_all_cells_gallery(
-                    image_TZYXC, df_spots, mask_cyto, mask_nuc,
-                    channels_spots, gallery_path,
-                    crop_padding_px=crop_padding_px, crop_mode=crop_mode,
-                    pixel_size_um=pixel_size_um,
-                )
-                image_extra_pages.append(('All cells gallery', gallery_path))
-
-                fov_path = image_dir / 'fov_overview.png'
-                render_fov_overview(
-                    image_TZYXC, mask_cyto, mask_nuc,
-                    channel_nucleus, channels_spots,
-                    fov_path, pixel_size_um=pixel_size_um,
-                )
-                image_extra_pages.append(('FOV overview', fov_path))
+            # Optionally copy all intermediate PNGs to permanent disk location
+            if save_individual_images:
+                shutil.copytree(tmp_image_dir, image_dir,
+                                dirs_exist_ok=True)
 
             extra_pages_per_image.append(image_extra_pages)
             cell_dirs_per_image.append(image_cell_dir)
@@ -1895,11 +1931,16 @@ def pipeline_multicell_spot_detection(
     if not df_all_cells.empty:
         df_all_cells.to_csv(results_folder_path / 'summary_cells.csv', index=False)
 
-    summary_png = results_folder_path / 'summary_spot_counts.png'
+    summary_png = tmp_dir / 'summary_spot_counts.png'
     render_batch_summary_plot(df_all_cells, channels_spots, summary_png)
 
-    boxplot_png = results_folder_path / 'summary_spots_per_cell_boxplot.png'
+    boxplot_png = tmp_dir / 'summary_spots_per_cell_boxplot.png'
     render_spots_per_cell_boxplot(df_all_cells, channels_spots, boxplot_png)
+
+    if save_individual_images:
+        for png in [summary_png, boxplot_png]:
+            if png.exists():
+                shutil.copy2(png, results_folder_path / png.name)
 
     # --- Metadata ---
     params = dict(
@@ -1931,6 +1972,7 @@ def pipeline_multicell_spot_detection(
         max_spots_for_threshold=max_spots_for_threshold,
         save_masks=save_masks,
         save_per_cell_crops=save_per_cell_crops,
+        save_individual_images=save_individual_images,
         crop_padding_px=crop_padding_px,
         crop_mode=crop_mode,
         visualization_z_slice=visualization_z_slice,
@@ -1972,6 +2014,9 @@ def pipeline_multicell_spot_detection(
         'n_spots': n_spots,
         'elapsed_sec': round(elapsed, 2),
     }
+    # Clean up temporary rendering directory
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
     print(f"\nDone in {elapsed:.1f}s. "
           f"{len(processed)} images processed, {len(rejected)} skipped. "
           f"Results: {results_folder_path}")
