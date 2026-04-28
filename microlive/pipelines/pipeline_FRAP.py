@@ -1028,6 +1028,10 @@ def remove_cell_without_roi_detection(df_tracking_all, threhsold=0.08):
         else:
             print('Image:', name, 'No peak detected')
     # remove the elements where the code is unable to detect the roi
+    if len(list_selected_df) == 0:
+        print('Warning: No trajectories passed the quality filter threshold.')
+        return pd.DataFrame(columns=df_tracking_all.columns)
+        
     df_tracking_removed_roi_no_detected = pd.concat(list_selected_df, ignore_index=True)
     return df_tracking_removed_roi_no_detected
 
@@ -1203,7 +1207,7 @@ def create_pdf(list_combined_image_paths, pdf_name, remove_original_images=False
             pdf.set_xy(10, 10)
             pdf.set_font("Arial", size=12)
             pdf.cell(0, 10, f"Image {image_path} was not processed. ", ln=True)
-        if remove_original_images:
+        if remove_original_images and image_path.exists():
             image_path.unlink()
     # save the pdf
     pdf.output(str(pdf_name))   
