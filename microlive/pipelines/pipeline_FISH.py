@@ -531,7 +531,7 @@ def compute_kneedle_threshold(
         axes[1].set_title(f'Kneedle distance - Channel {channel}')
         axes[1].set_ylabel('Distance from diagonal')
         plt.tight_layout()
-        plt.savefig(str(save_path), dpi=150, bbox_inches='tight')
+        plt.savefig(str(save_path), dpi=100, bbox_inches='tight')
         plt.close(fig)
 
     return raw_threshold
@@ -626,6 +626,9 @@ def detect_and_quantify(
     threshold_for_spot_detection, use_maximum_projection,
     use_log_filter_for_spot_detection,
     image_counter=0,
+    decompose_dense_regions=False, decompose_alpha=0.3,
+    decompose_beta=2, decompose_gamma=5,
+    min_spots_per_cluster=2,
 ):
     """Detect spots and build a per-cell summary DataFrame.
 
@@ -656,6 +659,11 @@ def detect_and_quantify(
         use_maximum_projection=use_maximum_projection,
         use_log_filter_for_spot_detection=use_log_filter_for_spot_detection,
         image_counter=image_counter,
+        decompose_dense_regions=decompose_dense_regions,
+        decompose_alpha=decompose_alpha,
+        decompose_beta=decompose_beta,
+        decompose_gamma=decompose_gamma,
+        min_spots_per_cluster=min_spots_per_cluster,
     )
     df_spots, _, thresholds_used = spot_detector.get_dataframe()
     if df_spots is None:
@@ -814,7 +822,7 @@ def render_raw_channels(image_TZYXC, channel_names, save_path, z_index=None):
     axes[-1].set_title('Merged', fontsize=10, fontweight='bold')
     axes[-1].axis('off')
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.savefig(save_path, dpi=100, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -931,7 +939,7 @@ def render_spots_overlay(image_TZYXC, df_spots, mask_cytosol, mask_nucleus,
         ax.axis('off')
 
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.savefig(save_path, dpi=100, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -1077,14 +1085,17 @@ def render_all_cells_gallery(
     image_TZYXC, df_spots, mask_cytosol, mask_nucleus,
     channels_spots, save_path, crop_padding_px=10,
     crop_mode='max_proj', num_columns=10, pixel_size_um=None,
+    cells_per_page=None,
 ):
-    """Save a single PNG grid showing all cells in paired rows.
+    """Save paginated gallery PNGs with original / detection side-by-side.
 
-    Row 1 (even): max-projection crop of each cell (image only).
-    Row 2 (odd): same crop with detected spots, mask contours, and legend.
+    Layout: 3 cell-pairs per row.  Each pair occupies two subplot columns
+    (original on the left, detection on the right), giving 6 subplot columns
+    per row.  Pages are capped at ``cells_per_page`` cells (default 12 =
+    4 rows x 3 pairs) so that each page fits comfortably on A4.
 
-    This is the most impactful visualization for batch QC, showing every
-    cell at a glance with its detection results side-by-side.
+    Output files are named ``gallery_page_1.png``, ``gallery_page_2.png``,
+    etc. in the directory of *save_path*.
 
     Args:
         image_TZYXC: [T, Z, Y, X, C] image array.
@@ -1092,12 +1103,18 @@ def render_all_cells_gallery(
         mask_cytosol: labeled [Y, X] cytosol mask.
         mask_nucleus: labeled [Y, X] nucleus mask.
         channels_spots: list of channel indices (first is used for display).
-        save_path: output file path.
+        save_path: output file path (directory is used for multi-page output).
         crop_padding_px: padding around each cell's bbox.
         crop_mode: 'max_proj' or 'z_slice'.
-        num_columns: cells per row. Defaults to 10.
+        num_columns: *ignored* (kept for backward compatibility).
         pixel_size_um: pixel size in micrometers for scale bar.
+        cells_per_page: max cells per page. Defaults to 12 (4 rows x 3).
     """
+    PAIRS_PER_ROW = 3          # 3 cell-pairs per row
+    SUBPLOT_COLS = PAIRS_PER_ROW * 2  # 6 subplot columns (orig + det)
+    ROWS_PER_PAGE = 8          # 8 cell-rows per page
+    PANEL_SIZE = 1.75          # inches per subplot panel
+
     if mask_cytosol is None or np.max(mask_cytosol) == 0:
         return
 
@@ -1106,108 +1123,119 @@ def render_all_cells_gallery(
     if n_cells == 0:
         return
 
-    num_rows = int(np.ceil(n_cells / num_columns)) * 2
-    fig_height = max(4, num_rows * 3)
-    fig_width = num_columns * 3
-    fig, axes = plt.subplots(num_rows, num_columns,
-                             figsize=(fig_width, fig_height))
-    if num_rows == 1:
-        axes = axes[np.newaxis, :]
-
-    # Clear all axes
-    for r in range(num_rows):
-        for c in range(num_columns):
-            axes[r, c].axis('off')
-            axes[r, c].set_xticks([])
-            axes[r, c].set_yticks([])
+    if cells_per_page is None:
+        cells_per_page = ROWS_PER_PAGE * PAIRS_PER_ROW  # 12
 
     display_ch = channels_spots[0]
+    save_dir = Path(save_path).parent
 
-    for cell_idx, prop in enumerate(props):
-        cell_id = int(prop.label - 1)
-        row_img = (cell_idx // num_columns) * 2
-        row_det = row_img + 1
-        col = cell_idx % num_columns
+    n_pages = int(np.ceil(n_cells / cells_per_page))
+    for page_idx in range(n_pages):
+        start = page_idx * cells_per_page
+        end = min(start + cells_per_page, n_cells)
+        page_props = props[start:end]
+        n_page_cells = len(page_props)
 
-        min_y, min_x, max_y, max_x = prop.bbox
-        min_y = max(0, min_y - crop_padding_px)
-        min_x = max(0, min_x - crop_padding_px)
-        max_y = min(image_TZYXC.shape[2], max_y + crop_padding_px)
-        max_x = min(image_TZYXC.shape[3], max_x + crop_padding_px)
+        n_rows = int(np.ceil(n_page_cells / PAIRS_PER_ROW))
+        fig_w = SUBPLOT_COLS * PANEL_SIZE
+        fig_h = max(PANEL_SIZE, n_rows * PANEL_SIZE)
+        fig, axes = plt.subplots(
+            n_rows, SUBPLOT_COLS, figsize=(fig_w, fig_h),
+            squeeze=False,
+        )
 
-        if crop_mode == 'z_slice':
-            z = image_TZYXC.shape[1] // 2
-            crop = image_TZYXC[0, z, min_y:max_y, min_x:max_x, display_ch]
-        else:
-            crop = np.max(image_TZYXC[0, :, min_y:max_y, min_x:max_x,
-                                      display_ch], axis=0)
+        # Clear all axes
+        for ax_row in axes:
+            for ax in ax_row:
+                ax.axis('off')
 
-        vmax = np.percentile(crop, 99.5) if crop.size else 1
-        vmax = max(vmax, 1)
+        for cell_idx, prop in enumerate(page_props):
+            cell_id = int(prop.label - 1)
+            row = cell_idx // PAIRS_PER_ROW
+            pair_col = cell_idx % PAIRS_PER_ROW
+            col_orig = pair_col * 2       # left  panel
+            col_det  = pair_col * 2 + 1   # right panel
 
-        # --- Row 1: image only ---
-        ax_img = axes[row_img, col]
-        ax_img.imshow(crop, cmap='gray', vmin=0, vmax=vmax)
-        ax_img.set_title(f'Cell {cell_id}', fontsize=8)
-        if pixel_size_um is not None and ScaleBar is not None:
-            sb = ScaleBar(pixel_size_um, units='um',
-                          length_fraction=0.25, location='lower right',
-                          box_color='k', color='w',
-                          font_properties={'size': 6})
-            ax_img.add_artist(sb)
+            min_y, min_x, max_y, max_x = prop.bbox
+            min_y = max(0, min_y - crop_padding_px)
+            min_x = max(0, min_x - crop_padding_px)
+            max_y = min(image_TZYXC.shape[2], max_y + crop_padding_px)
+            max_x = min(image_TZYXC.shape[3], max_x + crop_padding_px)
 
-        # --- Row 2: image + spots + contours ---
-        ax_det = axes[row_det, col]
-        ax_det.imshow(crop, cmap='gray', vmin=0, vmax=vmax)
-        ax_det.set_title(f'Cell {cell_id} - Detection', fontsize=8)
+            if crop_mode == 'z_slice':
+                z = image_TZYXC.shape[1] // 2
+                crop = image_TZYXC[0, z, min_y:max_y, min_x:max_x, display_ch]
+            else:
+                crop = np.max(image_TZYXC[0, :, min_y:max_y, min_x:max_x,
+                                          display_ch], axis=0)
 
-        # Get spots for this cell
-        cell_spots = df_spots[df_spots['cell_id'] == cell_id] \
-            if not df_spots.empty else df_spots
-        if crop_mode == 'z_slice' and not cell_spots.empty \
-                and 'z' in cell_spots.columns:
-            cell_spots = cell_spots[cell_spots['z'] == z]
-        if not cell_spots.empty and 'spot_type' in cell_spots.columns:
-            cell_spots = cell_spots[cell_spots['spot_type'] == display_ch]
+            vmax = np.percentile(crop, 99.5) if crop.size else 1
+            vmax = max(vmax, 1)
 
-        if not cell_spots.empty:
-            xs = cell_spots['x'].values - min_x
-            ys = cell_spots['y'].values - min_y
-            is_cluster = (cell_spots['is_cluster'].values
-                          if 'is_cluster' in cell_spots.columns
-                          else np.zeros(len(cell_spots), dtype=int))
-            singles_mask = is_cluster == 0
-            clusters_mask = is_cluster == 1
-            n_singles = int(singles_mask.sum())
-            n_clusters = int(clusters_mask.sum())
+            # --- Left: original image ---
+            ax_img = axes[row, col_orig]
+            ax_img.imshow(crop, cmap='gray', vmin=0, vmax=vmax)
+            ax_img.set_title(f'Cell {cell_id}', fontsize=5, fontweight='bold')
+            if pixel_size_um is not None and ScaleBar is not None:
+                sb = ScaleBar(pixel_size_um, units='um',
+                              length_fraction=0.25, location='lower right',
+                              box_color='k', color='w',
+                              font_properties={'size': 3})
+                ax_img.add_artist(sb)
 
-            if n_singles > 0:
-                ax_det.scatter(xs[singles_mask], ys[singles_mask], s=15,
-                               facecolors='none', edgecolors='red',
-                               marker='o', linewidth=0.7,
-                               label=f'Spots: {n_singles}')
-            if n_clusters > 0:
-                ax_det.scatter(xs[clusters_mask], ys[clusters_mask], s=35,
-                               facecolors='none', edgecolors='cyan',
-                               marker='o', linewidth=1.2,
-                               label=f'Clusters: {n_clusters}')
-            if n_singles > 0 or n_clusters > 0:
-                ax_det.legend(loc='upper right', fontsize=5,
-                              facecolor='white', framealpha=0.8)
+            # --- Right: detection overlay ---
+            ax_det = axes[row, col_det]
+            ax_det.imshow(crop, cmap='gray', vmin=0, vmax=vmax)
+            ax_det.set_title(f'Cell {cell_id} \u2014 det', fontsize=5)
 
-        # Mask contours
-        if mask_cytosol is not None:
-            m_cyto = (mask_cytosol[min_y:max_y, min_x:max_x] == prop.label)
-            ax_det.contour(m_cyto, levels=[0.5], colors='magenta',
-                           linewidths=0.8)
-        if mask_nucleus is not None:
-            m_nuc = (mask_nucleus[min_y:max_y, min_x:max_x] == prop.label)
-            ax_det.contour(m_nuc, levels=[0.5], colors='blue',
-                           linewidths=0.8)
+            # Spots for this cell
+            cell_spots = df_spots[df_spots['cell_id'] == cell_id] \
+                if not df_spots.empty else df_spots
+            if crop_mode == 'z_slice' and not cell_spots.empty \
+                    and 'z' in cell_spots.columns:
+                cell_spots = cell_spots[cell_spots['z'] == z]
+            if not cell_spots.empty and 'spot_type' in cell_spots.columns:
+                cell_spots = cell_spots[cell_spots['spot_type'] == display_ch]
 
-    plt.tight_layout()
-    plt.savefig(str(save_path), dpi=150, bbox_inches='tight')
-    plt.close(fig)
+            if not cell_spots.empty:
+                xs = cell_spots['x'].values - min_x
+                ys = cell_spots['y'].values - min_y
+                is_cluster = (cell_spots['is_cluster'].values
+                              if 'is_cluster' in cell_spots.columns
+                              else np.zeros(len(cell_spots), dtype=int))
+                singles_mask = is_cluster == 0
+                clusters_mask = is_cluster == 1
+                n_singles = int(singles_mask.sum())
+                n_clusters = int(clusters_mask.sum())
+
+                if n_singles > 0:
+                    ax_det.scatter(xs[singles_mask], ys[singles_mask], s=10,
+                                   facecolors='none', edgecolors='red',
+                                   marker='o', linewidth=0.4,
+                                   label=f'S:{n_singles}')
+                if n_clusters > 0:
+                    ax_det.scatter(xs[clusters_mask], ys[clusters_mask], s=20,
+                                   facecolors='none', edgecolors='cyan',
+                                   marker='o', linewidth=0.6,
+                                   label=f'C:{n_clusters}')
+                if n_singles > 0 or n_clusters > 0:
+                    ax_det.legend(loc='upper right', fontsize=3,
+                                  facecolor='white', framealpha=0.8)
+
+            # Mask contours on detection panel
+            if mask_cytosol is not None:
+                m_cyto = (mask_cytosol[min_y:max_y, min_x:max_x] == prop.label)
+                ax_det.contour(m_cyto, levels=[0.5], colors='magenta',
+                               linewidths=0.4)
+            if mask_nucleus is not None:
+                m_nuc = (mask_nucleus[min_y:max_y, min_x:max_x] == prop.label)
+                ax_det.contour(m_nuc, levels=[0.5], colors='blue',
+                               linewidths=0.4)
+
+        plt.tight_layout()
+        page_path = save_dir / f'gallery_page_{page_idx + 1}.png'
+        plt.savefig(str(page_path), dpi=100, bbox_inches='tight')
+        plt.close(fig)
 
 
 def render_fov_overview(
@@ -1500,19 +1528,22 @@ def build_pdf_report(pdf_path, per_image_png_paths, per_image_labels,
                       overview_pages=None):
     """Concatenate per-image overlays, galleries, and per-cell crops into a PDF.
 
+    For each image, the spot overlay, raw-channels, and threshold-selection
+    plots are composed onto a **single A4 page** (three panels stacked
+    vertically).  Gallery pages are added as separate full pages afterwards.
+
     Args:
         pdf_path: output PDF file path.
         per_image_png_paths: list of paths to per-image spot overlay PNGs.
         per_image_labels: list of labels (image names) for each image.
         summary_png_path: batch summary PNG (first page).
-        per_image_extra_pages: optional list of lists. Each inner list
-            contains (label, path) tuples for extra pages per image
-            (e.g. gallery, FOV overview).
-        per_image_cell_dirs: optional list of paths to per-cell crop
-            directories. Each cell PNG in the directory gets its own page.
+        per_image_extra_pages: optional list of lists.  Each inner list
+            contains (label, path) tuples.  Labels containing
+            ``'Raw channels'`` or ``'Threshold'`` are composed onto the
+            overview page; everything else gets its own page.
+        per_image_cell_dirs: optional list of paths (unused, kept for compat).
         overview_pages: optional list of (label, path) tuples for batch-level
-            summary pages added at the start of the PDF (before per-image
-            sections).
+            summary pages added at the start of the PDF.
     """
     if FPDF is None:
         warnings.warn(
@@ -1520,64 +1551,112 @@ def build_pdf_report(pdf_path, per_image_png_paths, per_image_labels,
         )
         return
 
-    def _add_image_page(pdf, title, png_path, landscape=False):
-        """Add a single image to a new PDF page."""
-        if not Path(png_path).exists():
-            return
-        if landscape:
-            pdf.add_page('L')
-        else:
-            pdf.add_page()
-        safe = str(title).encode('latin-1', errors='replace').decode('latin-1')
-        pdf.cell(0, 10, safe, 0, 1, 'L')
+    # A4 portrait constants (mm)
+    MARGIN_X = 10
+    USABLE_W = 190            # 210 - 2*10
+    FULL_PAGE_H = 260         # max image height for a full-page image
+
+    def _fit_image(png_path, max_w, max_h):
+        """Return (w_mm, h_mm) that fits *png_path* within the box."""
         with Image.open(png_path) as img:
             aspect = img.size[1] / img.size[0]
-        page_w = 267 if landscape else 180
-        page_h_limit = 170 if landscape else 250
-        w_mm = page_w
-        h_mm = int(aspect * w_mm)
-        if h_mm > page_h_limit:
-            h_mm = page_h_limit
-            w_mm = int(h_mm / aspect)
-        pdf.image(str(png_path), x=15, y=25, w=w_mm, h=h_mm)
+        w = max_w
+        h = int(aspect * w)
+        if h > max_h:
+            h = max_h
+            w = int(h / aspect)
+        return w, h
+
+    def _add_full_page(pdf, title, png_path):
+        """Add a single image on its own A4 portrait page."""
+        if not Path(png_path).exists():
+            return
+        pdf.add_page()
+        safe = str(title).encode('latin-1', errors='replace').decode('latin-1')
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(0, 8, safe, 0, 1, 'L')
+        w, h = _fit_image(png_path, USABLE_W, FULL_PAGE_H)
+        pdf.image(str(png_path), x=MARGIN_X, y=20, w=w, h=h)
 
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font('Arial', size=11)
+    pdf.set_auto_page_break(auto=False)
+    pdf.set_font('Arial', size=10)
 
-    # Batch-level overview pages (e.g., spots-per-cell whisker plot)
+    # Batch-level overview pages
     if overview_pages is not None:
         for ov_label, ov_path in overview_pages:
-            # Overview plots tend to be wide (many images on the x-axis);
-            # render landscape so boxes stay readable.
-            _add_image_page(pdf, f'Summary -- {ov_label}',
-                            ov_path, landscape=True)
+            _add_full_page(pdf, f'Summary -- {ov_label}', ov_path)
 
     # Per-image sections
     n_images = len(per_image_png_paths)
     for idx in range(n_images):
         label = per_image_labels[idx]
+        overlay_path = Path(per_image_png_paths[idx])
 
-        # 1. Spots overlay
-        _add_image_page(pdf, f'{label} -- spot overlay',
-                        per_image_png_paths[idx])
+        # Separate extra pages into "compose" items and "standalone" items
+        raw_ch_path = None
+        threshold_path = None
+        gallery_pages = []
 
-        # 2. Extra pages (gallery, FOV overview)
         if per_image_extra_pages is not None and idx < len(per_image_extra_pages):
             for extra_label, extra_path in per_image_extra_pages[idx]:
-                is_wide = 'gallery' in str(extra_label).lower()
-                _add_image_page(pdf, f'{label} -- {extra_label}',
-                                extra_path, landscape=is_wide)
+                ep = Path(extra_path)
+                if not ep.exists():
+                    continue
+                lbl_lower = str(extra_label).lower()
+                if 'raw channel' in lbl_lower:
+                    raw_ch_path = ep
+                elif 'threshold' in lbl_lower:
+                    # Take the first threshold plot for the overview page
+                    if threshold_path is None:
+                        threshold_path = ep
+                else:
+                    gallery_pages.append((extra_label, ep))
 
-        # 3. Per-cell crops
-        if per_image_cell_dirs is not None and idx < len(per_image_cell_dirs):
-            cell_dir = Path(per_image_cell_dirs[idx])
-            if cell_dir.exists():
-                cell_pngs = sorted(cell_dir.glob('cell_*.png'))
-                for cell_png in cell_pngs:
-                    cell_name = cell_png.stem.replace('_', ' ').title()
-                    _add_image_page(pdf, f'{label} -- {cell_name}',
-                                    cell_png, landscape=True)
+        # --- Composite page: overlay + raw channels + threshold ---
+        pdf.add_page()
+        safe_label = str(label).encode('latin-1', errors='replace').decode('latin-1')
+        pdf.set_font('Arial', 'B', 11)
+        pdf.set_xy(MARGIN_X, 5)
+        pdf.cell(0, 7, safe_label, 0, 1, 'L')
+
+        # Panel heights: divide the remaining space (~280mm) among panels
+        # Top panel: spot overlay (~110mm), Mid: raw channels (~85mm),
+        # Bottom: threshold (~85mm)
+        PANEL_TOP_H = 105
+        PANEL_MID_H = 82
+        PANEL_BOT_H = 82
+        Y_TOP = 14
+        Y_MID = Y_TOP + PANEL_TOP_H + 3
+        Y_BOT = Y_MID + PANEL_MID_H + 3
+
+        # 1. Spot overlay (top)
+        if overlay_path.exists():
+            pdf.set_font('Arial', '', 8)
+            pdf.set_xy(MARGIN_X, Y_TOP)
+            pdf.cell(0, 5, 'Spot overlay', 0, 1, 'L')
+            w, h = _fit_image(overlay_path, USABLE_W, PANEL_TOP_H - 6)
+            pdf.image(str(overlay_path), x=MARGIN_X, y=Y_TOP + 5, w=w, h=h)
+
+        # 2. Raw channels (middle)
+        if raw_ch_path is not None:
+            pdf.set_font('Arial', '', 8)
+            pdf.set_xy(MARGIN_X, Y_MID)
+            pdf.cell(0, 5, 'Raw channels', 0, 1, 'L')
+            w, h = _fit_image(raw_ch_path, USABLE_W, PANEL_MID_H - 6)
+            pdf.image(str(raw_ch_path), x=MARGIN_X, y=Y_MID + 5, w=w, h=h)
+
+        # 3. Threshold selection (bottom)
+        if threshold_path is not None:
+            pdf.set_font('Arial', '', 8)
+            pdf.set_xy(MARGIN_X, Y_BOT)
+            pdf.cell(0, 5, 'Threshold selection', 0, 1, 'L')
+            w, h = _fit_image(threshold_path, USABLE_W, PANEL_BOT_H - 6)
+            pdf.image(str(threshold_path), x=MARGIN_X, y=Y_BOT + 5, w=w, h=h)
+
+        # --- Gallery pages (each gets its own page) ---
+        for gal_label, gal_path in gallery_pages:
+            _add_full_page(pdf, f'{label} -- {gal_label}', gal_path)
 
     pdf.output(str(pdf_path))
 
@@ -1615,6 +1694,11 @@ def pipeline_multicell_spot_detection(
     max_spots_for_threshold=DEFAULT_MAX_SPOTS_FOR_THRESHOLD,
     threshold_sensitivity=1.0,
     threshold_method='elbow',
+    decompose_dense_regions=False,
+    decompose_alpha=0.3,
+    decompose_beta=2,
+    decompose_gamma=5,
+    min_spots_per_cluster=2,
     save_masks=True,
     save_per_cell_crops=False,
     crop_padding_px=10,
@@ -1625,6 +1709,7 @@ def pipeline_multicell_spot_detection(
     list_images_to_process=None,
     continue_on_error=True,
     show_plot=False,
+    preloaded_masks=None,
 ):
     """Run multi-cell spot detection and quantification on one or more images.
 
@@ -1777,16 +1862,27 @@ def pipeline_multicell_spot_detection(
               f"(shape={image_TZYXC.shape})")
 
         try:
-            # --- Segment ---
-            mask_cyto, mask_nuc, mask_cno = segment_cells(
-                image_TZYXC[0], channel_cytosol, channel_nucleus,
-                diameter_cytosol, diameter_nucleus,
-                model_cyto_segmentation, model_nuc_segmentation,
-                pretrained_model_cyto, pretrained_model_nuc,
-                remove_cells_touching_border, min_cell_area_px,
-            )
-            n_cells = int(np.max(mask_cyto)) if mask_cyto is not None else 0
-            print(f"    segmentation: {n_cells} cells")
+            # --- Segment (or use preloaded masks) ---
+            if (preloaded_masks is not None
+                    and name in preloaded_masks):
+                mask_nuc, mask_cyto = preloaded_masks[name]
+                # Build mask_cyto as the primary mask (pipeline convention)
+                if mask_cyto is None:
+                    mask_cyto = mask_nuc
+                mask_cno = None
+                n_cells = int(np.max(mask_cyto)) if mask_cyto is not None else 0
+                print(f"    segmentation: loaded cached masks "
+                      f"({n_cells} cells)")
+            else:
+                mask_cyto, mask_nuc, mask_cno = segment_cells(
+                    image_TZYXC[0], channel_cytosol, channel_nucleus,
+                    diameter_cytosol, diameter_nucleus,
+                    model_cyto_segmentation, model_nuc_segmentation,
+                    pretrained_model_cyto, pretrained_model_nuc,
+                    remove_cells_touching_border, min_cell_area_px,
+                )
+                n_cells = int(np.max(mask_cyto)) if mask_cyto is not None else 0
+                print(f"    segmentation: {n_cells} cells")
 
             # --- Visualize inputs and segmentation (to temp dir) ---
             render_raw_channels(image_TZYXC, channel_names,
@@ -1834,6 +1930,11 @@ def pipeline_multicell_spot_detection(
                 resolved_thresholds, use_maximum_projection,
                 use_log_filter_for_spot_detection,
                 image_counter=idx,
+                decompose_dense_regions=decompose_dense_regions,
+                decompose_alpha=decompose_alpha,
+                decompose_beta=decompose_beta,
+                decompose_gamma=decompose_gamma,
+                min_spots_per_cluster=min_spots_per_cluster,
             )
             print(f"    detected {len(df_spots)} spots "
                   f"across {len(df_cells)} cells")
@@ -1885,12 +1986,15 @@ def pipeline_multicell_spot_detection(
                 fov_path, pixel_size_um=pixel_size_um,
             )
 
-            # Build PDF extra pages: raw channels, segmentation first,
-            # then gallery, FOV, then threshold diagnostics at the end
+            # Build PDF extra pages: raw channels first, then gallery pages
+            # (segmentation and FOV overview are excluded from PDF)
             image_extra_pages.append(('Raw channels', tmp_image_dir / 'raw_channels.png'))
-            image_extra_pages.append(('Segmentation', tmp_image_dir / 'segmentation.png'))
-            image_extra_pages.append(('All cells gallery', gallery_path))
-            image_extra_pages.append(('FOV overview', fov_path))
+            # Gallery pages: each page contains up to 4 cell-rows
+            gallery_pages = sorted(tmp_image_dir.glob('gallery_page_*.png'))
+            for gp in gallery_pages:
+                page_num = gp.stem.replace('gallery_page_', '')
+                image_extra_pages.append(
+                    (f'All cells gallery (page {page_num})', gp))
             threshold_pngs = sorted(tmp_image_dir.glob('threshold_*.png'))
             for thr_png in threshold_pngs:
                 image_extra_pages.append(('Threshold selection', thr_png))
@@ -1970,6 +2074,13 @@ def pipeline_multicell_spot_detection(
         use_maximum_projection=use_maximum_projection,
         use_log_filter_for_spot_detection=use_log_filter_for_spot_detection,
         max_spots_for_threshold=max_spots_for_threshold,
+        threshold_sensitivity=threshold_sensitivity,
+        threshold_method=threshold_method,
+        decompose_dense_regions=decompose_dense_regions,
+        decompose_alpha=decompose_alpha,
+        decompose_beta=decompose_beta,
+        decompose_gamma=decompose_gamma,
+        min_spots_per_cluster=min_spots_per_cluster,
         save_masks=save_masks,
         save_per_cell_crops=save_per_cell_crops,
         save_individual_images=save_individual_images,
@@ -1985,15 +2096,11 @@ def pipeline_multicell_spot_detection(
 
     # --- PDF report ---
     if save_pdf_report and overlay_paths:
-        overview_pages = []
-        if boxplot_png.exists():
-            overview_pages.append(('Spots per cell (box-whisker)', boxplot_png))
         build_pdf_report(
             results_folder_path / 'summary_report.pdf',
             overlay_paths, overlay_labels, summary_png,
             per_image_extra_pages=extra_pages_per_image,
             per_image_cell_dirs=cell_dirs_per_image,
-            overview_pages=overview_pages or None,
         )
 
     # Real spots have ``spot_id >= 0``; the engine injects rows with
@@ -2013,6 +2120,7 @@ def pipeline_multicell_spot_detection(
         'n_cells': int(len(df_all_cells)),
         'n_spots': n_spots,
         'elapsed_sec': round(elapsed, 2),
+        'pixel_xy_nm': float(pixel_xy_nm),
     }
     # Clean up temporary rendering directory
     shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -4374,12 +4374,13 @@ class BigFISH():
         decompose_beta: Dense region decomposition beta. Defaults to 2.
         decompose_gamma: Dense region decomposition gamma. Defaults to 5.
         decompose_dense_regions: Enable dense region decomposition. Defaults to False.
+        min_spots_per_cluster: DBSCAN minimum spots to form a cluster. Defaults to 2.
     
     Note:
         Returns raw coordinates; spot_type column is assigned by SpotDetection.
     """
     
-    def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False, reference_threshold=None):
+    def __init__(self,image, channels_spots , voxel_size_z = 300,voxel_size_yx = 103, cluster_radius_nm = 350,yx_spot_size_in_px=5, z_spot_size_in_px=2, show_plot =False,image_name=None,save_all_images=False,display_spots_on_multiple_z_planes=False,use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, decompose_dense_regions=False, min_spots_per_cluster=2, reference_threshold=None):
         if len(image.shape)<4:
             image= np.expand_dims(image,axis =0)
         self.image = image
@@ -4399,7 +4400,7 @@ class BigFISH():
         # OPTIMIZATION: Default to False for speed
         self.decompose_dense_regions = decompose_dense_regions 
         self.save_files = save_files
-        self.neighborhood_min_spots_for_cluster = 2
+        self.neighborhood_min_spots_for_cluster = min_spots_per_cluster
         # Configurable decompose_dense parameters
         self.decompose_alpha = decompose_alpha  # impacts number of spots per candidate region (lower = more spots)
         self.decompose_beta = decompose_beta    # impacts number of candidate regions (higher = more regions)
@@ -4651,7 +4652,8 @@ class SpotDetection():
     def __init__(self,image,  channels_spots ,channels_cytosol,channels_nucleus, cluster_radius_nm=500,masks_complete_cells = None, masks_nuclei  = None, masks_cytosol_no_nuclei = None,
                 dataframe=None, image_counter=0, list_voxels=None, show_plot=True,image_name=None,save_all_images=True,display_spots_on_multiple_z_planes=False,
                 use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=True,yx_spot_size_in_px=None, z_spot_size_in_px=None, 
-                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True, reference_threshold=None):
+                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True, reference_threshold=None,
+                decompose_dense_regions=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, min_spots_per_cluster=2):
         if list_voxels is None:
             list_voxels = [500, 160]
         if len(image.shape)<4:
@@ -4723,6 +4725,12 @@ class SpotDetection():
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
         self.fast_gaussian_fit = fast_gaussian_fit
         self.reference_threshold = reference_threshold
+        # Cluster decomposition / stringency (forwarded to BigFISH only)
+        self.decompose_dense_regions = decompose_dense_regions
+        self.decompose_alpha = decompose_alpha
+        self.decompose_beta = decompose_beta
+        self.decompose_gamma = decompose_gamma
+        self.min_spots_per_cluster = min_spots_per_cluster
 
     def get_dataframe(self):
         list_images = []
@@ -4759,7 +4767,12 @@ class SpotDetection():
                                                                         display_spots_on_multiple_z_planes=self.display_spots_on_multiple_z_planes,
                                                                         use_log_filter_for_spot_detection =self.use_log_filter_for_spot_detection,
                                                                         threshold_for_spot_detection=self.threshold_for_spot_detection[i],save_files=self.save_files,
-                                                                        reference_threshold=self.reference_threshold).detect()
+                                                                        reference_threshold=self.reference_threshold,
+                                                                        decompose_dense_regions=self.decompose_dense_regions,
+                                                                        decompose_alpha=self.decompose_alpha,
+                                                                        decompose_beta=self.decompose_beta,
+                                                                        decompose_gamma=self.decompose_gamma,
+                                                                        min_spots_per_cluster=self.min_spots_per_cluster).detect()
             list_thresholds_spot_detection.append(threshold)
             # converting the psf to pixles
             spot_diameter_for_intensity_px = int(np.max((self.spot_radius_px[1]*2, self.MINIMUM_SPOT_SIZE_IN_PX)))
