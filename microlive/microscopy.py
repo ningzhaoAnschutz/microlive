@@ -2558,9 +2558,14 @@ class Cellpose():
                 logging.debug(f"Cellpose: Eval finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
                 # Removing artifacts
                 masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
-            except RuntimeError as e:
-                if "sparse" in str(e) and torch.backends.mps.is_available():
-                    logging.warning(f"MPS sparse error detected: {e}. Attempting to run on GPU with resample=False.")
+            except (RuntimeError, Exception) as e:
+                err_msg = str(e)
+                is_mps_error = torch.backends.mps.is_available() and (
+                    "sparse" in err_msg or "out of bounds" in err_msg
+                    or "expanded size" in err_msg
+                )
+                if is_mps_error:
+                    logging.warning(f"MPS error detected: {e}. Attempting to run on GPU with resample=False.")
                     try:
                         # Retry on GPU with resample=False
                         masks = model.eval(
@@ -2575,8 +2580,8 @@ class Cellpose():
                         )[0]
                         logging.info(f"Retry on GPU (resample=False) finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
                         masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
-                    except RuntimeError as e2:
-                        logging.warning(f"MPS sparse error persisted with resample=False: {e2}. Falling back to CPU.")
+                    except Exception as e2:
+                        logging.warning(f"MPS error persisted with resample=False: {e2}. Falling back to CPU.")
                         # Re-initialize on CPU
                         if self.model_type == 'cyto3':
                             model = denoise.CellposeDenoiseModel(gpu=False, model_type="cyto3", restore_type="denoise_cyto3")
@@ -2595,12 +2600,9 @@ class Cellpose():
                         logging.info(f"Retry on CPU finished. Masks max: {np.max(masks) if masks is not None else 'None'}")
                         masks = Utilities().remove_artifacts_from_mask_image(masks, minimal_mask_area_size=self.MINIMUM_CELL_AREA)
                 else:
-                    logging.error(f"Error during cellpose_max_cells evaluation (RuntimeError): {e}")
+                    logging.error(f"Error during cellpose_max_cells evaluation: {e}")
+                    logging.error(traceback.format_exc())
                     masks = np.zeros_like(image_input[:, :, 0])
-            except Exception as e:
-                logging.error(f"Error during cellpose_max_cells evaluation: {e}")
-                logging.error(traceback.format_exc())
-                masks = np.zeros_like(image_input[:, :, 0])
             if np.max(masks):
                 metric = Utilities().metric_max_cells_and_area(masks, mode=self.selection_method)
             else:
@@ -2626,9 +2628,14 @@ class Cellpose():
                         channels=self.channels,
                     )[0]
                 logging.debug(f"Cellpose: Eval finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
-            except RuntimeError as e:
-                if "sparse" in str(e) and torch.backends.mps.is_available():
-                    logging.warning(f"MPS sparse error detected: {e}. Attempting to run on GPU with resample=False.")
+            except (RuntimeError, Exception) as e:
+                err_msg = str(e)
+                is_mps_error = torch.backends.mps.is_available() and (
+                    "sparse" in err_msg or "out of bounds" in err_msg
+                    or "expanded size" in err_msg
+                )
+                if is_mps_error:
+                    logging.warning(f"MPS error detected: {e}. Attempting to run on GPU with resample=False.")
                     try:
                         # Retry on GPU with resample=False
                         selected_masks = model.eval(
@@ -2642,8 +2649,8 @@ class Cellpose():
                             resample=False
                         )[0]
                         logging.info(f"Retry on GPU (resample=False) finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
-                    except RuntimeError as e2:
-                        logging.warning(f"MPS sparse error persisted with resample=False: {e2}. Falling back to CPU.")
+                    except Exception as e2:
+                        logging.warning(f"MPS error persisted with resample=False: {e2}. Falling back to CPU.")
                         # Re-initialize on CPU
                         if self.model_type == 'cyto3':
                             model = denoise.CellposeDenoiseModel(gpu=False, model_type="cyto3", restore_type="denoise_cyto3")
@@ -2661,11 +2668,8 @@ class Cellpose():
                         )[0]
                         logging.info(f"Retry on CPU finished. Masks max: {np.max(selected_masks) if selected_masks is not None else 'None'}")
                 else:
-                    logging.error(f"Error during cellpose evaluation (RuntimeError): {e}")
+                    logging.error(f"Error during cellpose evaluation: {e}")
                     raise e
-            except Exception as e:
-                logging.error(f"Error during cellpose evaluation: {e}")
-                raise e
         else:
             # Evaluate parameter combinations
             if self.NUMBER_OF_CORES <= 1:
