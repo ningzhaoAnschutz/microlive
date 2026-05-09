@@ -3854,9 +3854,11 @@ class GUI(QMainWindow):
         # Sync TYX masks if active before plotting
         if getattr(self, 'use_tyx_masks', False):
             if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
-                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.segmentation_current_frame]
+                idx = min(self.segmentation_current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
             if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
-                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.segmentation_current_frame]
+                idx = min(self.segmentation_current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
         
         # Plot based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
@@ -4576,10 +4578,21 @@ class GUI(QMainWindow):
                     dim_info += f"✗ Dimension mismatch! Expected YX=({Y}, {X}), got ({mask_Y}, {mask_X})\n"
                     
             elif mask_ndim == 3:
-                # TYX mask (time-varying)
+                # 3D mask: could be TYX (time-varying) or ZYX (spatial)
                 mask_T, mask_Y, mask_X = mask_shape
                 if mask_Y == Y and mask_X == X:
-                    if mask_T == T:
+                    # Check if the first dimension matches Z (spatial mask)
+                    # rather than T (time-varying mask)
+                    if mask_T != T and mask_T == Z and Z != T:
+                        # ZYX spatial mask — max-project to 2D
+                        mask_data = mask_data.max(axis=0)
+                        is_valid = True
+                        is_tyx = False
+                        dim_info += (f"✓ Detected 3D spatial (ZYX) mask with {mask_T} Z-slices "
+                                     f"(matches image Z={Z}).\n"
+                                     f"  Max-projected to 2D ({mask_data.shape[0]}×{mask_data.shape[1]}) "
+                                     f"— applied to all frames.\n")
+                    elif mask_T == T:
                         is_valid = True
                         is_tyx = True
                         dim_info += f"✓ Valid 3D (TYX) mask with {mask_T} frames.\n"
@@ -4589,7 +4602,7 @@ class GUI(QMainWindow):
                             self,
                             "Partial TYX Mask",
                             f"Mask has {mask_T} frames but image has {T} frames.\n\n"
-                            "Only the first {mask_T} frames will have mask coverage.\n"
+                            f"Only the first {mask_T} frames will have mask coverage.\n"
                             "Continue anyway?",
                             QMessageBox.Yes | QMessageBox.No
                         )
@@ -10420,6 +10433,10 @@ class GUI(QMainWindow):
                     )
             
             self.df_tracking = self.df_tracking.reset_index(drop=True)
+            # Strip colocalization columns on rebuild (invalidated by new tracking)
+            for col in ['is_colocalized', 'is_colocalized_distance']:
+                if col in self.df_tracking.columns:
+                    self.df_tracking.drop(columns=[col], inplace=True)
             self.has_tracked = True
         else:
             self.df_tracking = pd.DataFrame()
@@ -12568,6 +12585,10 @@ class GUI(QMainWindow):
                 QMessageBox.warning(self, "No Image Data", "Please load and process an image first.")
             return
         
+        # Defensive strip: remove old is_colocalized before recomputation (§5.2)
+        if not self.df_tracking.empty and 'is_colocalized' in self.df_tracking.columns:
+            self.df_tracking.drop(columns=['is_colocalized'], inplace=True)
+        
         if self.use_maximum_projection:
             num_z = image.shape[1]
             max_proj = np.max(image, axis=1, keepdims=True)
@@ -12604,7 +12625,7 @@ class GUI(QMainWindow):
             
             # Compute crops for this cell
             try:
-                _, mean_crop_cell, _, _ = mi.CropArray(
+                _, mean_crop_cell, _, _, particle_ids_cell = mi.CropArray(
                     image=image,
                     df_crops=cell_df,
                     crop_size=crop_size,
@@ -12631,7 +12652,8 @@ class GUI(QMainWindow):
                 'percentage': pct,
                 'mean_crop': mean_crop_cell,
                 'flag_vector': flag_vector_cell,
-                'prediction_values': pred_values_cell
+                'prediction_values': pred_values_cell,
+                'particle_ids': particle_ids_cell
             }
         
         # Compute summary statistics
@@ -12698,6 +12720,7 @@ class GUI(QMainWindow):
             'threshold_value': threshold,
             'method': method_used,
             'per_cell_results': per_cell_results,
+            'cell_selection': selected_cell,
             'pooled_percentage': pooled_pct,
             'mean_percentage': mean_pct,
             'std_percentage': std_pct
@@ -12706,6 +12729,118 @@ class GUI(QMainWindow):
         if display_crop is not None and display_flags is not None:
             self.display_colocalization_results(display_crop, crop_size, display_flags, ch1, ch2, auto_columns=True)
         self.extract_colocalization_data(save_df=False)
+        self._apply_colocalization_to_tracking()
+    
+    def _apply_colocalization_to_tracking(self):
+        """Merge colocalization flags into df_tracking as 'is_colocalized' column.
+        
+        Maps flag_vector[i] → particle_ids[i] from per_cell_results,
+        then joins on unique_particle to annotate every row in df_tracking.
+        Particles not evaluated (e.g. from other channels) get NaN.
+        """
+        if self.df_tracking.empty or not self.colocalization_results:
+            return
+        
+        per_cell_results = self.colocalization_results.get('per_cell_results', {})
+        if not per_cell_results:
+            return
+        
+        # Build particle_id → is_colocalized mapping
+        coloc_map = {}
+        for cell_id, result in per_cell_results.items():
+            particle_ids = result.get('particle_ids', [])
+            flag_vector = result.get('flag_vector', np.array([]))
+            for pid, flag in zip(particle_ids, flag_vector):
+                coloc_map[pid] = bool(flag)
+        
+        # Determine which column to join on (same logic as CropArray)
+        if 'unique_particle' in self.df_tracking.columns:
+            join_col = 'unique_particle'
+        else:
+            join_col = 'particle'
+        
+        # Map the flags onto df_tracking
+        # NaN for particles that were not part of the colocalization analysis
+        self.df_tracking['is_colocalized'] = self.df_tracking[join_col].map(coloc_map)
+    
+    def _apply_manual_verification_to_tracking(self):
+        """Apply manual verification checkbox states to df_tracking['is_colocalized'].
+        
+        Called at export-time. If the Verify Visual tab has been populated
+        (checkboxes exist), reads the current checkbox states, un-sorts them
+        using the stored sort indices, maps back to particle IDs, and
+        overwrites the is_colocalized column. This ensures the exported CSV
+        reflects the user's manual corrections rather than auto-generated flags.
+        
+        Handles both single-cell and pooled display modes:
+        - Single-cell: only overrides the selected cell's particles (selective update)
+        - Pooled/avg: overrides all particles (full column replacement)
+        
+        If no verification checkboxes exist, this is a no-op (auto flags remain).
+        """
+        if not hasattr(self, 'verify_visual_checkboxes') or len(self.verify_visual_checkboxes) == 0:
+            return
+        if self.df_tracking.empty or not self.colocalization_results:
+            return
+        
+        per_cell_results = self.colocalization_results.get('per_cell_results', {})
+        if not per_cell_results:
+            return
+        
+        # Determine display mode: single-cell vs pooled/avg
+        cell_selection = self.colocalization_results.get('cell_selection', -1)
+        
+        # Reconstruct combined_particle_ids to match the display vector
+        # (must mirror the logic in compute_colocalization lines 12663-12681)
+        combined_particle_ids = []
+        if cell_selection is not None and cell_selection >= 0 and cell_selection in per_cell_results:
+            # Single-cell mode: display shows only the selected cell's particles
+            result = per_cell_results[cell_selection]
+            particle_ids = result.get('particle_ids', [])
+            flag_vector = result.get('flag_vector', np.array([]))
+            if len(flag_vector) > 0:
+                combined_particle_ids.extend(particle_ids)
+        else:
+            # Pooled or per-cell average: display combines all cells
+            # (same iteration order as _combine_percell_crops)
+            for result in per_cell_results.values():
+                particle_ids = result.get('particle_ids', [])
+                flag_vector = result.get('flag_vector', np.array([]))
+                if len(flag_vector) > 0:
+                    combined_particle_ids.extend(particle_ids)
+        
+        # Read manual flags from checkboxes (in display/sorted order)
+        manual_flags_sorted = [chk.isChecked() for chk in self.verify_visual_checkboxes]
+        
+        # Un-sort if sorting was applied during populate_verify_visual
+        sort_indices = getattr(self, '_verify_visual_sort_indices', None)
+        if sort_indices is not None and len(sort_indices) == len(manual_flags_sorted):
+            # sort_indices[i] = original index that was placed at display position i
+            manual_flags_original = [False] * len(manual_flags_sorted)
+            for sorted_pos, orig_idx in enumerate(sort_indices):
+                manual_flags_original[orig_idx] = manual_flags_sorted[sorted_pos]
+        else:
+            manual_flags_original = manual_flags_sorted
+        
+        # Sanity check: manual flags must match particle count for the display mode
+        if len(manual_flags_original) != len(combined_particle_ids):
+            print(f"Warning: manual flags ({len(manual_flags_original)}) != "
+                  f"particle_ids ({len(combined_particle_ids)}). Skipping manual override.")
+            return
+        
+        # Build coloc_map from manually-verified flags
+        coloc_map = {}
+        for pid, flag in zip(combined_particle_ids, manual_flags_original):
+            coloc_map[pid] = flag
+        
+        # Apply to df_tracking
+        # Use selective update: only overwrite particles present in coloc_map.
+        # This preserves auto-flags for particles from other cells in single-cell mode.
+        join_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
+        mask = self.df_tracking[join_col].isin(coloc_map.keys())
+        self.df_tracking.loc[mask, 'is_colocalized'] = (
+            self.df_tracking.loc[mask, join_col].map(coloc_map)
+        )
     
     def _compute_coloc_flags(self, mean_crop, crop_size, ch2, method, threshold):
         """Compute colocalization flags for a set of crops."""
@@ -13027,6 +13162,10 @@ class GUI(QMainWindow):
                     fontsize=12, color='white', transform=ax.transAxes)
             self.canvas_colocalization.draw()
         self.colocalization_results = None
+        # Strip colocalization columns from df_tracking on reset
+        for col in ['is_colocalized', 'is_colocalized_distance']:
+            if hasattr(self, 'df_tracking') and not self.df_tracking.empty and col in self.df_tracking.columns:
+                self.df_tracking.drop(columns=[col], inplace=True)
         if hasattr(self, 'colocalization_percentage_label'):
             self.colocalization_percentage_label.setText("")
         
@@ -14111,6 +14250,10 @@ class GUI(QMainWindow):
             psf_z = voxel_xy  # NOT voxel_z - this gives us the correct ratio
             psf_yx = voxel_xy  # XY stays at 1:1
         
+        # Defensive strip: remove old is_colocalized_distance before recomputation (§5.7)
+        if not self.df_tracking.empty and 'is_colocalized_distance' in self.df_tracking.columns:
+            self.df_tracking.drop(columns=['is_colocalized_distance'], inplace=True)
+        
         # Filter df_tracking based on cell selection if needed
         df = self.df_tracking.copy()
         if cell_selection is not None and cell_selection >= 0:
@@ -14176,6 +14319,81 @@ class GUI(QMainWindow):
         
         # Update display
         self.display_distance_colocalization()
+        
+        # Merge distance colocalization flags into df_tracking
+        self._apply_distance_colocalization_to_tracking()
+    
+    def _apply_distance_colocalization_to_tracking(self):
+        """Merge distance colocalization flags into df_tracking as 'is_colocalized_distance'.
+        
+        Re-computes per-row distance check: for each spot in a tracked channel,
+        checks if any spot in the other tracked channel (same cell, same frame)
+        is within the threshold distance.
+        Spots from non-analyzed channels or non-analyzed cells get NaN.
+        """
+        if self.df_tracking.empty or not self.distance_coloc_results:
+            return
+        
+        results = self.distance_coloc_results
+        ch0 = results['channel_0']
+        ch1 = results['channel_1']
+        threshold = results['threshold_distance_px']
+        cell_selection = results.get('cell_selection')  # None or int
+        use_3d = results.get('use_3d', False)
+        
+        # Compute voxel scale for 3D (same logic as ColocalizationDistance)
+        # scale = [voxel_z/voxel_xy, 1, 1] when use_3d=True, else no scaling
+        if use_3d:
+            voxel_z_nm = results.get('voxel_z_nm')
+            voxel_xy_nm = results.get('voxel_xy_nm')
+            if voxel_z_nm is not None and voxel_xy_nm is not None and voxel_xy_nm > 0:
+                scale = np.array([voxel_z_nm / voxel_xy_nm, 1.0, 1.0])
+            else:
+                scale = None
+        else:
+            scale = None
+        
+        # Initialize as NaN (not evaluated)
+        self.df_tracking['is_colocalized_distance'] = np.nan
+        
+        # Determine which rows were part of the analysis
+        mask_analyzed = self.df_tracking['spot_type'].isin([ch0, ch1])
+        if cell_selection is not None and cell_selection >= 0:
+            mask_analyzed &= (self.df_tracking['cell_id'] == cell_selection)
+        
+        # For each (cell_id, frame) group in the analyzed subset
+        df_analyzed = self.df_tracking[mask_analyzed]
+        
+        for (cell_id, frame), group in df_analyzed.groupby(['cell_id', 'frame']):
+            spots_ch0 = group[group['spot_type'] == ch0][['z', 'y', 'x']].values.astype(float)
+            spots_ch1 = group[group['spot_type'] == ch1][['z', 'y', 'x']].values.astype(float)
+            idx_ch0 = group[group['spot_type'] == ch0].index
+            idx_ch1 = group[group['spot_type'] == ch1].index
+            
+            if len(spots_ch0) == 0 or len(spots_ch1) == 0:
+                # No pairing possible: all spots in this group are "not colocalized"
+                self.df_tracking.loc[idx_ch0, 'is_colocalized_distance'] = False
+                self.df_tracking.loc[idx_ch1, 'is_colocalized_distance'] = False
+                continue
+            
+            # Apply voxel scaling for anisotropic 3D data
+            if scale is not None:
+                spots_ch0_scaled = spots_ch0 * scale
+                spots_ch1_scaled = spots_ch1 * scale
+            else:
+                spots_ch0_scaled = spots_ch0
+                spots_ch1_scaled = spots_ch1
+            
+            # Pairwise distance matrix
+            dist_matrix = cdist(spots_ch0_scaled, spots_ch1_scaled, metric='euclidean')
+            
+            # ch0 spots: colocalized if ANY ch1 spot within threshold
+            is_coloc_ch0 = np.any(dist_matrix <= threshold, axis=1)
+            self.df_tracking.loc[idx_ch0, 'is_colocalized_distance'] = is_coloc_ch0
+            
+            # ch1 spots: colocalized if ANY ch0 spot within threshold
+            is_coloc_ch1 = np.any(dist_matrix <= threshold, axis=0)
+            self.df_tracking.loc[idx_ch1, 'is_colocalized_distance'] = is_coloc_ch1
     
     def export_distance_colocalization_data(self):
         """Export distance colocalization data to CSV."""
@@ -14794,7 +15012,7 @@ class GUI(QMainWindow):
             crop_size += 1
         
         try:
-            _, mean_crop, _, crop_size = mi.CropArray(
+            _, mean_crop, _, crop_size, _ = mi.CropArray(
                 image=image,
                 df_crops=df_ch0,
                 crop_size=crop_size,
@@ -16301,6 +16519,7 @@ class GUI(QMainWindow):
         if self.df_tracking.empty:
             return
         try:
+            self._apply_manual_verification_to_tracking()  # §5.8: manual override at export
             self.df_tracking.to_csv(file_path, index=False)
         except Exception as e:
             print(f"Failed to export tracking data: {e}")
@@ -16858,6 +17077,7 @@ class GUI(QMainWindow):
                 if reply != QMessageBox.Yes:
                     return
             try:
+                self._apply_manual_verification_to_tracking()  # §5.8: manual override at export
                 self.df_tracking.to_csv(file_path, index=False)
                 QMessageBox.information(self, "Success", f"Tracking data exported successfully to:\n{file_path}")
             except Exception as e:

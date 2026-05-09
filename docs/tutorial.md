@@ -834,6 +834,8 @@ Quantify spatial relationships between particles in different channels using aut
 - CSV file with detailed statistics
 - Publication-ready visualization
 
+> **Tip:** After running colocalization, an `is_colocalized` column is automatically added to your tracking DataFrame (`df_tracking`). When you export tracking data (from the Export tab or the Tracking tab's "Export DataFrame" button), each particle will carry its colocalization label alongside position and intensity data. If you perform manual verification, the exported labels reflect your verified classifications.
+
 ### Distance Sub-tab
 
 The **Distance** sub-tab computes pairwise Euclidean distances between spots in two channels:

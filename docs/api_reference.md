@@ -144,7 +144,7 @@ __init__(icon_path)
 | `synchronize_and_plot_cellpose()` | Align cyto/nuc masks and display |
 | `clear_cellpose_masks()` | Discard Cellpose masks |
 | `clear_imported_masks()` | Discard imported masks |
-| `import_mask_from_tiff(mask_type)` | Load external TIFF mask |
+| `import_mask_from_tiff(mask_type)` | Load external TIFF mask. Auto-detects 3D spatial (ZYX) masks when the first dimension matches image Z (not T), and max-projects to 2D. |
 | `plot_cellpose_results()` | Render Cellpose overlay |
 | `plot_segmentation()` | Render segmentation overlay |
 | `update_watershed_threshold_factor(value)` | Adjust watershed threshold |
@@ -288,6 +288,14 @@ __init__(icon_path)
 | `export_verify_visual/distance_data()` | Export verification results |
 | `update_z_dist_coloc(value)` / `reset_dist_coloc_z_slider()` | Z-slider controls |
 | `update_distance_nm_label()` | Refresh distance label |
+
+**Internal Methods (Tracking Integration):**
+
+| Method | Description |
+| --- | --- |
+| `_apply_colocalization_to_tracking()` | Map visual (ML/Intensity) results to `df_tracking['is_colocalized']` per particle |
+| `_apply_distance_colocalization_to_tracking()` | Map distance results to `df_tracking['is_colocalized_distance']` per frame |
+| `_apply_manual_verification_to_tracking()` | Override `is_colocalized` from manual verification checkboxes at export time |
 
 #### Tracking Visualization
 
@@ -717,7 +725,7 @@ __init__(image, df_crops, crop_size, remove_outliers=True,
          normalize_each_particle=False)
 ```
 
-**Methods:** `run()`
+**Methods:** `run()` — Returns `(crops_ref, crops_coloc, classifications, metadata, particle_ids)`. The `particle_ids` (5th element) maps each crop back to its source `unique_particle` in `df_tracking`, enabling per-particle colocalization labeling.
 
 ---
 

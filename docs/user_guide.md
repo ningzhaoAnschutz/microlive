@@ -1250,6 +1250,8 @@ Colocalization → Run Automated Analysis → Colocalization Manual → Populate
 4. **Monitor Progress**: Track completion via statistics display
 5. **Export Data**: Save final manual classifications
 
+> **Note:** Manual verification overrides are automatically applied to the `is_colocalized` column in `df_tracking` when tracking data is exported (from the Export tab or the Tracking tab's "Export DataFrame" button). This means the exported tracking CSV always reflects the most recent manual verification state, not just the automated classification. The override is applied at export time, so you can re-verify and re-export without re-running colocalization.
+
 ### Distance-Based Colocalization
 
 The Distance subtab provides colocalization analysis based on the physical proximity between spots in different channels, using the Euclidean distance between detected particles.
@@ -1452,6 +1454,23 @@ For each imaging channel N (where N = 0, 1, 2, ...), the following intensity col
 | `spot_id` | int | Unique spot identifier within each frame | - |
 | `unique_particle` | str | Hierarchical unique particle identifier (format: `cell_id_spot_type_particle` when segmentation is available, or `particle` otherwise). This ensures particles are uniquely identified across cells AND channels in multi-cell, multi-channel experiments. | - |
 
+#### Colocalization Columns (When Colocalization Available)
+
+These columns are added to `df_tracking` when colocalization analysis is performed. They enable per-particle colocalization labeling directly in the tracking export.
+
+| Column | Type | Description | Values |
+|--------|------|-------------|--------|
+| `is_colocalized` | float/NaN | Visual (ML or Intensity) colocalization flag per particle | `True`/`False`/`NaN` |
+| `is_colocalized_distance` | float/NaN | Distance-based colocalization flag per frame | `True`/`False`/`NaN` |
+
+**Behavior:**
+
+- **`is_colocalized`**: Set when visual colocalization (ML or Intensity method) is run. This is a **per-particle** flag — all frames of a given particle share the same value, since visual colocalization evaluates time-averaged crops.
+- **`is_colocalized_distance`**: Set when distance-based colocalization is run. This is a **per-frame** flag — each observation is independently evaluated based on spatial proximity in that frame.
+- Particles not analyzed (e.g., in cells not selected for colocalization in single-cell mode) retain `NaN`.
+- If manual verification is performed, `is_colocalized` is updated at export time to reflect the user's checkbox selections (see [Manual Verification Workflow](#manual-verification-workflow)).
+- Re-running tracking clears both columns; re-running colocalization regenerates them.
+
 #### Cellular Localization Data (When Segmentation Available)
 
 **Cell Assignment:**
@@ -1615,5 +1634,6 @@ The Verify Distance manual verification exports per-track classification via the
 All DataFrames are exported as CSV files with UTF-8 encoding:
 
 - **Tracking data**: `tracking_[filename]_[imagename].csv`
+  - When colocalization has been run, the tracking CSV includes `is_colocalized` and/or `is_colocalized_distance` columns alongside the standard tracking data. If manual verification was performed, the exported values reflect the verified labels.
 - **Colocalization results**: `colocalization_[filename]_[imagename].csv`
 - **Manual colocalization**: `manual_colocalization_[filename]_[imagename].csv`

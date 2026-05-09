@@ -6497,7 +6497,8 @@ class CropArray():
             mean_crop[mean_crop == 0] = np.nan
             first_snapshots[first_snapshots == 0] = np.nan
 
-        return croparray, mean_crop, first_snapshots, self.crop_size
+        particle_ids = list(self.df_crops[self.particle_col].unique())
+        return croparray, mean_crop, first_snapshots, self.crop_size, particle_ids
 
 
     

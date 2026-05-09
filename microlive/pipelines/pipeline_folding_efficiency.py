@@ -155,9 +155,9 @@ def pipeline_folding_efficiency(original_lif_name, list_images,list_images_names
                 normalize_each_particle = True 
                 if PLOT_FILTERED_IMAGES:
                     filtered_image = mi.Utilities().gaussian_laplace_filter_image(image_TZYXC,list_psfs,list_voxels)
-                    croparray_filtered, mean_crop_filtered, first_appearance, crop_size = mi.CropArray(image=filtered_image, df_crops=df_tracking, crop_size=crop_size, remove_outliers=False, max_percentile=99.9,selected_time_point=selected_time_point,normalize_each_particle=normalize_each_particle).run()
+                    croparray_filtered, mean_crop_filtered, first_appearance, crop_size, _ = mi.CropArray(image=filtered_image, df_crops=df_tracking, crop_size=crop_size, remove_outliers=False, max_percentile=99.9,selected_time_point=selected_time_point,normalize_each_particle=normalize_each_particle).run()
                 else:
-                    croparray_filtered, mean_crop_filtered, first_appearance, crop_size = mi.CropArray(image=image_TZYXC, df_crops=df_tracking, crop_size=crop_size, remove_outliers=False, max_percentile=99.9,selected_time_point=selected_time_point,normalize_each_particle=normalize_each_particle).run()
+                    croparray_filtered, mean_crop_filtered, first_appearance, crop_size, _ = mi.CropArray(image=image_TZYXC, df_crops=df_tracking, crop_size=crop_size, remove_outliers=False, max_percentile=99.9,selected_time_point=selected_time_point,normalize_each_particle=normalize_each_particle).run()
                 # extracting crops from the croparray
                 number_particles = croparray_filtered.shape[1]//crop_size
                 number_time_points = croparray_filtered.shape[0]//crop_size

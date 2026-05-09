@@ -737,7 +737,7 @@ def process_single_image(
     filtered_image = mi.Utilities().gaussian_laplace_filter_image(
         corrected_image, list_spot_size_px, list_voxels
     )
-    croparray_filtered, mean_crop_filtered, first_appearance, crop_size = mi.CropArray(
+    croparray_filtered, mean_crop_filtered, first_appearance, crop_size, _ = mi.CropArray(
         image=filtered_image,
         df_crops=df_tracking,
         crop_size=crop_size,
