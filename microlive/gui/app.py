@@ -4463,7 +4463,8 @@ class GUI(QMainWindow):
             # Update current 2D frame from synchronized TYX
             if self.current_frame < len(self.cellpose_masks_cyto_tyx):
                 self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
-                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
+                nuc_frame = min(self.current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[nuc_frame]
         elif (getattr(self, 'use_tyx_masks', False) and 
               getattr(self, 'cellpose_masks_cyto_tyx', None) is None and 
               getattr(self, 'cellpose_masks_nuc_tyx', None) is not None):
@@ -4688,7 +4689,7 @@ class GUI(QMainWindow):
             if mask_type == 'cytosol':
                 if is_tyx:
                     self.cellpose_masks_cyto_tyx = mask_data
-                    self.cellpose_masks_cyto = mask_data[self.segmentation_current_frame]
+                    self.cellpose_masks_cyto = mask_data[min(self.segmentation_current_frame, len(mask_data) - 1)]
                     self.use_tyx_masks = True
                 else:
                     self.cellpose_masks_cyto = mask_data
@@ -4711,7 +4712,7 @@ class GUI(QMainWindow):
             elif mask_type == 'nucleus':
                 if is_tyx:
                     self.cellpose_masks_nuc_tyx = mask_data
-                    self.cellpose_masks_nuc = mask_data[self.segmentation_current_frame]
+                    self.cellpose_masks_nuc = mask_data[min(self.segmentation_current_frame, len(mask_data) - 1)]
                     self.use_tyx_masks = True
                 else:
                     self.cellpose_masks_nuc = mask_data
@@ -14337,11 +14338,12 @@ class GUI(QMainWindow):
         # Reset zoom state
         self._reset_dist_coloc_zoom()
         
-        # Update display
-        self.display_distance_colocalization()
-        
-        # Merge distance colocalization flags into df_tracking
+        # Merge distance colocalization flags into df_tracking (frame-aware)
+        # Must run BEFORE display so the GUI reads frame-correct stats
         self._apply_distance_colocalization_to_tracking()
+        
+        # Update display (reads from frame-correct df_tracking)
+        self.display_distance_colocalization()
     
     def _apply_distance_colocalization_to_tracking(self):
         """Merge distance colocalization flags into df_tracking as 'is_colocalized_distance'.
@@ -14432,17 +14434,48 @@ class GUI(QMainWindow):
         
         try:
             results = self.distance_coloc_results
-            df_class = results['df_classification'].copy()
+            ch0 = results['channel_0']
+            ch1 = results['channel_1']
+            cell_selection = results.get('cell_selection')
+            
+            # Build frame-correct per-cell summary from df_tracking
+            if 'is_colocalized_distance' in self.df_tracking.columns:
+                df_eval = self.df_tracking[
+                    self.df_tracking['spot_type'].isin([ch0, ch1]) &
+                    self.df_tracking['is_colocalized_distance'].notna()
+                ].copy()
+                if cell_selection is not None and cell_selection >= 0:
+                    df_eval = df_eval[df_eval['cell_id'] == cell_selection]
+                
+                rows = []
+                for cell_id in sorted(df_eval['cell_id'].unique()):
+                    cell_df = df_eval[df_eval['cell_id'] == cell_id]
+                    coloc_mask = cell_df['is_colocalized_distance'].astype(bool)
+                    ch0_only = int(((cell_df['spot_type'] == ch0) & ~coloc_mask).sum())
+                    ch1_only = int(((cell_df['spot_type'] == ch1) & ~coloc_mask).sum())
+                    coloc = int(((cell_df['spot_type'] == ch0) & coloc_mask).sum())
+                    rows.append({
+                        'cell_id': int(cell_id),
+                        f'num_{ch0}_only': ch0_only,
+                        f'num_{ch1}_only': ch1_only,
+                        'num_colocalized': coloc,
+                        'total': ch0_only + ch1_only + coloc,
+                        'pct_colocalized': 100 * coloc / (ch0_only + ch1_only + coloc) if (ch0_only + ch1_only + coloc) > 0 else 0
+                    })
+                df_export = pd.DataFrame(rows)
+            else:
+                # Fallback to engine output
+                df_export = results['df_classification'].copy()
             
             # Add metadata columns
-            df_class['method'] = 'distance'
-            df_class['threshold_px'] = results['threshold_distance_px']
-            df_class['threshold_nm'] = results['threshold_distance_nm']
-            df_class['use_3d'] = results['use_3d']
-            df_class['channel_0'] = results['channel_0']
-            df_class['channel_1'] = results['channel_1']
+            df_export['method'] = 'distance'
+            df_export['threshold_px'] = results['threshold_distance_px']
+            df_export['threshold_nm'] = results['threshold_distance_nm']
+            df_export['use_3d'] = results['use_3d']
+            df_export['channel_0'] = ch0
+            df_export['channel_1'] = ch1
             
-            df_class.to_csv(file_path, index=False)
+            df_export.to_csv(file_path, index=False)
             QMessageBox.information(self, "Export Complete", 
                                     f"Distance colocalization data exported to:\n{file_path}")
         except Exception as e:
@@ -14470,7 +14503,12 @@ class GUI(QMainWindow):
             QMessageBox.critical(self, "Export Failed", f"Error exporting image:\n{str(e)}")
     
     def display_distance_colocalization(self):
-        """Display distance colocalization results."""
+        """Display distance colocalization results.
+        
+        Summary statistics and per-cell table are computed from the frame-correct
+        df_tracking['is_colocalized_distance'] column rather than the legacy engine
+        output, which groups by cell_id only and can inflate counts for time-lapse data.
+        """
         if not hasattr(self, 'distance_coloc_results') or self.distance_coloc_results is None:
             # Show placeholder with tracking-like black background
             fig = self.figure_dist_coloc
@@ -14487,16 +14525,37 @@ class GUI(QMainWindow):
             return
         
         results = self.distance_coloc_results
-        df_class = results['df_classification']
         ch0, ch1 = results['channel_0'], results['channel_1']
+        cell_selection = results.get('cell_selection')
         
-        # Calculate totals
-        total_coloc = int(df_class['num_0_1'].sum())
-        total_ch0_only = int(df_class['num_0_only'].sum())
-        total_ch1_only = int(df_class['num_1_only'].sum())
-        total_ch0 = int(df_class['num_0_total'].sum())
-        total_ch1 = int(df_class['num_1_total'].sum())
-        total_unique = total_ch0_only + total_ch1_only + total_coloc
+        # Compute frame-correct summary from df_tracking['is_colocalized_distance']
+        if 'is_colocalized_distance' in self.df_tracking.columns:
+            df_eval = self.df_tracking[
+                self.df_tracking['spot_type'].isin([ch0, ch1])
+            ].copy()
+            if cell_selection is not None and cell_selection >= 0:
+                df_eval = df_eval[df_eval['cell_id'] == cell_selection]
+            
+            # Only count rows that were evaluated (not NaN)
+            df_eval = df_eval[df_eval['is_colocalized_distance'].notna()]
+            
+            coloc_mask = df_eval['is_colocalized_distance'].astype(bool)
+            total_ch0 = int((df_eval['spot_type'] == ch0).sum())
+            total_ch1 = int((df_eval['spot_type'] == ch1).sum())
+            total_ch0_only = int(((df_eval['spot_type'] == ch0) & ~coloc_mask).sum())
+            total_ch1_only = int(((df_eval['spot_type'] == ch1) & ~coloc_mask).sum())
+            # Count colocalized pairs (not rows): a colocalized pair flags one ch0 + one ch1 row,
+            # so count only the ch0 side to avoid double-counting.
+            total_coloc = int(((df_eval['spot_type'] == ch0) & coloc_mask).sum())
+            total_unique = total_ch0_only + total_ch1_only + total_coloc
+        else:
+            # Fallback to engine output if tracking column not yet available
+            df_class = results['df_classification']
+            total_coloc = int(df_class['num_0_1'].sum())
+            total_ch0_only = int(df_class['num_0_only'].sum())
+            total_ch1_only = int(df_class['num_1_only'].sum())
+            total_unique = total_ch0_only + total_ch1_only + total_coloc
+        
         pct_coloc = 100 * total_coloc / total_unique if total_unique > 0 else 0
         
         # Update summary label
@@ -14506,8 +14565,8 @@ class GUI(QMainWindow):
             f"Ch{ch1} only: {total_ch1_only} ({100*total_ch1_only/total_unique:.1f}%)"
         )
         
-        # Update per-cell table
-        self._update_distance_percell_table(df_class, ch0, ch1)
+        # Update per-cell table from frame-correct tracking data
+        self._update_distance_percell_table(ch0, ch1, cell_selection)
         
         # Draw visualization
         is_scatter = self.dist_view_scatter_radio.isChecked()
@@ -14516,28 +14575,45 @@ class GUI(QMainWindow):
         else:
             self._draw_distance_overlay()
     
-    def _update_distance_percell_table(self, df_class, ch0, ch1):
-        """Update the per-cell results table for distance colocalization."""
+    def _update_distance_percell_table(self, ch0, ch1, cell_selection=None):
+        """Update the per-cell results table from frame-correct tracking data."""
         if not hasattr(self, 'dist_percell_table'):
             return
         
-        # Build table text
+        # Build table from df_tracking['is_colocalized_distance'] (frame-aware)
         lines = [f"{'Cell':>6} | {'Ch'+str(ch0)+' Only':>10} | {'Ch'+str(ch1)+' Only':>10} | {'Colocalized':>11} | {'Total':>6} | {'% Coloc':>8}"]
         lines.append("-" * 70)
         
-        for _, row in df_class.iterrows():
-            cell_id = int(row['cell_id'])
-            ch0_only = int(row['num_0_only'])
-            ch1_only = int(row['num_1_only'])
-            coloc = int(row['num_0_1'])
+        if 'is_colocalized_distance' not in self.df_tracking.columns:
+            lines.append("  (no frame-aware data available)")
+            self.dist_percell_table.setText("\n".join(lines))
+            return
+        
+        df_eval = self.df_tracking[
+            self.df_tracking['spot_type'].isin([ch0, ch1]) &
+            self.df_tracking['is_colocalized_distance'].notna()
+        ].copy()
+        if cell_selection is not None and cell_selection >= 0:
+            df_eval = df_eval[df_eval['cell_id'] == cell_selection]
+        
+        for cell_id in sorted(df_eval['cell_id'].unique()):
+            cell_df = df_eval[df_eval['cell_id'] == cell_id]
+            coloc_mask = cell_df['is_colocalized_distance'].astype(bool)
+            ch0_only = int(((cell_df['spot_type'] == ch0) & ~coloc_mask).sum())
+            ch1_only = int(((cell_df['spot_type'] == ch1) & ~coloc_mask).sum())
+            # Count colocalized pairs (ch0 side only) to match summary semantics
+            coloc = int(((cell_df['spot_type'] == ch0) & coloc_mask).sum())
             total = ch0_only + ch1_only + coloc
             pct = 100 * coloc / total if total > 0 else 0
-            lines.append(f"{cell_id:>6} | {ch0_only:>10} | {ch1_only:>10} | {coloc:>11} | {total:>6} | {pct:>7.1f}%")
+            lines.append(f"{int(cell_id):>6} | {ch0_only:>10} | {ch1_only:>10} | {coloc:>11} | {total:>6} | {pct:>7.1f}%")
         
         self.dist_percell_table.setText("\n".join(lines))
     
     def _draw_distance_scatter(self):
-        """Draw scatter plot of spot classifications."""
+        """Draw scatter plot of spot classifications for the current frame.
+        
+        Uses df_tracking['is_colocalized_distance'] for frame-correct classification.
+        """
         fig = self.figure_dist_coloc
         fig.clear()
         ax = fig.add_subplot(111)
@@ -14545,24 +14621,41 @@ class GUI(QMainWindow):
         
         results = self.distance_coloc_results
         ch0, ch1 = results['channel_0'], results['channel_1']
-        
-        # Get coordinate dataframes
-        df_ch0 = results['df_ch0_only']
-        df_ch1 = results['df_ch1_only']
-        df_both = results['df_colocalized']
+        cell_selection = results.get('cell_selection')
+        frame_idx = self.dist_frame_slider.value() if hasattr(self, 'dist_frame_slider') else self.current_frame
         
         # Get colors for each channel
         color_ch0 = self._get_channel_color_for_scatter(ch0)
         color_ch1 = self._get_channel_color_for_scatter(ch1)
         
+        # Use frame-correct tracking data
+        if 'is_colocalized_distance' in self.df_tracking.columns:
+            df_frame = self.df_tracking[
+                (self.df_tracking['frame'] == frame_idx) &
+                self.df_tracking['spot_type'].isin([ch0, ch1]) &
+                self.df_tracking['is_colocalized_distance'].notna()
+            ].copy()
+            if cell_selection is not None and cell_selection >= 0:
+                df_frame = df_frame[df_frame['cell_id'] == cell_selection]
+            
+            coloc_mask = df_frame['is_colocalized_distance'].astype(bool)
+            df_ch0_only = df_frame[(df_frame['spot_type'] == ch0) & ~coloc_mask]
+            df_ch1_only = df_frame[(df_frame['spot_type'] == ch1) & ~coloc_mask]
+            df_both = df_frame[coloc_mask]
+        else:
+            # Fallback to engine output
+            df_ch0_only = results['df_ch0_only']
+            df_ch1_only = results['df_ch1_only']
+            df_both = results['df_colocalized']
+        
         # Plot each category
-        if not df_ch0.empty:
-            ax.scatter(df_ch0['x'], df_ch0['y'], c=[color_ch0], 
-                       s=20, alpha=0.7, label=f'Ch{ch0} only ({len(df_ch0)})', 
+        if not df_ch0_only.empty:
+            ax.scatter(df_ch0_only['x'], df_ch0_only['y'], c=[color_ch0], 
+                       s=20, alpha=0.7, label=f'Ch{ch0} only ({len(df_ch0_only)})', 
                        marker='o', edgecolors='none')
-        if not df_ch1.empty:
-            ax.scatter(df_ch1['x'], df_ch1['y'], c=[color_ch1],
-                       s=20, alpha=0.7, label=f'Ch{ch1} only ({len(df_ch1)})',
+        if not df_ch1_only.empty:
+            ax.scatter(df_ch1_only['x'], df_ch1_only['y'], c=[color_ch1],
+                       s=20, alpha=0.7, label=f'Ch{ch1} only ({len(df_ch1_only)})',
                        marker='o', edgecolors='none')
         if not df_both.empty:
             ax.scatter(df_both['x'], df_both['y'], c='white', edgecolors='yellow',
@@ -14582,7 +14675,7 @@ class GUI(QMainWindow):
         threshold_nm = results['threshold_distance_nm']
         use_3d = results['use_3d']
         dim_str = "3D" if use_3d else "2D"
-        ax.set_title(f"Distance Colocalization ({dim_str}): Threshold = {threshold_px:.1f} px ({threshold_nm:.0f} nm)",
+        ax.set_title(f"Distance Colocalization ({dim_str}): Threshold = {threshold_px:.1f} px ({threshold_nm:.0f} nm)  [Frame {frame_idx}]",
                      color='white', fontsize=11)
         
         fig.tight_layout()
@@ -14701,45 +14794,25 @@ class GUI(QMainWindow):
             z_tolerance = 0.5
             df_frame = df_frame[np.abs(df_frame['z'] - current_z) <= z_tolerance]
         
-        # Get colocalized coordinates (from all frames - we'll match by position)
-        df_coloc_all = results['df_colocalized']
-        
-        # Separate by channel and determine colocalization status for this frame
+        # Classify spots using frame-correct is_colocalized_distance column
         df_ch0_frame = df_frame[df_frame['spot_type'] == ch0]
         df_ch1_frame = df_frame[df_frame['spot_type'] == ch1]
         
-        # For each spot in this frame, check if it was marked as colocalized
-        # We do this by checking if the spot's coordinates match any in the colocalized set
-        threshold = results['threshold_distance_px']
+        spots_ch0_only = []
+        spots_ch1_only = []
+        spots_colocalized = []
         
-        def is_colocalized(x, y, z, df_coloc):
-            """Check if a spot at (x,y,z) is in the colocalized set (within 1px tolerance)."""
-            if df_coloc.empty:
-                return False
-            # Use a small tolerance for matching
-            matches = df_coloc[
-                (np.abs(df_coloc['x'] - x) < 1.5) & 
-                (np.abs(df_coloc['y'] - y) < 1.5) &
-                (np.abs(df_coloc['z'] - z) < 1.5)
-            ]
-            return len(matches) > 0
-        
-        # Classify spots in this frame
-        spots_ch0_only = []  # (x, y) for ch0 only
-        spots_ch1_only = []  # (x, y) for ch1 only  
-        spots_colocalized = []  # (x, y) for colocalized
+        has_coloc_col = 'is_colocalized_distance' in df_frame.columns
         
         for _, row in df_ch0_frame.iterrows():
-            x, y, z = row['x'], row['y'], row.get('z', 0)
-            if is_colocalized(x, y, z, df_coloc_all):
-                spots_colocalized.append((x, y))
+            if has_coloc_col and row.get('is_colocalized_distance') == True:
+                spots_colocalized.append((row['x'], row['y']))
             else:
-                spots_ch0_only.append((x, y))
+                spots_ch0_only.append((row['x'], row['y']))
         
         for _, row in df_ch1_frame.iterrows():
-            x, y, z = row['x'], row['y'], row.get('z', 0)
-            if not is_colocalized(x, y, z, df_coloc_all):
-                spots_ch1_only.append((x, y))
+            if not (has_coloc_col and row.get('is_colocalized_distance') == True):
+                spots_ch1_only.append((row['x'], row['y']))
             # Note: colocalized spots already added from ch0
         
         # Calculate dynamic marker size based on zoom level (V-curve pattern from Tracking tab)
@@ -14905,9 +14978,36 @@ class GUI(QMainWindow):
             self._verify_visual_sorted = True
         else:
             # No prediction values available - keep original order
+            sorted_indices = None
             self._verify_visual_sorted = False
             self._verify_visual_sort_indices = None
             self._verify_visual_sorted_crop = None
+        
+        # Build particle ID and cell ID lists matching the display order
+        # Uses the same iteration order as _combine_percell_crops()
+        per_cell_results = results.get('per_cell_results', {})
+        cell_selection = results.get('cell_selection')
+        orig_particle_ids = []
+        orig_cell_ids = []
+        if cell_selection is not None and cell_selection >= 0 and cell_selection in per_cell_results:
+            res = per_cell_results[cell_selection]
+            pids = res.get('particle_ids', [])
+            orig_particle_ids.extend(pids)
+            orig_cell_ids.extend([cell_selection] * len(pids))
+        else:
+            for cid, res in per_cell_results.items():
+                if res['mean_crop'] is not None and len(res['flag_vector']) > 0:
+                    pids = res.get('particle_ids', [])
+                    orig_particle_ids.extend(pids)
+                    orig_cell_ids.extend([cid] * len(pids))
+        
+        # Apply sort to IDs (same sort as crops/flags)
+        if sorted_indices is not None and len(sorted_indices) == len(orig_particle_ids):
+            self._verify_visual_particle_ids = [orig_particle_ids[i] for i in sorted_indices]
+            self._verify_visual_cell_ids = [orig_cell_ids[i] for i in sorted_indices]
+        else:
+            self._verify_visual_particle_ids = list(orig_particle_ids[:num_spots])
+            self._verify_visual_cell_ids = list(orig_cell_ids[:num_spots])
         
         # Create spot crops with checkboxes (now in sorted order)
         self._create_verification_crops(
@@ -14978,6 +15078,15 @@ class GUI(QMainWindow):
                 'colocalized_manual': flags,
                 'colocalized_auto': auto_flags
             })
+            
+            # Add particle provenance if available
+            vis_pids = getattr(self, '_verify_visual_particle_ids', None)
+            vis_cids = getattr(self, '_verify_visual_cell_ids', None)
+            if vis_pids is not None and len(vis_pids) == total:
+                df.insert(0, 'particle_id', vis_pids)
+            if vis_cids is not None and len(vis_cids) == total:
+                df.insert(0, 'cell_id', vis_cids)
+            
             df['method'] = 'visual'
             df['threshold'] = results.get('threshold_value', 'N/A')
             df['image_name'] = getattr(self, 'selected_image_name', '')
@@ -15201,9 +15310,23 @@ class GUI(QMainWindow):
             self.verify_distance_values = np.array(distance_values)[sorted_indices]
             self._verify_distance_sort_indices = sorted_indices
             self._verify_distance_sorted = True
+            
+            # Apply sort to particle/cell IDs
+            self._verify_distance_particle_ids = [unique_particles[i] for i in sorted_indices]
+            dist_cell_map = {}
+            for pid in unique_particles:
+                cid = df_ch0_copy[df_ch0_copy[particle_col] == pid]['cell_id'].iloc[0] if 'cell_id' in df_ch0_copy.columns else 0
+                dist_cell_map[pid] = cid
+            self._verify_distance_cell_ids = [dist_cell_map[pid] for pid in self._verify_distance_particle_ids]
         else:
             self._verify_distance_sorted = False
             self._verify_distance_sort_indices = None
+            self._verify_distance_particle_ids = list(unique_particles[:num_spots])
+            dist_cell_map = {}
+            for pid in unique_particles[:num_spots]:
+                cid = df_ch0_copy[df_ch0_copy[particle_col] == pid]['cell_id'].iloc[0] if 'cell_id' in df_ch0_copy.columns else 0
+                dist_cell_map[pid] = cid
+            self._verify_distance_cell_ids = [dist_cell_map[pid] for pid in self._verify_distance_particle_ids]
         
         # Create spot crops with checkboxes (now in sorted order)
         self._create_verification_crops(
@@ -15271,6 +15394,15 @@ class GUI(QMainWindow):
                 'spot_index': range(total),
                 'colocalized_manual': flags,
             })
+            
+            # Add particle provenance if available
+            dist_pids = getattr(self, '_verify_distance_particle_ids', None)
+            dist_cids = getattr(self, '_verify_distance_cell_ids', None)
+            if dist_pids is not None and len(dist_pids) == total:
+                df.insert(0, 'particle_id', dist_pids)
+            if dist_cids is not None and len(dist_cids) == total:
+                df.insert(0, 'cell_id', dist_cids)
+            
             df['method'] = 'distance'
             df['threshold_px'] = results.get('threshold_distance_px', 'N/A')
             df['threshold_nm'] = results.get('threshold_distance_nm', 'N/A')
