@@ -10525,6 +10525,7 @@ class GUI(QMainWindow):
             
             # Rebuild combined dataframe
             self._rebuild_combined_tracking_dataframe()
+            self.reset_colocalization_tab()  # Clear stale colocalization state
             self.correlation_results = []
             self.current_total_plots = None
             if not self.tracked_channels:
@@ -10555,6 +10556,7 @@ class GUI(QMainWindow):
         if hasattr(self, '_last_tracking_run_channel'):
             self._last_tracking_run_channel = None
         
+        self.reset_colocalization_tab()  # Clear stale colocalization state
         self._update_tracked_channels_list()
         self.plot_tracking()
 
@@ -14382,9 +14384,11 @@ class GUI(QMainWindow):
         # For each (cell_id, frame) group in the analyzed subset
         df_analyzed = self.df_tracking[mask_analyzed]
         
+        coord_cols = ['z', 'y', 'x'] if use_3d else ['y', 'x']
+        
         for (cell_id, frame), group in df_analyzed.groupby(['cell_id', 'frame']):
-            spots_ch0 = group[group['spot_type'] == ch0][['z', 'y', 'x']].values.astype(float)
-            spots_ch1 = group[group['spot_type'] == ch1][['z', 'y', 'x']].values.astype(float)
+            spots_ch0 = group[group['spot_type'] == ch0][coord_cols].values.astype(float)
+            spots_ch1 = group[group['spot_type'] == ch1][coord_cols].values.astype(float)
             idx_ch0 = group[group['spot_type'] == ch0].index
             idx_ch1 = group[group['spot_type'] == ch1].index
             
