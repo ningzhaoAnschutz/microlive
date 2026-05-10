@@ -1093,9 +1093,11 @@ class GUI(QMainWindow):
             # Check for TYX masks first - return current frame's mask
             if getattr(self, 'use_tyx_masks', False):
                 if hasattr(self, 'cellpose_masks_cyto_tyx') and self.cellpose_masks_cyto_tyx is not None:
-                    return (self.cellpose_masks_cyto_tyx[self.current_frame] > 0).astype(np.uint8)
+                    idx = min(self.current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                    return (self.cellpose_masks_cyto_tyx[idx] > 0).astype(np.uint8)
                 elif hasattr(self, 'cellpose_masks_nuc_tyx') and self.cellpose_masks_nuc_tyx is not None:
-                    return (self.cellpose_masks_nuc_tyx[self.current_frame] > 0).astype(np.uint8)
+                    idx = min(self.current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                    return (self.cellpose_masks_nuc_tyx[idx] > 0).astype(np.uint8)
             # Fallback to YX masks
             if self.cellpose_masks_cyto is not None:
                 return (self.cellpose_masks_cyto > 0).astype(np.uint8)
@@ -3804,9 +3806,11 @@ class GUI(QMainWindow):
             # Sync TYX masks if active before plotting tracking
             if getattr(self, 'use_tyx_masks', False):
                 if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
-                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+                    idx = min(self.current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
                 if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
-                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
+                    idx = min(self.current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
             self.plot_tracking()
         elif (current_tab == self.tabs.indexOf(self.tracking_visualization_tab)
             and getattr(self, 'has_tracked', False)
@@ -3885,9 +3889,11 @@ class GUI(QMainWindow):
         # Sync TYX masks if active before plotting tracking
         if getattr(self, 'use_tyx_masks', False):
             if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
-                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.current_frame]
+                idx = min(self.current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
             if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
-                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.current_frame]
+                idx = min(self.current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
         self.plot_tracking()
     
     def next_frame_tracking_vis(self):
@@ -4220,7 +4226,8 @@ class GUI(QMainWindow):
                     
                     self.cellpose_masks_cyto_tyx = masks_cyto_tyx
                     # Also set the current frame's YX mask for compatibility
-                    self.cellpose_masks_cyto = masks_cyto_tyx[self.segmentation_current_frame]
+                    idx = min(self.segmentation_current_frame, len(masks_cyto_tyx) - 1)
+                    self.cellpose_masks_cyto = masks_cyto_tyx[idx]
                     self.use_tyx_masks = True
                 else:
                     self.use_tyx_masks = False
@@ -4363,7 +4370,8 @@ class GUI(QMainWindow):
                     
                     self.cellpose_masks_nuc_tyx = masks_nuc_tyx
                     # Also set the current frame's YX mask for compatibility
-                    self.cellpose_masks_nuc = masks_nuc_tyx[self.segmentation_current_frame]
+                    idx = min(self.segmentation_current_frame, len(masks_nuc_tyx) - 1)
+                    self.cellpose_masks_nuc = masks_nuc_tyx[idx]
                     self.use_tyx_masks = True
                 else:
                     self.use_tyx_masks = False
@@ -4757,11 +4765,13 @@ class GUI(QMainWindow):
                 if self.cellpose_masks_cyto_tyx is not None and border_labels:
                     self.cellpose_masks_cyto_tyx = self._remove_labels_from_tyx(self.cellpose_masks_cyto_tyx, border_labels)
                     # Update current frame YX mask
-                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.segmentation_current_frame]
+                    idx = min(self.segmentation_current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
                 if self.cellpose_masks_nuc_tyx is not None and border_labels:
                     self.cellpose_masks_nuc_tyx = self._remove_labels_from_tyx(self.cellpose_masks_nuc_tyx, border_labels)
                     # Update current frame YX mask
-                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.segmentation_current_frame]
+                    idx = min(self.segmentation_current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
             else:
                 # Standard YX mask handling (non-TYX mode)
                 if self.cellpose_masks_cyto is not None:
@@ -4854,8 +4864,10 @@ class GUI(QMainWindow):
                         self.cellpose_masks_nuc_tyx, ids_to_remove_nuc)
                 
                 # Update current frame YX masks
-                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.segmentation_current_frame]
-                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.segmentation_current_frame]
+                idx = min(self.segmentation_current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
+                idx = min(self.segmentation_current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
                 
             else:
                 # Standard YX mask handling (non-TYX mode)
@@ -5034,7 +5046,8 @@ class GUI(QMainWindow):
                         self.cellpose_masks_cyto_tyx = self._remove_labels_from_tyx(
                             self.cellpose_masks_cyto_tyx, ids_to_remove)
                     # Update current frame YX mask
-                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[self.segmentation_current_frame]
+                    idx = min(self.segmentation_current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
+                    self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
                 
                 if self.cellpose_masks_nuc_tyx is not None:
                     all_nuc_ids = set(np.unique(self.cellpose_masks_nuc_tyx))
@@ -5044,7 +5057,8 @@ class GUI(QMainWindow):
                         self.cellpose_masks_nuc_tyx = self._remove_labels_from_tyx(
                             self.cellpose_masks_nuc_tyx, ids_to_remove)
                     # Update current frame YX mask
-                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[self.segmentation_current_frame]
+                    idx = min(self.segmentation_current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
+                    self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
             else:
                 # Standard YX mode
                 if self.cellpose_masks_cyto is not None:
@@ -5250,9 +5264,11 @@ class GUI(QMainWindow):
         # Sync TYX Cellpose masks if active
         if getattr(self, 'use_tyx_masks', False):
             if getattr(self, 'cellpose_masks_cyto_tyx', None) is not None:
-                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[value]
+                idx = min(value, len(self.cellpose_masks_cyto_tyx) - 1)
+                self.cellpose_masks_cyto = self.cellpose_masks_cyto_tyx[idx]
             if getattr(self, 'cellpose_masks_nuc_tyx', None) is not None:
-                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[value]
+                idx = min(value, len(self.cellpose_masks_nuc_tyx) - 1)
+                self.cellpose_masks_nuc = self.cellpose_masks_nuc_tyx[idx]
         
         # Refresh display based on active sub-tab
         if hasattr(self, 'segmentation_method_tabs'):
@@ -12552,6 +12568,11 @@ class GUI(QMainWindow):
                                     "Please complete all frames' detection and complete tracking before colocalization.")
             return
         
+        # Defensive strip: remove old is_colocalized before any validation
+        # (prevents stale column surviving early returns on failed re-runs)
+        if not self.df_tracking.empty and 'is_colocalized' in self.df_tracking.columns:
+            self.df_tracking.drop(columns=['is_colocalized'], inplace=True)
+        
         # Filter by tracking channel (spot_type) - single channel required
         df_for_coloc = self.df_tracking.copy()
         tracking_ch = None
@@ -12584,10 +12605,6 @@ class GUI(QMainWindow):
             if invoked_by_run:
                 QMessageBox.warning(self, "No Image Data", "Please load and process an image first.")
             return
-        
-        # Defensive strip: remove old is_colocalized before recomputation (§5.2)
-        if not self.df_tracking.empty and 'is_colocalized' in self.df_tracking.columns:
-            self.df_tracking.drop(columns=['is_colocalized'], inplace=True)
         
         if self.use_maximum_projection:
             num_z = image.shape[1]
@@ -14193,6 +14210,11 @@ class GUI(QMainWindow):
                                 "Please run tracking on at least 2 channels first.")
             return
         
+        # Defensive strip: remove old is_colocalized_distance before any validation
+        # (prevents stale column surviving early returns on failed re-runs)
+        if not self.df_tracking.empty and 'is_colocalized_distance' in self.df_tracking.columns:
+            self.df_tracking.drop(columns=['is_colocalized_distance'], inplace=True)
+        
         # Get tracked channels from df_tracking
         tracked_channels = sorted(self.df_tracking['spot_type'].unique().tolist())
         if len(tracked_channels) < 2:
@@ -14249,10 +14271,6 @@ class GUI(QMainWindow):
             # This scales Z coordinates by the ratio of voxel sizes
             psf_z = voxel_xy  # NOT voxel_z - this gives us the correct ratio
             psf_yx = voxel_xy  # XY stays at 1:1
-        
-        # Defensive strip: remove old is_colocalized_distance before recomputation (§5.7)
-        if not self.df_tracking.empty and 'is_colocalized_distance' in self.df_tracking.columns:
-            self.df_tracking.drop(columns=['is_colocalized_distance'], inplace=True)
         
         # Filter df_tracking based on cell selection if needed
         df = self.df_tracking.copy()
