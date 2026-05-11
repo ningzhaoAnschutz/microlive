@@ -863,12 +863,19 @@ class Metadata:
                     write_value('Distance Threshold (nm)', threshold_nm)
                     write_value('3D Distance', 'Yes' if use_3d else 'No')
                     
-                    # Add summary statistics if available
-                    df_class = dist_results.get('df_classification')
-                    if df_class is not None and len(df_class) > 0:
-                        total_coloc = int(df_class['num_0_1'].sum())
-                        total_ch0_only = int(df_class['num_0_only'].sum())
-                        total_ch1_only = int(df_class['num_1_only'].sum())
+                    # Add summary statistics from frame-correct tracking data
+                    cell_selection = dist_results.get('cell_selection')
+                    if 'is_colocalized_distance' in self.df_tracking.columns:
+                        df_eval = self.df_tracking[
+                            self.df_tracking['spot_type'].isin([ch0, ch1]) &
+                            self.df_tracking['is_colocalized_distance'].notna()
+                        ].copy()
+                        if cell_selection is not None and cell_selection >= 0:
+                            df_eval = df_eval[df_eval['cell_id'] == cell_selection]
+                        coloc_mask = df_eval['is_colocalized_distance'].astype(bool)
+                        total_coloc = int(((df_eval['spot_type'] == ch0) & coloc_mask).sum())
+                        total_ch0_only = int(((df_eval['spot_type'] == ch0) & ~coloc_mask).sum())
+                        total_ch1_only = int(((df_eval['spot_type'] == ch1) & ~coloc_mask).sum())
                         total_unique = total_ch0_only + total_ch1_only + total_coloc
                         pct_coloc = 100 * total_coloc / total_unique if total_unique > 0 else 0
                         
@@ -16755,14 +16762,57 @@ class GUI(QMainWindow):
             print(f"Failed to export distance colocalization image: {e}")
 
     def _export_distance_coloc_data_to_csv(self, out_path: Path):
-        """Export Distance Colocalization data as CSV from Export tab."""
+        """Export Distance Colocalization data as CSV from Export tab.
+        
+        Uses frame-correct per-cell summary from df_tracking['is_colocalized_distance']
+        to match the GUI display. Falls back to engine df_classification if the
+        tracking column is unavailable.
+        """
         if not hasattr(self, 'distance_coloc_results') or not self.distance_coloc_results:
             return
         try:
             results = self.distance_coloc_results
-            df_classification = results.get('df_classification')
-            if df_classification is not None and not df_classification.empty:
-                df_classification.to_csv(out_path, index=False)
+            ch0 = results['channel_0']
+            ch1 = results['channel_1']
+            cell_selection = results.get('cell_selection')
+            
+            if 'is_colocalized_distance' in self.df_tracking.columns:
+                df_eval = self.df_tracking[
+                    self.df_tracking['spot_type'].isin([ch0, ch1]) &
+                    self.df_tracking['is_colocalized_distance'].notna()
+                ].copy()
+                if cell_selection is not None and cell_selection >= 0:
+                    df_eval = df_eval[df_eval['cell_id'] == cell_selection]
+                
+                rows = []
+                for cell_id in sorted(df_eval['cell_id'].unique()):
+                    cell_df = df_eval[df_eval['cell_id'] == cell_id]
+                    coloc_mask = cell_df['is_colocalized_distance'].astype(bool)
+                    ch0_only = int(((cell_df['spot_type'] == ch0) & ~coloc_mask).sum())
+                    ch1_only = int(((cell_df['spot_type'] == ch1) & ~coloc_mask).sum())
+                    coloc = int(((cell_df['spot_type'] == ch0) & coloc_mask).sum())
+                    rows.append({
+                        'cell_id': int(cell_id),
+                        f'num_{ch0}_only': ch0_only,
+                        f'num_{ch1}_only': ch1_only,
+                        'num_colocalized': coloc,
+                        'total': ch0_only + ch1_only + coloc,
+                        'pct_colocalized': 100 * coloc / (ch0_only + ch1_only + coloc) if (ch0_only + ch1_only + coloc) > 0 else 0
+                    })
+                df_export = pd.DataFrame(rows)
+            else:
+                df_export = results.get('df_classification')
+                if df_export is None or df_export.empty:
+                    return
+                df_export = df_export.copy()
+            
+            df_export['method'] = 'distance'
+            df_export['threshold_px'] = results['threshold_distance_px']
+            df_export['threshold_nm'] = results['threshold_distance_nm']
+            df_export['use_3d'] = results['use_3d']
+            df_export['channel_0'] = ch0
+            df_export['channel_1'] = ch1
+            df_export.to_csv(out_path, index=False)
         except Exception as e:
             print(f"Failed to export distance colocalization data: {e}")
 
