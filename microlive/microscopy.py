@@ -7472,7 +7472,6 @@ class Correlation:
             )
             correlations_array = np.stack([r[0] for r in results], axis=0)
             pair_weights_array = np.stack([r[1] for r in results], axis=0)
-            lag_weights_total = np.nansum(pair_weights_array, axis=0)
 
         # -------- multi-tau path (positive lags) --------
         else:
@@ -7559,8 +7558,6 @@ class Correlation:
                     stage = 0
                     current_c1 = c1_full.copy()
                     current_c2 = c2_full.copy()
-                    current_raw1 = data1.copy()
-                    current_raw2 = data2.copy()
                     if use_masks:
                         current_m1 = mask1_full.copy()
                         current_m2 = mask2_full.copy()
@@ -7595,27 +7592,28 @@ class Correlation:
                         new_len = curN // 2
                         if new_len < 2:
                             break
-                        new_raw1 = 0.5 * (current_raw1[:2*new_len:2] + current_raw1[1:2*new_len:2])
-                        if self.secondary_data is None:
-                            new_raw2 = new_raw1
-                        else:
-                            new_raw2 = 0.5 * (current_raw2[:2*new_len:2] + current_raw2[1:2*new_len:2])
-                        if self.use_global_mean:
-                            m1 = global_mean_data1
-                            m2 = global_mean_data2
-                        else:
-                            m1 = np.nanmean(new_raw1)
-                            m2 = np.nanmean(new_raw2)
-                        current_c1 = new_raw1 - m1
-                        current_c2 = new_raw2 - m2
-                        current_raw1 = new_raw1
-                        current_raw2 = new_raw2
                         if use_masks:
-                            # A downsampled bin is valid if either sub-bin was valid
-                            new_m1 = np.minimum(current_m1[:2*new_len:2] + current_m1[1:2*new_len:2], 1.0)
-                            new_m2 = np.minimum(current_m2[:2*new_len:2] + current_m2[1:2*new_len:2], 1.0)
-                            current_m1 = new_m1
-                            current_m2 = new_m2
+                            v1 = current_c1[:2 * new_len].reshape(new_len, 2)
+                            v2 = current_c2[:2 * new_len].reshape(new_len, 2)
+                            vm1 = current_m1[:2 * new_len].reshape(new_len, 2)
+                            vm2 = current_m2[:2 * new_len].reshape(new_len, 2)
+                            sum_m1 = np.sum(vm1, axis=1)
+                            sum_m2 = np.sum(vm2, axis=1)
+                            current_c1 = np.divide(
+                                np.sum(v1 * vm1, axis=1), sum_m1,
+                                out=np.zeros(new_len, dtype=np.float64),
+                                where=sum_m1 > 0,
+                            )
+                            current_c2 = np.divide(
+                                np.sum(v2 * vm2, axis=1), sum_m2,
+                                out=np.zeros(new_len, dtype=np.float64),
+                                where=sum_m2 > 0,
+                            )
+                            current_m1 = (sum_m1 > 0).astype(np.float64)
+                            current_m2 = (sum_m2 > 0).astype(np.float64)
+                        else:
+                            current_c1 = 0.5 * (current_c1[:2*new_len:2] + current_c1[1:2*new_len:2])
+                            current_c2 = 0.5 * (current_c2[:2*new_len:2] + current_c2[1:2*new_len:2])
                         dt *= 2
                         stage += 1
                     return out, wv
@@ -7627,8 +7625,8 @@ class Correlation:
             )
             correlations_array = np.stack([r[0] for r in results], axis=0)
             pair_weights_array = np.stack([r[1] for r in results], axis=0)
-            lag_weights_total = np.nansum(pair_weights_array, axis=0)
         # ----- Outlier trajectories removal (unchanged policy) -----
+        self.keep_mask_ = np.ones(correlations_array.shape[0], dtype=bool)
         if self.remove_outliers and correlations_array.size > 0:
             traj_means = np.nanmean(correlations_array, axis=1)
             median_mean = np.nanmedian(traj_means)
@@ -7637,7 +7635,13 @@ class Correlation:
                 np.abs(traj_means - median_mean) < self.MAD_THRESHOLD_FACTOR * mad
             )
             num_removed = np.sum(~keep_mask)
+            self.keep_mask_ = keep_mask
             correlations_array = correlations_array[keep_mask, :]
+            pair_weights_array = pair_weights_array[keep_mask, :]
+        lag_weights_total = np.nansum(
+            np.where(np.isfinite(correlations_array), pair_weights_array, 0.0),
+            axis=0,
+        )
         # ----- If nothing valid remains -----
         if correlations_array.shape[0] == 0:
             length = correlations_array.shape[1] if correlations_array.ndim > 1 else (

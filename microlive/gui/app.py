@@ -95,6 +95,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib import patches
 from matplotlib.lines import Line2D
+import matplotlib.patheffects as path_effects
 from matplotlib.widgets import RectangleSelector
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
@@ -9313,6 +9314,23 @@ class GUI(QMainWindow):
         
         self.vis_cell_filter_combo.blockSignals(False)
 
+    def _get_trajectory_contrast_palette(self):
+        """Return trajectory colors chosen for contrast on fluorescence images."""
+        return [
+            '#FFFFFF',  # White
+            '#00B8FF',  # Azure
+            '#FF7A00',  # Orange
+            '#D400FF',  # Violet
+            '#0047FF',  # Blue
+            '#FF2D55',  # Rose
+            '#00E5CC',  # Teal
+            '#B0FF00',  # Lime
+            '#B388FF',  # Lavender
+            '#FFB000',  # Amber
+            '#66CCFF',  # Sky
+            '#F564E3',  # Pink
+        ]
+
     def _draw_trajectories_on_axes(self, ax, current_frame):
         """Draw trajectory paths on the visualization axes.
         
@@ -9351,24 +9369,7 @@ class GUI(QMainWindow):
             unique_vals = sorted(self.df_tracking[particle_col].unique())
             color_key = particle_col
         
-        # Color palette - bright colors for dark background
-        color_palette = [
-            '#00FFFF',  # Cyan
-            '#FF00FF',  # Magenta
-            '#00FF00',  # Lime
-            '#FF8000',  # Orange
-            '#FFFF00',  # Yellow
-            '#FF0000',  # Red
-            '#00BFFF',  # DeepSkyBlue
-            '#FF69B4',  # HotPink
-            '#7FFF00',  # Chartreuse
-            '#FF6347',  # Tomato
-            '#FFD700',  # Gold
-            '#00FA9A',  # MediumSpringGreen
-            '#9400D3',  # DarkViolet
-            '#00CED1',  # DarkTurquoise
-            '#FF1493',  # DeepPink
-        ]
+        color_palette = self._get_trajectory_contrast_palette()
         
         # Create color map
         val_to_color = {}
@@ -9400,7 +9401,18 @@ class GUI(QMainWindow):
             # Draw trajectory line only (no marker at current position - the white crop square is sufficient)
             x_coords = traj_visible['x'].values
             y_coords = traj_visible['y'].values
-            ax.plot(x_coords, y_coords, color=color, linewidth=1.5, alpha=0.8)
+            ax.plot(
+                x_coords,
+                y_coords,
+                color=color,
+                linewidth=2.0,
+                alpha=0.95,
+                solid_capstyle='round',
+                path_effects=[
+                    path_effects.Stroke(linewidth=3.8, foreground='black'),
+                    path_effects.Normal(),
+                ],
+            )
     
     def _update_trajectory_stats(self):
         """Update the trajectory statistics label with info about selected particle(s)."""
@@ -9525,11 +9537,7 @@ class GUI(QMainWindow):
             # Skip legend if only 1 category or too many
             return
         
-        # Color palette
-        color_palette = [
-            '#00FFFF', '#FF00FF', '#00FF00', '#FF8000', '#FFFF00',
-            '#FF0000', '#00BFFF', '#FF69B4', '#7FFF00', '#FF6347'
-        ]
+        color_palette = self._get_trajectory_contrast_palette()
         
         # Build legend handles
         legend_handles = []
@@ -15507,6 +15515,35 @@ class GUI(QMainWindow):
 # =============================================================================
 # =============================================================================
 
+    def _get_tracking_visualization_image_source(self):
+        """Return the image source used only by the Tracking Visualization tab."""
+        actual_sources = {
+            params.get('actual_image_source')
+            for params in getattr(self, 'tracking_parameters_per_channel', {}).values()
+            if isinstance(params, dict) and params.get('actual_image_source')
+        }
+        if not actual_sources:
+            last_source_info = getattr(self, '_last_tracking_run_source_info', {}) or {}
+            actual_source = last_source_info.get('actual_image_source')
+            if actual_source:
+                actual_sources.add(actual_source)
+
+        if self.registered_image is not None:
+            should_use_corrected = (
+                'photobleaching_corrected' in actual_sources
+                or (not actual_sources and self.photobleaching_calculated)
+            )
+            if (
+                should_use_corrected
+                and self.corrected_image is not None
+                and self.corrected_image.shape == self.registered_image.shape
+            ):
+                return self.corrected_image
+            return self.registered_image
+        if self.corrected_image is not None:
+            return self.corrected_image
+        return self.image_stack
+
     def display_tracking_visualization(self, selected_channelIndex=None, spot_coord=None):
         """Display the full image with the selected channel (or merged), marking the tracked spot."""
         if not getattr(self, 'has_tracked', False) or self.df_tracking.empty:
@@ -15557,7 +15594,7 @@ class GUI(QMainWindow):
         fig = self.figure_tracking_vis
         fig.clear()
         frame_idx = int(self.current_frame)
-        img_src = self.get_current_image_source()
+        img_src = self._get_tracking_visualization_image_source()
         if img_src is None:
             return  # No image loaded yet
         proj = np.max(img_src[frame_idx], axis=0) if img_src.ndim == 5 else (img_src[frame_idx] if img_src.ndim == 4 else img_src)
@@ -15598,12 +15635,28 @@ class GUI(QMainWindow):
         y0 = max(0, min(row - crop_sz // 2, H - crop_sz))
         x1, y1 = x0 + crop_sz, y0 + crop_sz
         if getattr(self, 'tracking_vis_merged', False):
-            main_img = self.compute_merged_image(use_brightness_slider=True)
-            # Fallback for single-channel images (compute_merged_image returns None)
-            if main_img is None:
+            if num_channels < 2:
                 main_img = norm_stack[selected_channelIndex]
                 main_cmap = cmap_list_imagej[selected_channelIndex % len(cmap_list_imagej)]
             else:
+                num_channels_to_merge = min(num_channels, 3)
+                combined_image = np.zeros((H, W, 3), dtype=np.float32)
+                combined_image[..., 1] += norm_stack[0]
+                combined_image[..., 0] += norm_stack[1]
+                combined_image[..., 2] += norm_stack[1]
+                if num_channels_to_merge == 3:
+                    combined_image[..., 0] += norm_stack[2]
+                    combined_image[..., 1] += norm_stack[2]
+
+                brightness = 0.6
+                if hasattr(self, 'merge_brightness_slider'):
+                    brightness = self.merge_brightness_slider.value() / 100.0
+                    if hasattr(self, 'merge_brightness_label'):
+                        self.merge_brightness_label.setText(f"{int(brightness * 100)}%")
+                if brightness < 1.0:
+                    combined_image = combined_image * brightness
+
+                main_img = np.clip(combined_image, 0, 1)
                 main_cmap = None
         else:
             main_img = norm_stack[selected_channelIndex]
