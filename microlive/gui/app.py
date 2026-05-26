@@ -2662,7 +2662,7 @@ class GUI(QMainWindow):
         elif current_tab_index == 4:  # Tracking tab (was 5)
             self.plot_tracking()
             self.update_threshold_histogram()
-        elif current_tab_index == 11:  # Tracking Visualization tab (was 12)
+        elif current_tab_index == 10:  # Tracking Visualization tab
             if hasattr(self, 'ax_tracking_vis'):
                 self.display_tracking_visualization()
 
@@ -9997,7 +9997,8 @@ class GUI(QMainWindow):
                                 traj_color = channel_colors[int(grp['spot_type'].iloc[0]) % len(channel_colors)]
                             else:
                                 traj_color = 'white'
-                            self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=1, color=traj_color, alpha=0.7)
+                            traj_lw = max(1.5, 3.0 * zoom_scale)
+                            self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=traj_lw, color=traj_color, alpha=0.7)
             # Only show legend when viewing full image (not zoomed)
             # because counts are for entire image, not just the zoomed region
             if legend_handles and self.tracking_zoom_roi is None:
