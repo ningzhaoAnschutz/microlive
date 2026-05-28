@@ -172,7 +172,7 @@ def pipeline_folding_efficiency(original_lif_name, list_images,list_images_names
                 # detect spots in Channel 0
                 if use_ml_for_spot_clasification:
                     list_crops_nomalized = mi.Utilities().normalize_crop_return_list(array_crops_YXC=mean_crop_filtered,crop_size=crop_size,selected_color_channel=channel_folding,normalize_to_255=True)
-                    flag_vector = ML.predict_crops(model_ML, list_crops_nomalized,threshold=ml_threshold)              
+                    flag_vector, _pred_values = ML.predict_crops(model_ML, list_crops_nomalized, threshold=ml_threshold)
                     #flag_vector= mi.Utilities().test_particle_presence_all_frames_with_ML(croparray=croparray_filtered,crop_size=crop_size,selected_color_channel=0,minimal_number_spots_in_time=4,ml_threshold=ml_threshold)      
                 else:
                     number_crops = mean_crop_filtered.shape[0]//crop_size

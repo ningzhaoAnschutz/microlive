@@ -9330,9 +9330,10 @@ class Utilities():
                     list_crops_without_nans.append(True)
             array_crops_without_nans = np.array(list_crops_without_nans)
             list_crops_nomalized = Utilities().normalize_crop_return_list(array_crops_YXC=tested_particle_array,crop_size=crop_size,selected_color_channel=selected_color_channel,normalize_to_255=True)
-            flag_vector_all_time = ML.predict_crops(model_ML, list_crops_nomalized,threshold=ml_threshold).astype(bool)
+            flags, _scores = ML.predict_crops(model_ML, list_crops_nomalized, threshold=ml_threshold)
+            flag_vector_all_time = flags.astype(bool)
             flag_vector_particle_particle = flag_vector_all_time & array_crops_without_nans
-            if np.sum(flag_vector_particle_particle) > minimal_number_spots_in_time:
+            if np.sum(flag_vector_particle_particle) >= minimal_number_spots_in_time:
                 flag_vector[particle_to_test] = True
             else:
                 flag_vector[particle_to_test]= False
