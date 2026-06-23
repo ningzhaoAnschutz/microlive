@@ -34,13 +34,16 @@ Author: Luis Aguilera (auto-generated from MicroLive GUI logic)
 """
 
 import argparse
+import os
 import shutil
 import sys
 import re
 import logging
+import tempfile
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import tifffile
 import cv2
 from scipy.ndimage import gaussian_filter
@@ -77,6 +80,17 @@ log = logging.getLogger(__name__)
 def _sanitize(name: str) -> str:
     """Sanitize a string for safe use as a filename component."""
     return re.sub(r'[^\w\-_. ]', '_', name)
+
+
+def _results_stem(filename: str) -> str:
+    """Derive the base stem from a LIF filename, matching the GUI convention.
+
+    The GUI truncates at the *first* period (``name.split('.')[0]``),
+    while ``Path.stem`` strips only the last extension.  For
+    ``sample.v2.lif`` these differ: ``sample`` vs ``sample.v2``.
+    We follow the GUI to ensure ``results_*`` folder names match.
+    """
+    return _sanitize(filename.split('.')[0])
 
 
 def _format_time(value_s: float, reference_s: float) -> str:
@@ -312,6 +326,7 @@ def process_lif_file(
     low_sigma: float = 0.15,
     dpi: int = 150,
     max_projection: bool = False,
+    input_root: Path = None,
 ):
     """Process a single LIF file: read all series and export TIF / AVI.
 
@@ -342,6 +357,14 @@ def process_lif_file(
         Rendering DPI for AVI.
     max_projection : bool
         If True, export max-Z projection TIF instead of full Z-stack.
+    input_root : Path, optional
+        Root input directory for computing relative LIF paths in the
+        manifest.  When None, only the LIF filename is recorded.
+
+    Returns
+    -------
+    list[dict]
+        Manifest records for each series processed.
     """
     log.info("Reading %s …", lif_path.name)
     reader = mi.ReadLif(
@@ -369,13 +392,27 @@ def process_lif_file(
     voxel_yx_nm = pixel_xy_um * 1000.0
     voxel_z_nm = pixel_z_um * 1000.0
 
+    # Use _results_stem (split at first '.') to match the GUI convention
+    lif_stem = _results_stem(lif_path.name)
+
     # Create output subfolder: <output_root>/<lif_stem>/
-    lif_folder = output_root / _sanitize(lif_path.stem)
+    lif_folder = output_root / lif_stem
     lif_folder.mkdir(parents=True, exist_ok=True)
+
+    # Compute relative LIF path for manifest
+    if input_root is not None:
+        try:
+            lif_rel = str(lif_path.relative_to(input_root))
+        except ValueError:
+            lif_rel = lif_path.name
+    else:
+        lif_rel = lif_path.name
 
     num_scenes = len(list_names)
     log.info("  %d series found.  voxel YX=%.1f nm  Z=%.1f nm  bit_depth=%d",
              num_scenes, voxel_yx_nm, voxel_z_nm, bit_depth)
+
+    manifest_records = []
 
     for idx in range(num_scenes):
         series_name = _sanitize(list_names[idx])
@@ -390,47 +427,101 @@ def process_lif_file(
         image_stack = reader.read_scene(idx)  # shape: (T, Z, Y, X, C)
 
         # Build filename: <lif_stem>_<series_name>
-        base_name = f"{_sanitize(lif_path.stem)}_{series_name}"
+        base_name = f"{lif_stem}_{series_name}"
+
+        # Track what was exported for the manifest
+        tif_filename = ""
+        avi_filename = ""
 
         # --- OME-TIFF export ---
         if export_tif:
             tif_folder = lif_folder / "tif"
             tif_folder.mkdir(parents=True, exist_ok=True)
             tif_suffix = "_maxZ" if max_projection else ""
-            tif_path = tif_folder / f"{base_name}{tif_suffix}.ome.tif"
-            export_ome_tif(
-                image_stack=image_stack,
-                out_path=tif_path,
-                voxel_yx_nm=voxel_yx_nm,
-                voxel_z_nm=voxel_z_nm,
-                time_interval=time_interval,
-                bit_depth=bit_depth,
-                channel_names=channel_names,
-                max_projection=max_projection,
-            )
+            tif_name = f"{base_name}{tif_suffix}.ome.tif"
+            tif_path = tif_folder / tif_name
+            try:
+                export_ome_tif(
+                    image_stack=image_stack,
+                    out_path=tif_path,
+                    voxel_yx_nm=voxel_yx_nm,
+                    voxel_z_nm=voxel_z_nm,
+                    time_interval=time_interval,
+                    bit_depth=bit_depth,
+                    channel_names=channel_names,
+                    max_projection=max_projection,
+                )
+                tif_filename = tif_name
+            except Exception as exc:
+                log.error("    TIF export failed for %s: %s", series_name, exc)
 
         # --- AVI video export ---
         if export_video:
             avi_folder = lif_folder / "avi"
             avi_folder.mkdir(parents=True, exist_ok=True)
-            avi_path = avi_folder / f"{base_name}.avi"
-            export_avi(
-                image_stack=image_stack,
-                out_path=avi_path,
-                voxel_yx_nm=voxel_yx_nm,
-                time_interval=time_interval,
-                show_timestamp=show_timestamp,
-                show_scalebar=show_scalebar,
-                fps=fps,
-                min_percentile=min_percentile,
-                max_percentile=max_percentile,
-                sigma=sigma,
-                low_sigma=low_sigma,
-                channel=channel,
-                dpi=dpi,
-            )
+            avi_name = f"{base_name}.avi"
+            avi_path = avi_folder / avi_name
+            try:
+                export_avi(
+                    image_stack=image_stack,
+                    out_path=avi_path,
+                    voxel_yx_nm=voxel_yx_nm,
+                    time_interval=time_interval,
+                    show_timestamp=show_timestamp,
+                    show_scalebar=show_scalebar,
+                    fps=fps,
+                    min_percentile=min_percentile,
+                    max_percentile=max_percentile,
+                    sigma=sigma,
+                    low_sigma=low_sigma,
+                    channel=channel,
+                    dpi=dpi,
+                )
+                avi_filename = avi_name
+            except Exception as exc:
+                log.error("    AVI export failed for %s: %s", series_name, exc)
+
+        # Record manifest entry (only includes successfully exported files)
+        manifest_records.append({
+            'LIF_Relative_Path': lif_rel,
+            'Series_Index': idx,
+            'Series_Name': list_names[idx],  # raw, unsanitized
+            'Original_Stem': base_name,
+            'TIF_Filename': tif_filename,
+            'AVI_Filename': avi_filename,
+            'Time_Interval_s': time_interval,
+        })
 
     log.info("  Done with %s ✓", lif_path.name)
+    return manifest_records
+
+
+def _write_manifest_csv(records: list, output_path: Path):
+    """Write manifest records to CSV atomically.
+
+    Writes to a temporary file first, then atomically replaces the
+    target to avoid partial manifests on crash.
+    """
+    if not records:
+        return
+    df = pd.DataFrame(records)
+    manifest_path = output_path / "export_manifest.csv"
+    # Atomic write: temp file → os.replace
+    fd, tmp_path = tempfile.mkstemp(
+        suffix=".csv", prefix=".manifest_", dir=str(output_path)
+    )
+    try:
+        os.close(fd)
+        df.to_csv(tmp_path, index=False)
+        os.replace(tmp_path, str(manifest_path))
+        log.info("  Manifest written: %s  (%d records)", manifest_path.name, len(records))
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def batch_export(
@@ -451,6 +542,9 @@ def batch_export(
     max_projection: bool = False,
 ):
     """Iterate through a folder of LIF files and export TIF + AVI.
+
+    An ``export_manifest.csv`` is written to the output folder after
+    processing, listing every exported file and its source identity.
 
     Parameters
     ----------
@@ -518,6 +612,8 @@ def batch_export(
     log.info("  Max-Z proj    : %s", max_projection)
     log.info("=" * 60)
 
+    all_manifest_records = []
+
     for i, lif_file in enumerate(lif_files, 1):
         # Preserve subfolder structure relative to input_folder
         relative_parent = lif_file.parent.relative_to(input_path)
@@ -525,7 +621,7 @@ def batch_export(
 
         log.info("[%d/%d] %s", i, len(lif_files), lif_file.relative_to(input_path))
         try:
-            process_lif_file(
+            records = process_lif_file(
                 lif_path=lif_file,
                 output_root=dest_root,
                 export_tif=export_tif,
@@ -540,9 +636,14 @@ def batch_export(
                 low_sigma=low_sigma,
                 dpi=dpi,
                 max_projection=max_projection,
+                input_root=input_path,
             )
+            all_manifest_records.extend(records)
         except Exception as exc:
             log.error("  FAILED: %s", exc, exc_info=True)
+
+    # Write export manifest
+    _write_manifest_csv(all_manifest_records, output_path)
 
     log.info("=" * 60)
     log.info("Batch export complete.")
@@ -676,18 +777,56 @@ Examples
 # Filter exported data based on processed results
 # ---------------------------------------------------------------------------
 
+def _extract_stem(fname: str):
+    """Extract the matching stem from an exported filename.
+
+    Strips ``.ome.tif`` / ``.avi`` extensions and the optional ``_maxZ``
+    suffix to produce a stem that can be matched against ``results_*``
+    folder names from the GUI.
+
+    Returns
+    -------
+    tuple[str, str] or None
+        ``(stem, extension)`` where extension is ``'.ome.tif'`` or
+        ``'.avi'``, or None if the filename is not a recognised export.
+    """
+    if fname.endswith(".ome.tif"):
+        stem = fname[:-len(".ome.tif")]
+        if stem.endswith("_maxZ"):
+            stem = stem[:-len("_maxZ")]
+        return stem, ".ome.tif"
+    elif fname.endswith(".avi"):
+        stem = fname[:-len(".avi")]
+        return stem, ".avi"
+    return None
+
+
 def filter_exported_data(
     exported_folder: str,
     results_folder: str,
     output_folder: str = None,
     results_prefix: str = "results_",
     dry_run: bool = False,
+    rename_prefix: str = None,
+    start_index: int = 1,
+    zero_pad: int = 3,
+    max_projection: bool = False,
 ):
     """Copy only exported files whose series were processed in the GUI.
 
     Scans ``results_folder`` for directories matching ``results_<stem>`` and
     keeps only the TIF/AVI files in ``exported_folder`` whose filename stem
     matches one of those processed stems.
+
+    When ``rename_prefix`` is provided, kept files are copied with
+    sequential names (e.g. ``AlfaTag_HT_001.ome.tif``) using a single
+    global counter.  An ``export_manifest.csv`` mapping table is written
+    to the output folder and a :class:`pandas.DataFrame` is returned.
+
+    When ``max_projection`` is True, full Z-stack OME-TIFFs are
+    max-projected (collapse Z axis via ``np.max``) before being saved
+    to the output folder.  Files that are already max-projected
+    (``_maxZ`` suffix) are copied as-is.
 
     Parameters
     ----------
@@ -702,11 +841,25 @@ def filter_exported_data(
         Prefix used by the GUI for results folders (default: ``results_``).
     dry_run : bool
         If True, only log what would be copied without writing files.
+    rename_prefix : str, optional
+        If provided, rename kept files using this prefix plus a
+        sequential number (e.g. ``AlfaTag_HT_001``).  A TIF and its
+        corresponding AVI for the same series share the same number.
+        An ``export_manifest.csv`` is saved to ``output_folder``.
+    start_index : int
+        Starting number for sequential naming (default: 1).
+    zero_pad : int
+        Number of digits for the sequential number (default: 3).
+    max_projection : bool
+        If True, apply max-Z projection to kept TIF files during copy.
+        Already-projected files (``_maxZ`` suffix) are copied unchanged.
 
     Returns
     -------
-    tuple[int, int]
-        ``(kept, skipped)`` file counts.
+    tuple[int, int, pandas.DataFrame | None]
+        ``(kept, skipped, manifest_df)``.  ``manifest_df`` is a DataFrame
+        mapping sequential names to original stems when ``rename_prefix``
+        is set, otherwise ``None``.
     """
     exported_path = Path(exported_folder).resolve()
     results_path = Path(results_folder).resolve()
@@ -718,10 +871,16 @@ def filter_exported_data(
 
     if not exported_path.is_dir():
         log.error("Exported folder not found: %s", exported_path)
-        return 0, 0
+        return 0, 0, None
     if not results_path.is_dir():
         log.error("Results folder not found: %s", results_path)
-        return 0, 0
+        return 0, 0, None
+
+    # Validate rename_prefix if provided
+    if rename_prefix is not None:
+        rename_prefix = _sanitize(rename_prefix).strip()
+        if not rename_prefix:
+            raise ValueError("rename_prefix is empty after sanitization.")
 
     # Build set of processed stems from results_* folders
     processed_stems = set()
@@ -732,7 +891,7 @@ def filter_exported_data(
 
     if not processed_stems:
         log.warning("No %s* folders found in %s", results_prefix, results_path)
-        return 0, 0
+        return 0, 0, None
 
     log.info("=" * 60)
     log.info("Filter Exported Data")
@@ -741,47 +900,162 @@ def filter_exported_data(
     log.info("  Output folder   : %s", output_path)
     log.info("  Processed stems : %d", len(processed_stems))
     log.info("  Dry run         : %s", dry_run)
+    if rename_prefix:
+        log.info("  Rename prefix   : %s", rename_prefix)
+        log.info("  Start index     : %d", start_index)
+        log.info("  Zero padding    : %d digits", zero_pad)
+    if max_projection:
+        log.info("  Max-Z projection: True")
     log.info("=" * 60)
 
-    kept = 0
+    # ── Pass 1: identify all KEEP files and group by stem ──
+    # Group files by their matching stem so that TIF + AVI pairs
+    # for the same series share a single sequential number.
+    keep_files = []     # list of (src_file, stem, extension)
     skipped = 0
 
-    # Walk all files in the exported folder
     for src_file in sorted(exported_path.rglob("*")):
         if not src_file.is_file():
             continue
 
-        # Extract stem: remove .ome.tif or .avi extension (and _maxZ suffix)
-        fname = src_file.name
-        if fname.endswith(".ome.tif"):
-            stem = fname[:-len(".ome.tif")]
-            if stem.endswith("_maxZ"):
-                stem = stem[:-len("_maxZ")]
-        elif fname.endswith(".avi"):
-            stem = fname[:-len(".avi")]
-        else:
+        parsed = _extract_stem(src_file.name)
+        if parsed is None:
             continue  # skip non-export files
 
-        # Check if this stem was processed
+        stem, ext = parsed
+
         if stem in processed_stems:
-            # Compute destination preserving subfolder structure
+            keep_files.append((src_file, stem, ext))
+            log.info("  ✓ KEEP   %s", src_file.relative_to(exported_path))
+        else:
+            log.info("  ✗ SKIP   %s", src_file.relative_to(exported_path))
+            skipped += 1
+
+    kept = len(keep_files)
+
+    # ── Pass 2: assign sequential numbers and copy/rename ──
+    manifest_records = []
+
+    if rename_prefix is not None:
+        # Build ordered list of unique stems to assign sequential numbers.
+        # Preserve the sorted order from the file walk.
+        seen_stems = []
+        stem_to_seq = {}
+        for _, stem, _ in keep_files:
+            if stem not in stem_to_seq:
+                seq = start_index + len(seen_stems)
+                stem_to_seq[stem] = seq
+                seen_stems.append(stem)
+
+        for src_file, stem, ext in keep_files:
+            seq = stem_to_seq[stem]
+            seq_str = str(seq).zfill(zero_pad)
+            new_base = f"{rename_prefix}_{seq_str}"
+            new_filename = f"{new_base}{ext}"
+
+            # Determine the LIF subfolder name for provenance
+            try:
+                rel_to_exported = src_file.relative_to(exported_path)
+                lif_subfolder = rel_to_exported.parts[0] if len(rel_to_exported.parts) > 1 else ""
+            except ValueError:
+                lif_subfolder = ""
+
+            # Determine file type
+            file_type = "tif" if ext == ".ome.tif" else "avi"
+
+            if not dry_run:
+                output_path.mkdir(parents=True, exist_ok=True)
+                dst_file = output_path / new_filename
+
+                # Apply max projection if requested for TIF files
+                if max_projection and ext == ".ome.tif" and "_maxZ" not in src_file.name:
+                    _copy_with_max_projection(src_file, dst_file)
+                else:
+                    shutil.copy2(str(src_file), str(dst_file))
+
+                log.info("  📝 %s → %s", src_file.name, new_filename)
+
+            manifest_records.append({
+                'Seq': seq,
+                'New_Name': new_base,
+                'New_Filename': new_filename,
+                'Original_Stem': stem,
+                'Original_Filename': src_file.name,
+                'Source_LIF_Folder': lif_subfolder,
+                'File_Type': file_type,
+            })
+    else:
+        # No renaming — copy with original names (legacy behavior)
+        for src_file, stem, ext in keep_files:
             rel = src_file.relative_to(exported_path)
             dst_file = output_path / rel
             if not dry_run:
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src_file), str(dst_file))
-            log.info("  ✓ KEEP   %s", rel)
-            kept += 1
-        else:
-            log.info("  ✗ SKIP   %s", src_file.relative_to(exported_path))
-            skipped += 1
+
+                # Apply max projection if requested for TIF files
+                if max_projection and ext == ".ome.tif" and "_maxZ" not in src_file.name:
+                    _copy_with_max_projection(src_file, dst_file)
+                else:
+                    shutil.copy2(str(src_file), str(dst_file))
+
+    # ── Write manifest CSV ──
+    manifest_df = None
+    if rename_prefix is not None and manifest_records:
+        manifest_df = pd.DataFrame(manifest_records)
+        if not dry_run:
+            _write_manifest_csv(manifest_records, output_path)
+        log.info("  Manifest: %d records", len(manifest_records))
 
     log.info("-" * 60)
     log.info("  Kept: %d  |  Skipped: %d  |  Total: %d", kept, skipped, kept + skipped)
     if dry_run:
         log.info("  (DRY RUN — no files were copied)")
     log.info("=" * 60)
-    return kept, skipped
+    return kept, skipped, manifest_df
+
+
+def _copy_with_max_projection(src_path: Path, dst_path: Path):
+    """Read an OME-TIFF, apply max-Z projection, and save.
+
+    If the file is already single-Z (Z=1), it is copied directly.
+    The max projection collapses the Z dimension via ``np.max``.
+    """
+    try:
+        data = tifffile.imread(str(src_path))
+    except Exception as exc:
+        log.warning("    Could not read %s for max projection, copying as-is: %s",
+                    src_path.name, exc)
+        shutil.copy2(str(src_path), str(dst_path))
+        return
+
+    # Determine axes layout — exported OME-TIFFs are TCZYX
+    if data.ndim == 5:
+        # (T, C, Z, Y, X) → max over Z axis (index 2)
+        if data.shape[2] <= 1:
+            # Already single-Z, just copy
+            shutil.copy2(str(src_path), str(dst_path))
+            return
+        projected = np.max(data, axis=2, keepdims=True)
+    elif data.ndim == 4:
+        # Could be (T, Z, Y, X) or (T, C, Y, X) — assume Z is axis 1
+        if data.shape[1] <= 1:
+            shutil.copy2(str(src_path), str(dst_path))
+            return
+        projected = np.max(data, axis=1, keepdims=True)
+    elif data.ndim == 3:
+        # (Z, Y, X) — max over axis 0
+        if data.shape[0] <= 1:
+            shutil.copy2(str(src_path), str(dst_path))
+            return
+        projected = np.max(data, axis=0, keepdims=True)
+    else:
+        # 2D or unexpected — just copy
+        shutil.copy2(str(src_path), str(dst_path))
+        return
+
+    # Write the projected data, preserving dtype
+    tifffile.imwrite(str(dst_path), projected.astype(data.dtype))
+    log.info("    Max-Z projected: %s → shape %s", src_path.name, projected.shape)
 
 
 if __name__ == "__main__":
