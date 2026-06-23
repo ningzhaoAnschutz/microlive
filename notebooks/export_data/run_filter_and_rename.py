@@ -36,14 +36,26 @@ import logging
 from pathlib import Path
 
 # Auto-relaunch in microlive conda environment if not already active
-MICROLIVE_ENV = '/opt/anaconda3/envs/microlive'
+import platform
+if platform.system() == 'Windows':
+    MICROLIVE_ENV = os.path.expanduser(r'~\anaconda3\envs\microlive')
+    _python_exe = os.path.join(MICROLIVE_ENV, 'python.exe')
+else:
+    MICROLIVE_ENV = '/opt/anaconda3/envs/microlive'
+    _python_exe = os.path.join(MICROLIVE_ENV, 'bin', 'python')
+
 if sys.prefix != MICROLIVE_ENV:
-    python_exe = os.path.join(MICROLIVE_ENV, 'bin', 'python')
-    if os.path.exists(python_exe):
+    if os.path.exists(_python_exe):
         print(f"Relaunching script using the microlive environment Python...\n")
-        os.execl(python_exe, python_exe, *sys.argv)
+        if platform.system() == 'Windows':
+            os.execv(_python_exe, [_python_exe] + sys.argv)
+        else:
+            os.execl(_python_exe, _python_exe, *sys.argv)
     else:
-        print(f"Warning: microlive environment not found at {MICROLIVE_ENV}. Proceeding with current python.\n")
+        print(f"Warning: microlive environment not found at {MICROLIVE_ENV}.")
+        print(f"  Expected Python at: {_python_exe}")
+        print(f"  Run: conda activate microlive && python -c \"import sys; print(sys.prefix)\"")
+        print(f"  Then update MICROLIVE_ENV in this script.\n")
 
 # Ensure export_lif_data is importable from the same directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
