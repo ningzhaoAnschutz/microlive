@@ -38,7 +38,20 @@ from pathlib import Path
 # Auto-relaunch in microlive conda environment if not already active
 import platform
 if platform.system() == 'Windows':
-    MICROLIVE_ENV = os.path.expanduser(r'~\anaconda3\envs\microlive')
+    # Auto-detect microlive environment in common Windows installation paths
+    home = os.path.expanduser('~')
+    common_paths = [
+        os.path.join(home, 'anaconda3', 'envs', 'microlive'),
+        os.path.join(home, 'miniconda3', 'envs', 'microlive'),
+        os.path.join(home, 'miniforge3', 'envs', 'microlive'),
+        os.path.join(home, 'AppData', 'Local', 'anaconda3', 'envs', 'microlive'),
+        os.path.join(home, 'AppData', 'Local', 'miniconda3', 'envs', 'microlive'),
+        r'C:\ProgramData\anaconda3\envs\microlive',
+        r'C:\ProgramData\miniconda3\envs\microlive'
+    ]
+    MICROLIVE_ENV = next((p for p in common_paths if os.path.exists(os.path.join(p, 'python.exe'))), None)
+    if not MICROLIVE_ENV:
+        MICROLIVE_ENV = os.path.join(home, 'anaconda3', 'envs', 'microlive') # fallback
     _python_exe = os.path.join(MICROLIVE_ENV, 'python.exe')
 else:
     MICROLIVE_ENV = '/opt/anaconda3/envs/microlive'
