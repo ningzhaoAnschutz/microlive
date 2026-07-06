@@ -782,15 +782,8 @@ __init__(primary_data, secondary_data=None, max_lag=None,
          baseline_plateau_fraction=0.25, baseline_percentile=10.0,
          baseline_smooth_window=7, baseline_min_points=5,
          baseline_weight_by_pairs=True, figsize=(8, 6),
-         detrend_photobleaching=False, bootstrap_iterations=1000,
-         random_state=None, min_overlap=5)
+         detrend_photobleaching=False)
 ```
-
-`primary_data` and `secondary_data` are 2-D arrays shaped
-`[trajectory, time]`. Unequal trajectory lengths and internal gaps are represented
-with NaNs; `nan_handling='ignore'` preserves their original frame positions.
-`start_lag` is expressed in frames. Set `random_state` to an integer for
-reproducible bootstrap error bars.
 
 **Methods:** `run()`
 
