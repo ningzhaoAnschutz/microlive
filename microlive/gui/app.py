@@ -11618,12 +11618,6 @@ class GUI(QMainWindow):
 
     def update_correct_baseline(self, state):
         self.correct_baseline = (state == Qt.Checked)
-        if hasattr(self, 'show_individual_traces_checkbox'):
-            self.show_individual_traces_checkbox.blockSignals(True)
-            if self.correct_baseline:
-                self.show_individual_traces_checkbox.setChecked(False)
-            self.show_individual_traces_checkbox.setEnabled(not self.correct_baseline)
-            self.show_individual_traces_checkbox.blockSignals(False)
         # Auto-recompute
         self._trigger_correlation_recompute()
 
@@ -11851,14 +11845,10 @@ class GUI(QMainWindow):
                             correct_baseline=self.correct_baseline,
                             remove_outliers=self.remove_outliers,
                             multi_tau=use_multi,
-                            random_state=0,
                         )
                         mean_corr, std_corr, lags, correlations_array, _ = corr.run()
                     except Exception as e:
                         logging.debug(f"Correlation failed for cell {cell_id}, ch {ch}: {e}")
-                        continue
-
-                    if correlations_array.shape[0] == 0 or not np.any(np.isfinite(mean_corr)):
                         continue
                     
                     if index_max >= len(lags):
@@ -11883,81 +11873,23 @@ class GUI(QMainWindow):
 
         else:  # crosscorrelation
             ch1, ch2 = selected_channels
-            field1 = f"{field_base}_ch_{ch1}"
-            field2 = f"{field_base}_ch_{ch2}"
-            if field1 not in df_for_correlation.columns or field2 not in df_for_correlation.columns:
-                QMessageBox.warning(
-                    self,
-                    "No Valid Trajectories",
-                    "The selected channels do not contain the requested correlation field.",
-                )
+            d1 = intensity_arrays.get(ch1)
+            d2 = intensity_arrays.get(ch2)
+            if d1 is None or d2 is None:
                 return
-
-            cross_df = df_for_correlation.copy()
-            if threshold > 0:
-                identity_columns = [
-                    column
-                    for column in ('image_id', 'cell_id', 'spot_type', 'particle')
-                    if column in cross_df.columns
-                ]
-                valid_snr = np.ones(len(cross_df), dtype=bool)
-                for channel in (ch1, ch2):
-                    snr_column = f'snr_ch_{channel}'
-                    if snr_column in cross_df.columns:
-                        mean_snr = cross_df.groupby(identity_columns)[snr_column].transform('mean')
-                        valid_snr &= mean_snr.to_numpy() >= threshold
-                cross_df = cross_df[valid_snr]
-
-            d1, d2, _ = mi.Utilities().df_fields_to_arrays_aligned(
-                dataframe=cross_df,
-                selected_field_a=field1,
-                selected_field_b=field2,
-                total_frames=self.total_frames,
-                require_both_non_nan=True,
+            corr = mi.Correlation(
+                primary_data=d1,
+                secondary_data=d2,
+                nan_handling='ignore',
+                time_interval_between_frames_in_seconds=step_size_in_sec,
+                show_plot=False,
+                return_full=True,
+                de_correlation_threshold=self.de_correlation_threshold,
+                correct_baseline=self.correct_baseline,
+                fit_type=self.correlation_fit_type,
+                remove_outliers=self.remove_outliers,
             )
-            try:
-                d1, d2 = mi.Utilities().shift_trajectories(
-                    d1,
-                    d2,
-                    min_percentage_data_in_trajectory=self.min_percentage_data_in_trajectory,
-                )
-            except ValueError as exc:
-                QMessageBox.warning(self, "Correlation Error", str(exc))
-                return
-
-            if d1.shape[0] == 0:
-                QMessageBox.warning(
-                    self,
-                    "No Valid Trajectories",
-                    "No aligned trajectories remain for cross-correlation.",
-                )
-                return
-            try:
-                corr = mi.Correlation(
-                    primary_data=d1,
-                    secondary_data=d2,
-                    nan_handling='ignore',
-                    time_interval_between_frames_in_seconds=step_size_in_sec,
-                    start_lag=start_lag,
-                    show_plot=False,
-                    return_full=True,
-                    de_correlation_threshold=self.de_correlation_threshold,
-                    correct_baseline=self.correct_baseline,
-                    fit_type=self.correlation_fit_type,
-                    remove_outliers=self.remove_outliers,
-                    random_state=0,
-                )
-                mean_corr, std_corr, lags, correlations_array, _ = corr.run()
-            except (TypeError, ValueError) as exc:
-                QMessageBox.warning(self, "Correlation Error", str(exc))
-                return
-            if correlations_array.shape[0] == 0 or not np.any(np.isfinite(mean_corr)):
-                QMessageBox.warning(
-                    self,
-                    "No Valid Trajectories",
-                    "No trajectory pairs contain enough overlapping observations.",
-                )
-                return
+            mean_corr, std_corr, lags, correlations_array, _ = corr.run()
             if index_max >= len(lags):
                 QMessageBox.warning(
                     self, "Max-Lag Adjusted",
@@ -11983,13 +11915,6 @@ class GUI(QMainWindow):
                 'start_lag': start_lag,
                 'multi_tau': use_multi,
             })
-        if not self.correlation_results:
-            QMessageBox.warning(
-                self,
-                "No Valid Trajectories",
-                "No trajectories contain enough overlapping observations for correlation.",
-            )
-            return
         self.display_correlation_plot()
 
 
@@ -12211,7 +12136,7 @@ class GUI(QMainWindow):
         
         # Start Lag (keep as spinbox for precision)
         start_lag_row = QHBoxLayout()
-        start_lag_row.addWidget(QLabel("Start Lag (frames):"))
+        start_lag_row.addWidget(QLabel("Start Lag:"))
         self.start_lag_input = QSpinBox()
         self.start_lag_input.setMinimum(0)
         self.start_lag_input.setValue(0)
@@ -12303,9 +12228,6 @@ class GUI(QMainWindow):
         self.show_individual_traces_checkbox = QCheckBox("Show Individual Traces")
         self.show_individual_traces_checkbox.setChecked(False)
         self.show_individual_traces_checkbox.setToolTip("Plot individual trajectory ACFs behind the mean (can slow down rendering)")
-        self.show_individual_traces_checkbox.setEnabled(
-            not self.correct_baseline_checkbox.isChecked()
-        )
         self.show_individual_traces_checkbox.stateChanged.connect(self._on_show_traces_changed)
         quality_layout.addWidget(self.show_individual_traces_checkbox)
         
@@ -18652,9 +18574,6 @@ class GUI(QMainWindow):
             self.remove_outliers_checkbox.setChecked(True)
         if hasattr(self, 'multiTauCheck'):
             self.multiTauCheck.setChecked(False)
-        if hasattr(self, 'show_individual_traces_checkbox'):
-            self.show_individual_traces_checkbox.setChecked(False)
-            self.show_individual_traces_checkbox.setEnabled(False)
         if hasattr(self, 'snr_threshold_for_acf'):
             self.snr_threshold_for_acf.setValue(0.1)
             self.snr_threshold_for_acf_value = 0.1
