@@ -868,7 +868,7 @@ Where:
 | **Min Trajectory Length** | 10-500 frames | 25 | Minimum number of frames for trajectory inclusion |
 | **Max Lag Time** | 10-500 frames | 100 | Maximum time lag (τ) for correlation calculation |
 | **G(0) Points** | 2-20 points | 10 | Number of points used for G(0) extrapolation |
-| **Bootstrap Iterations** | 50-1000 | 100 | Number of resamples for error estimation |
+| **Bootstrap Iterations** | 50-1000 | 1000 | Number of resamples for error estimation |
 | **Outlier Threshold** | 2-6 MAD | 4 | Median absolute deviation threshold for outlier removal |
 | **Fit Method** | linear, exponential | exponential | Model for decorrelation time extraction |
 
@@ -913,11 +913,14 @@ Where:
 - **G(0) Correction**: The autocorrelation at zero lag often contains shot noise from the microscope
 - Linear extrapolation from subsequent time points (typically 10 frames) replaces the noisy G(0) value
 - **Baseline Correction**: Mean correlation values are shifted to account for basal fluorescence levels
+- **Automatic plateau detection**: Correction is skipped when the observed lag
+  window does not contain a statistically supported terminal plateau
 
 **3. Statistical Analysis:**
 
 - **Bootstrapping**: Subsets of trajectories are resampled to generate multiple correlation realizations
 - Standard error is computed from bootstrap distributions
+- Programmatic callers can set `random_state` to reproduce bootstrap error bars
 - **Outlier Removal**: Trajectories with correlations deviating >4× median absolute deviation are excluded (~5-10% of data)
 
 #### Fitting Methods
