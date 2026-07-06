@@ -4,23 +4,31 @@ MicroLive GUI Validation Test Suite
 ====================================
 
 Compares GUI analysis results against simulation ground truth.
+Validates that the MicroLive GUI correctly recovers known simulation
+parameters when analyzing exported data.
 
 Tests:
-  1. Segmentation: Verifies 4 cells were detected
-  2. Spot Count per Cell: Compares spot counts (labels may differ)
+  1. Segmentation: Verifies expected number of cells were detected
+  2. Spot Count per Cell: Compares spot counts (centroid-based cell matching)
   3. Compartment Assignment: Validates nucleus/cytosol classification
   4. Photobleaching: Compares decay rates (GUI vs ground truth config)
   5. MSD: Compares diffusion coefficient (GUI vs ground truth config)
   6. Colocalization: Compares Ch0 vs Ch1 colocalization (GUI vs ground truth)
+  7. is_colocalized Tracking: Validates per-particle is_colocalized column
 
 Usage:
+    # Single-cell validation (defaults)
     python run_test_gui.py
-    python run_test_gui.py --gui-dir ../results_simulated_spots --gt-dir ../results
+
+    # Multi-cell validation
+    python run_test_gui.py \\
+        --gui-dir ../kk_results_simulated_spots \\
+        --gt-dir ../results_multicell \\
+        --config ../config_multicell.yaml
 """
 
 import argparse
 import sys
-import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
@@ -35,6 +43,16 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.ioff()
 
+from helpers import (
+    load_config,
+    parse_metadata,
+    compute_cell_centroids,
+    match_cells_by_centroid,
+    load_cell_matches,
+    align_matches_to_tracking_ids,
+    print_summary,
+)
+
 # =============================================================================
 # THRESHOLD CONSTANTS
 # =============================================================================
@@ -43,122 +61,10 @@ THRESHOLD_COLOCALIZATION = 0.25    # ≤25% absolute error on coloc %
 THRESHOLD_MSD = 0.80               # ≤80% error on D (relaxed for GUI noise)
 THRESHOLD_SPOT_COUNT = 0.60        # ≤60% error on spot count (relaxed - GUI may miss low-SNR spots)
 THRESHOLD_COMPARTMENT = 0.70       # ≥70% compartment accuracy
+THRESHOLD_IS_COLOCALIZED = 0.75    # ≥75% per-particle agreement with ground truth
 
 
-def load_config(config_path: Path) -> Dict:
-    """Load simulation configuration."""
-    import yaml
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
 
-
-def parse_metadata(metadata_path: Path) -> Dict[str, Any]:
-    """Parse MicroLive metadata file."""
-    if not metadata_path.exists():
-        return {}
-    
-    metadata = {}
-    with open(metadata_path, 'r') as f:
-        content = f.read()
-    
-    # Extract photobleaching decay rates
-    for ch in range(3):
-        match = re.search(rf'Channel {ch} Decay Rate \(k\)\.+ ([\d.e+-]+)', content)
-        if match:
-            metadata[f'k_ch{ch}'] = float(match.group(1))
-    
-    # Extract MSD
-    match = re.search(r'Diffusion Coefficient \(µm²/s\)\.+ ([\d.e+-]+)', content)
-    if match:
-        metadata['D_um2_s'] = float(match.group(1))
-    
-    # Extract voxel sizes
-    match = re.search(r'Voxel Size YX \(nm\)\.+ ([\d.]+)', content)
-    if match:
-        metadata['voxel_yx_nm'] = float(match.group(1))
-    
-    match = re.search(r'Time Interval \(s\)\.+ ([\d.]+)', content)
-    if match:
-        metadata['time_interval'] = float(match.group(1))
-    
-    # Extract number of cells from segmentation
-    match = re.search(r'Cytosol Segmented\.+ Yes \((\d+) cells\)', content)
-    if match:
-        metadata['n_cells'] = int(match.group(1))
-    
-    return metadata
-
-
-def compute_cell_centroids(mask: np.ndarray) -> Dict[int, tuple]:
-    """Compute centroids for each cell label in a mask.
-    
-    Args:
-        mask: 2D or 3D mask with integer cell labels
-        
-    Returns:
-        Dictionary mapping cell_id -> (y, x) centroid
-    """
-    from scipy import ndimage
-    
-    # Get max projection if 3D
-    if mask.ndim == 3:
-        mask_2d = np.max(mask, axis=0)
-    else:
-        mask_2d = mask
-    
-    centroids = {}
-    unique_labels = np.unique(mask_2d)
-    
-    for label in unique_labels:
-        if label == 0:  # Skip background
-            continue
-        
-        # Find centroid
-        coords = np.where(mask_2d == label)
-        if len(coords[0]) > 0:
-            y_center = np.mean(coords[0])
-            x_center = np.mean(coords[1])
-            centroids[label] = (y_center, x_center)
-    
-    return centroids
-
-
-def match_cells_by_centroid(gui_centroids: Dict[int, tuple], 
-                            gt_centroids: Dict[int, tuple],
-                            max_distance: float = 50.0) -> Dict[int, int]:
-    """Match GUI cells to ground truth cells by nearest centroid.
-    
-    Args:
-        gui_centroids: Dict of GUI cell_id -> (y, x)
-        gt_centroids: Dict of GT cell_id -> (y, x)
-        max_distance: Maximum centroid distance for a valid match
-        
-    Returns:
-        Dictionary mapping GUI cell_id -> GT cell_id
-    """
-    matches = {}
-    used_gt = set()
-    
-    for gui_id, gui_centroid in gui_centroids.items():
-        best_match = None
-        best_dist = float('inf')
-        
-        for gt_id, gt_centroid in gt_centroids.items():
-            if gt_id in used_gt:
-                continue
-            
-            dist = np.sqrt((gui_centroid[0] - gt_centroid[0])**2 + 
-                          (gui_centroid[1] - gt_centroid[1])**2)
-            
-            if dist < best_dist and dist <= max_distance:
-                best_dist = dist
-                best_match = gt_id
-        
-        if best_match is not None:
-            matches[gui_id] = best_match
-            used_gt.add(best_match)
-    
-    return matches
 
 
 # =============================================================================
@@ -224,29 +130,16 @@ def test_spot_count_per_cell(gui_dir: Path, gt_dir: Path, config: Dict) -> Dict:
     
     df_gt = pd.read_csv(gt_file)
     
-    # Load masks to compute cell centroids for matching
-    gui_mask_file = list(gui_dir.glob("cellpose_cytosol_*.tif"))
-    gt_mask_file = gt_dir / "mask_cytosol.tif"
+    cell_matches, use_centroid_matching, gui_centroids, gt_centroids = load_cell_matches(
+        gui_dir, gt_dir
+    )
     
-    if gui_mask_file and gt_mask_file.exists():
-        # Use centroid-based cell matching
-        gui_mask = tifffile.imread(gui_mask_file[0])
-        gt_mask = tifffile.imread(gt_mask_file)
-        
-        gui_centroids = compute_cell_centroids(gui_mask)
-        gt_centroids = compute_cell_centroids(gt_mask)
-        
-        cell_matches = match_cells_by_centroid(gui_centroids, gt_centroids)
-        
+    if use_centroid_matching:
         print(f"  Cell matching method: centroid-based")
         print(f"  GUI cells: {len(gui_centroids)}, GT cells: {len(gt_centroids)}")
         print(f"  Matched cells: {len(cell_matches)}")
-        
-        use_centroid_matching = len(cell_matches) > 0
     else:
         print("  ⚠️ Masks not found, using sorted count comparison")
-        use_centroid_matching = False
-        cell_matches = {}
     
     # Filter to channel 0
     df_gui_ch0 = df_gui[df_gui['spot_type'] == 0]
@@ -255,6 +148,13 @@ def test_spot_count_per_cell(gui_dir: Path, gt_dir: Path, config: Dict) -> Dict:
     # Get particle counts per cell
     gui_counts_dict = df_gui_ch0.groupby('cell_id')['particle'].nunique().to_dict()
     gt_counts_dict = df_gt_ch0.groupby('cell_id')['particle'].nunique().to_dict()
+
+    if use_centroid_matching:
+        cell_matches, aligned_tracking_ids = align_matches_to_tracking_ids(
+            cell_matches, gui_counts_dict.keys()
+        )
+        if aligned_tracking_ids:
+            print("  Cell matching: aligned GUI tracking cell_ids to mask labels")
     
     # Total counts
     total_gui = sum(gui_counts_dict.values()) if gui_counts_dict else 0
@@ -337,8 +237,21 @@ def test_spot_count_per_cell(gui_dir: Path, gt_dir: Path, config: Dict) -> Dict:
     
     print(f"  | TOTAL | {total_gt} | {total_gui} | {total_error:.1%} {'✅' if total_passed else '❌'} |")
     
-    # Pass if total is within threshold
-    overall = "✅ PASS" if total_passed else "❌ FAIL"
+    unmatched_gui = []
+    unmatched_gt = []
+    matching_complete = True
+    if use_centroid_matching:
+        unmatched_gui = sorted(set(gui_counts_dict) - set(cell_matches))
+        unmatched_gt = sorted(set(gt_counts_dict) - set(cell_matches.values()))
+        matching_complete = len(unmatched_gui) == 0 and len(unmatched_gt) == 0
+        if unmatched_gui:
+            print(f"  ⚠️ Unmatched GUI cells with particles: {unmatched_gui}")
+        if unmatched_gt:
+            print(f"  ⚠️ Unmatched GT cells with particles: {unmatched_gt}")
+
+    passed = total_passed and all_pass and matching_complete
+
+    overall = "✅ PASS" if passed else "❌ FAIL"
     print(f"\n  Overall: {overall}")
     
     return {
@@ -347,7 +260,12 @@ def test_spot_count_per_cell(gui_dir: Path, gt_dir: Path, config: Dict) -> Dict:
         'total_gt': total_gt,
         'total_gui': total_gui,
         'total_error': total_error,
-        'passed': total_passed
+        'total_passed': total_passed,
+        'per_cell_passed': all_pass,
+        'matching_complete': matching_complete,
+        'unmatched_gui': unmatched_gui,
+        'unmatched_gt': unmatched_gt,
+        'passed': passed
     }
 
 
@@ -388,13 +306,33 @@ def test_compartment_assignment(gui_dir: Path, gt_dir: Path) -> Dict:
         print("  ⚠️ No compartment data in GUI tracking")
         return {'passed': True, 'skipped': True, 'reason': 'No compartment column'}
     
+    cell_matches, use_centroid_matching, _, _ = load_cell_matches(gui_dir, gt_dir)
+    if use_centroid_matching:
+        cell_matches, aligned_tracking_ids = align_matches_to_tracking_ids(
+            cell_matches, df_gui_ch0['cell_id'].unique()
+        )
+        if aligned_tracking_ids:
+            print("  Cell matching: aligned GUI tracking cell_ids to mask labels")
+    if use_centroid_matching:
+        print(f"  Cell matching method: centroid-based ({len(cell_matches)} matched)")
+    else:
+        print("  ⚠️ Masks not found, matching cells by raw cell_id")
+
     # Match spots by position and check compartment
     matched = 0
     correct_compartment = 0
+    unmatched_cells = []
     
     for cell_id in df_gui_ch0['cell_id'].unique():
         gui_cell = df_gui_ch0[df_gui_ch0['cell_id'] == cell_id]
-        gt_cell = df_gt_ch0[df_gt_ch0['cell_id'] == cell_id]
+        if use_centroid_matching:
+            gt_cell_id = cell_matches.get(cell_id)
+            if gt_cell_id is None:
+                unmatched_cells.append(cell_id)
+                continue
+        else:
+            gt_cell_id = cell_id
+        gt_cell = df_gt_ch0[df_gt_ch0['cell_id'] == gt_cell_id]
         
         for _, gui_row in gui_cell.iterrows():
             # Find closest GT spot in same frame
@@ -420,8 +358,10 @@ def test_compartment_assignment(gui_dir: Path, gt_dir: Path) -> Dict:
     
     print(f"  Matched spots: {matched}")
     print(f"  Correct compartment: {correct_compartment}/{matched} ({accuracy:.1%})")
+    if unmatched_cells:
+        print(f"  ⚠️ Unmatched GUI cells skipped: {sorted(unmatched_cells)}")
     
-    passed = accuracy >= THRESHOLD_COMPARTMENT
+    passed = accuracy >= THRESHOLD_COMPARTMENT and not unmatched_cells
     
     overall = "✅ PASS" if passed else "❌ FAIL"
     print(f"  Overall: {overall}")
@@ -430,6 +370,8 @@ def test_compartment_assignment(gui_dir: Path, gt_dir: Path) -> Dict:
         'matched': matched,
         'correct': correct_compartment,
         'accuracy': accuracy,
+        'cell_matches': cell_matches if use_centroid_matching else None,
+        'unmatched_cells': unmatched_cells,
         'passed': passed
     }
 
@@ -495,7 +437,9 @@ def test_msd(metadata: Dict, config: Dict) -> Dict:
     print("TEST: MSD Diffusion Coefficient Recovery")
     print("=" * 60)
     
-    motion_cfg = config.get('particle_motion', {})
+    motion_cfg = config.get('motion', {})
+    if not motion_cfg:
+        motion_cfg = config.get('particle_motion', {})
     D_px_per_frame = motion_cfg.get('diffusion_coefficient', 0.05)
     
     # Convert to physical units
@@ -601,6 +545,187 @@ def test_colocalization(gui_dir: Path, gt_dir: Path, config: Dict) -> Dict:
     }
 
 
+def test_is_colocalized_tracking(gui_dir: Path, gt_dir: Path, config: Dict) -> Dict:
+    """
+    TEST 7: is_colocalized Tracking Column Validation
+    
+    Validates that the per-particle 'is_colocalized' column in the exported
+    tracking CSV correctly reflects the ground truth 'has_ch1_partner' column.
+    
+    This is the end-to-end test for §5.1-§5.8: it verifies that the full
+    pipeline (tracking → colocalization → CropArray → ML/Intensity → 
+    _apply_colocalization_to_tracking → export) produces correct per-particle
+    colocalization labels by comparing against simulation ground truth.
+    
+    Matching strategy:
+    - For each GUI particle (unique_particle), take first-frame position
+    - Find closest GT particle (same cell, same frame) within 5px
+    - Compare is_colocalized vs has_ch1_partner
+    """
+    print("\n" + "=" * 60)
+    print("TEST: is_colocalized Tracking Column Validation")
+    print("=" * 60)
+    
+    # Load GUI tracking data
+    tracking_file = list(gui_dir.glob("tracking_*.csv"))
+    if not tracking_file:
+        print("  ⚠️ No tracking data found")
+        return {'passed': False, 'error': 'No tracking file'}
+    
+    df_gui = pd.read_csv(tracking_file[0])
+    
+    # Check if is_colocalized column exists
+    if 'is_colocalized' not in df_gui.columns:
+        print("  ⚠️ No 'is_colocalized' column in tracking CSV")
+        print("  This column is created when colocalization is run before export.")
+        return {'passed': True, 'skipped': True, 'reason': 'No is_colocalized column'}
+    
+    # Load ground truth
+    gt_file = gt_dir / "ground_truth.csv"
+    if not gt_file.exists():
+        print("  ⚠️ Ground truth not found")
+        return {'passed': False, 'error': 'No ground truth'}
+    
+    df_gt = pd.read_csv(gt_file)
+    
+    # Filter to channel 0 (the tracked/analyzed channel)
+    df_gui_ch0 = df_gui[df_gui['spot_type'] == 0].copy()
+    df_gt_ch0 = df_gt[df_gt['spot_type'] == 0].copy()
+    
+    # Drop rows where is_colocalized is NaN (non-analyzed particles)
+    df_gui_evaluated = df_gui_ch0.dropna(subset=['is_colocalized'])
+    n_total_rows = len(df_gui_ch0)
+    n_evaluated = len(df_gui_evaluated)
+    n_nan = n_total_rows - n_evaluated
+    
+    print(f"  GUI Ch0 rows: {n_total_rows}")
+    print(f"  Evaluated (non-NaN): {n_evaluated}")
+    print(f"  NaN (non-analyzed): {n_nan}")
+    
+    if n_evaluated == 0:
+        print("  ⚠️ No evaluated particles in is_colocalized column")
+        return {'passed': False, 'error': 'All is_colocalized values are NaN'}
+    
+    # Determine particle ID column
+    pid_col = 'unique_particle' if 'unique_particle' in df_gui_evaluated.columns else 'particle'
+    
+    # Get one representative row per GUI particle (first frame appearance)
+    gui_particles = df_gui_evaluated.sort_values('frame').drop_duplicates(subset=[pid_col])
+    n_gui_particles = len(gui_particles)
+    print(f"  GUI unique particles (evaluated): {n_gui_particles}")
+    
+    # Load cell matching if available
+    cell_matches, use_centroid_matching, _, _ = load_cell_matches(gui_dir, gt_dir)
+    if use_centroid_matching:
+        cell_matches, _ = align_matches_to_tracking_ids(
+            cell_matches, df_gui_ch0['cell_id'].unique()
+        )
+        print(f"  Cell matching: centroid-based ({len(cell_matches)} matched)")
+    else:
+        print("  Cell matching: raw cell_id")
+    
+    # Match GUI particles to GT particles by position
+    match_radius = 5.0
+    matched = 0
+    correct = 0
+    true_positive = 0   # GUI=True, GT=True
+    true_negative = 0   # GUI=False, GT=False
+    false_positive = 0  # GUI=True, GT=False
+    false_negative = 0  # GUI=False, GT=True
+    
+    for _, gui_row in gui_particles.iterrows():
+        gui_y, gui_x = gui_row['y'], gui_row['x']
+        gui_frame = gui_row['frame']
+        gui_coloc = bool(gui_row['is_colocalized'])
+        gui_cell = gui_row.get('cell_id', 0)
+        
+        # Map GUI cell to GT cell
+        if use_centroid_matching:
+            gt_cell = cell_matches.get(gui_cell)
+            if gt_cell is None:
+                continue
+        else:
+            gt_cell = gui_cell
+        
+        # Find GT spots in same cell and frame
+        gt_frame = df_gt_ch0[
+            (df_gt_ch0['frame'] == gui_frame) & 
+            (df_gt_ch0['cell_id'] == gt_cell)
+        ]
+        
+        if len(gt_frame) == 0:
+            continue
+        
+        # Find closest GT spot
+        distances = np.sqrt(
+            (gt_frame['y'].values - gui_y)**2 + 
+            (gt_frame['x'].values - gui_x)**2
+        )
+        min_idx = np.argmin(distances)
+        
+        if distances[min_idx] <= match_radius:
+            matched += 1
+            gt_row = gt_frame.iloc[min_idx]
+            gt_coloc = bool(gt_row['has_ch1_partner'])
+            
+            if gui_coloc == gt_coloc:
+                correct += 1
+            
+            # Confusion matrix
+            if gui_coloc and gt_coloc:
+                true_positive += 1
+            elif not gui_coloc and not gt_coloc:
+                true_negative += 1
+            elif gui_coloc and not gt_coloc:
+                false_positive += 1
+            else:
+                false_negative += 1
+    
+    if matched == 0:
+        print("  ⚠️ No particles matched to ground truth")
+        return {'passed': False, 'error': 'No matches'}
+    
+    accuracy = correct / matched
+    
+    # Derived metrics
+    precision = true_positive / (true_positive + false_positive) if (true_positive + false_positive) > 0 else 0
+    recall = true_positive / (true_positive + false_negative) if (true_positive + false_negative) > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    
+    print(f"  Matched to GT: {matched}/{n_gui_particles}")
+    print(f"  Agreement: {correct}/{matched} ({accuracy:.1%})")
+    print(f"")
+    print(f"  Confusion matrix:")
+    print(f"    True Positive  (GUI=T, GT=T): {true_positive}")
+    print(f"    True Negative  (GUI=F, GT=F): {true_negative}")
+    print(f"    False Positive (GUI=T, GT=F): {false_positive}")
+    print(f"    False Negative (GUI=F, GT=T): {false_negative}")
+    print(f"")
+    print(f"  Precision: {precision:.1%}")
+    print(f"  Recall:    {recall:.1%}")
+    print(f"  F1 Score:  {f1:.1%}")
+    
+    passed = accuracy >= THRESHOLD_IS_COLOCALIZED
+    
+    overall = "✅ PASS" if passed else "❌ FAIL"
+    print(f"  Overall: {overall} (threshold: ≥{THRESHOLD_IS_COLOCALIZED:.0%} accuracy)")
+    
+    return {
+        'n_gui_particles': n_gui_particles,
+        'n_matched': matched,
+        'n_correct': correct,
+        'accuracy': accuracy,
+        'true_positive': true_positive,
+        'true_negative': true_negative,
+        'false_positive': false_positive,
+        'false_negative': false_negative,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'passed': passed
+    }
+
+
 # =============================================================================
 # REPORT GENERATION
 # =============================================================================
@@ -610,10 +735,19 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     total = len(results)
-    passed = sum(1 for r in results.values() if r.get('passed', False))
-    failed = total - passed
+    skipped = sum(1 for r in results.values() if r.get('skipped', False))
+    passed = sum(
+        1 for r in results.values()
+        if r.get('passed', False) and not r.get('skipped', False)
+    )
+    failed = sum(1 for r in results.values() if not r.get('passed', False))
     
-    status = "✅ ALL PASS" if failed == 0 else f"❌ {failed} FAILED"
+    if failed > 0:
+        status = f"❌ {failed} FAILED"
+    elif skipped > 0:
+        status = f"✅ PASS ({skipped} SKIPPED)"
+    else:
+        status = "✅ ALL PASS"
     
     # Test descriptions
     test_descriptions = {
@@ -624,7 +758,7 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
         'Spot Count per Cell': (
             "Compares the number of tracked spots per cell between GUI and ground truth. "
             "Note: Particle labels may differ, so we compare counts rather than matching "
-            "individual particles. Requires ≤50% relative error per cell."
+            "individual particles. Requires ≤60% relative error per cell and for total count."
         ),
         'Compartment Assignment': (
             "Validates that tracked spots are correctly assigned to nucleus or cytosol "
@@ -645,6 +779,12 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
             "the ground truth from simulation data (has_ch1_partner column). "
             "Threshold: ≤25% absolute error."
         ),
+        'is_colocalized Tracking': (
+            "End-to-end validation of the per-particle is_colocalized column in the "
+            "exported tracking CSV. Matches GUI-tracked particles to ground truth by "
+            "position and compares is_colocalized vs has_ch1_partner per particle. "
+            f"Threshold: ≥{THRESHOLD_IS_COLOCALIZED:.0%} accuracy."
+        ),
     }
     
     lines = [
@@ -657,9 +797,9 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
         "",
         "## Summary",
         "",
-        "| Passed | Failed | Total |",
-        "| :---: | :---: | :---: |",
-        f"| {passed} | {failed} | {total} |",
+        "| Passed | Failed | Skipped | Total |",
+        "| :---: | :---: | :---: | :---: |",
+        f"| {passed} | {failed} | {skipped} | {total} |",
         "",
         "---",
         "",
@@ -668,7 +808,10 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
     ]
     
     for name, result in results.items():
-        test_status = "✅ PASS" if result.get('passed', False) else "❌ FAIL"
+        if result.get('skipped', False):
+            test_status = "⚠️ SKIPPED"
+        else:
+            test_status = "✅ PASS" if result.get('passed', False) else "❌ FAIL"
         desc = test_descriptions.get(name, "")
         
         lines.append(f"### {name}")
@@ -683,6 +826,13 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
         if name == 'Segmentation':
             lines.append(f"- Expected cells: {result.get('expected', 'N/A')}")
             lines.append(f"- GUI detected: {result.get('gui', 'N/A')}")
+
+        elif name == 'Spot Count per Cell':
+            lines.append(f"- Ground-truth particles: {result.get('total_gt', 'N/A')}")
+            lines.append(f"- GUI particles: {result.get('total_gui', 'N/A')}")
+            lines.append(f"- Total error: {result.get('total_error', 0):.1%}")
+            lines.append(f"- Per-cell pass: {'Yes' if result.get('per_cell_passed') else 'No'}")
+            lines.append(f"- Cell matching complete: {'Yes' if result.get('matching_complete') else 'No'}")
         
         elif name == 'Photobleaching':
             if 'channel_results' in result:
@@ -704,6 +854,21 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
             lines.append(f"| Ground Truth | {result.get('gt', 0):.1f}% |")
             lines.append(f"| GUI Recovery | {result.get('gui', 0):.1f}% |")
             lines.append(f"| Error | {result.get('error', 0):.1%} |")
+        
+        elif name == 'is_colocalized Tracking':
+            lines.append(f"- GUI particles evaluated: {result.get('n_gui_particles', 'N/A')}")
+            lines.append(f"- Matched to GT: {result.get('n_matched', 'N/A')}")
+            lines.append(f"- Agreement: {result.get('n_correct', 'N/A')}/{result.get('n_matched', 'N/A')} ({result.get('accuracy', 0):.1%})")
+            lines.append("")
+            lines.append("| Metric | Value |")
+            lines.append("| :--- | :---: |")
+            lines.append(f"| True Positive | {result.get('true_positive', 0)} |")
+            lines.append(f"| True Negative | {result.get('true_negative', 0)} |")
+            lines.append(f"| False Positive | {result.get('false_positive', 0)} |")
+            lines.append(f"| False Negative | {result.get('false_negative', 0)} |")
+            lines.append(f"| Precision | {result.get('precision', 0):.1%} |")
+            lines.append(f"| Recall | {result.get('recall', 0):.1%} |")
+            lines.append(f"| F1 Score | {result.get('f1', 0):.1%} |")
         
         elif name == 'Compartment Assignment':
             lines.append(f"- Matched spots: {result.get('matched', 'N/A')}")
@@ -733,13 +898,13 @@ def main():
         description='Validate MicroLive GUI output against simulation ground truth.'
     )
     parser.add_argument('--gui-dir', type=str, 
-                       default='../results_simulated_spots',
+                       default='../results_single_cell_gui',
                        help='Path to GUI output directory')
     parser.add_argument('--gt-dir', type=str,
-                       default='../results',
+                       default='../results_single_cell',
                        help='Path to simulation results with ground truth')
     parser.add_argument('--config', type=str,
-                       default='../config_multicell.yaml',
+                       default='../config_simple.yaml',
                        help='Path to simulation config')
     args = parser.parse_args()
     
@@ -783,6 +948,7 @@ def main():
     results['Photobleaching'] = test_photobleaching(metadata, config)
     results['MSD'] = test_msd(metadata, config)
     results['Colocalization'] = test_colocalization(gui_dir, gt_dir, config)
+    results['is_colocalized Tracking'] = test_is_colocalized_tracking(gui_dir, gt_dir, config)
     
     # Generate report
     generate_report(results, report_path, config)
@@ -791,22 +957,9 @@ def main():
     print("\n" + "=" * 60)
     print("VALIDATION SUMMARY")
     print("=" * 60)
-    
-    total = len(results)
-    passed = sum(1 for r in results.values() if r.get('passed', False))
-    failed = total - passed
-    
-    print(f"\n  ✅ Passed: {passed}")
-    print(f"  ❌ Failed: {failed}")
-    print(f"  📊 Total:  {total}")
-    
-    for name, result in results.items():
-        status = "✅" if result.get('passed', False) else "❌"
-        print(f"    {status} {name}")
-    
-    overall_pass = failed == 0
-    print(f"\n  Overall: {'✅ PASS' if overall_pass else '❌ FAIL'}")
-    
+
+    overall_pass = print_summary(results)
+
     sys.exit(0 if overall_pass else 1)
 
 

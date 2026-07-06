@@ -57,7 +57,7 @@ The automated test suite validates MicroLive's recovery of simulation parameters
 
 | Test | What It Validates |
 | :--- | :--- |
-| **Ground Truth Quality** | Data integrity, 0% background particles |
+| **Ground Truth Quality** | Data integrity, <10% background particles |
 | **Colocalization** | Ch1/Ch2 percentage recovery + distance verification |
 | **Photobleaching** | Decay rate (k) recovery accuracy |
 | **Spot Detection** | True positive rate using BigFISH detector |
@@ -71,27 +71,45 @@ The automated test suite validates MicroLive's recovery of simulation parameters
 
 ```text
 simulations/
-├── run_simulation.py        # Main simulation script
-├── spot_simulator.py        # Core simulator classes
-├── visualize_results.py     # Generate PNG visualizations
-├── config_simple.yaml       # Single-cell configuration
-├── config_multicell.yaml    # Multi-cell configuration
-├── README.md               # This file
+├── spot_simulator.py           # Core simulator (SpotSimulator, Particle, CellRegion)
+├── run_simulation.py           # CLI entry point
+├── visualize_results.py        # Generate PNG visualizations
+├── config_simple.yaml          # Single-cell configuration
+├── config_multicell.yaml       # Multi-cell configuration (4 cells)
+├── __init__.py                 # Package init
+├── README.md                   # This file
 ├── tests/
-│   ├── run_test.py             # Automated validation test suite
-│   ├── run_test_gui.py         # GUI output validation
-│   ├── report.md               # Generated validation report
+│   ├── run_test.py             # Programmatic API validation (9 tests)
+│   ├── run_test_gui.py         # GUI export validation (7 tests)
+│   ├── helpers.py              # Shared utilities (config, cell matching, reporting)
+│   ├── README.md               # Tests documentation
+│   ├── report.md               # Generated API validation report
 │   └── gui_report.md           # Generated GUI validation report
-├── results/                 # Default single-cell output
+├── results_single_cell/        # Single-cell ground truth (default for run_test.py)
 │   ├── simulated_spots.tif
 │   ├── mask_cytosol.tif
 │   ├── mask_cytosol_no_nuclei.tif
 │   ├── mask_nucleus.tif
 │   ├── ground_truth.csv
-│   └── viz/                 # Visualization PNGs
-├── results_multicell/       # Multi-cell output
-├── results_single_cell/     # Single-cell output (alternative)
-└── results_simulated_spots/ # GUI validation output
+│   ├── simulation_metadata.txt
+│   └── viz/                    # Visualization PNGs
+├── results_single_cell_gui/    # Single-cell GUI export (default for run_test_gui.py)
+│   ├── Metadata_simulated_spots.txt
+│   ├── tracking_simulated_spots.csv
+│   ├── cellpose_cytosol_simulated_spots.tif
+│   ├── cellpose_nucleus_simulated_spots.tif
+│   ├── colocalization_data_simulated_spots.csv
+│   ├── msd_dataframe_simulated_spots.csv
+│   └── *.png                   # Exported plots
+├── results_multicell/          # Multi-cell ground truth
+│   ├── simulated_spots.tif
+│   ├── mask_cytosol.tif
+│   ├── mask_nucleus.tif
+│   └── ground_truth.csv
+└── kk_results_simulated_spots/ # Multi-cell GUI export
+    ├── Metadata_simulated_spots.txt
+    ├── tracking_simulated_spots.csv
+    └── ...
 ```
 
 ## Output Files
@@ -129,7 +147,7 @@ particles:
   average_count: 50          # Total particles in cell
 
 spot_properties:
-  snr_mean: 3.0              # Signal-to-Noise Ratio
+  snr_mean: 3.5              # Signal-to-Noise Ratio
   size_mean: 1.5             # PSF sigma (pixels)
 
 # Diffusion
@@ -147,7 +165,7 @@ colocalization:
 photobleaching:
   ch0_decay_rate: 0.00037    # ~20% loss over 600s
   ch1_decay_rate: 0.00060    # ~30% loss over 600s
-  ch2_decay_rate: 0.00085    # ~40% loss over 600s
+  ch2_decay_rate: 0.000718   # ~35% loss over 600s
 
 # Noise model (per-channel Gaussian noise)
 noise:
@@ -245,12 +263,14 @@ python visualize_results.py --sim-dir results_multicell
 
 ## Validation Tests
 
-### Running Tests
+### Programmatic API Tests (`run_test.py`)
+
+Tests MicroLive's Python API directly against simulation ground truth:
 
 ```bash
 cd tests
 
-# Test simulation output against ground truth
+# Test single-cell simulation (default)
 python run_test.py
 
 # Test multi-cell simulation
@@ -269,6 +289,7 @@ VALIDATION SUMMARY
 
   ✅ Passed: 9
   ❌ Failed: 0
+  ⚠️ Skipped: 0
   📊 Total:  9
     ✅ Ground Truth Quality
     ✅ Colocalization
@@ -287,8 +308,8 @@ VALIDATION SUMMARY
 
 | Test | Pass Criteria | Typical Results |
 | :--- | :--- | :--- |
-| Ground Truth | 0% in background | 0.0% ✅ |
-| Colocalization | ≤20% error | <5% error |
+| Ground Truth | <10% in background | 0.0% ✅ |
+| Colocalization | ≤25% error | <5% error |
 | Photobleaching | ≤30% error on k | 22-25% error |
 | Spot Detection | ≥80% true positive | 95% matched |
 | Position | ≥50% recall or <5px error | 2.6px error |
@@ -299,31 +320,50 @@ VALIDATION SUMMARY
 
 ## GUI Output Validation
 
-After running analysis in the MicroLive GUI and exporting results, you can validate
-that the GUI correctly recovered simulation parameters:
+After running analysis in the MicroLive GUI and exporting results, validate
+that the GUI correctly recovered simulation parameters.
+
+### Default: Single-Cell Validation
+
+By default, `run_test_gui.py` validates the single-cell GUI export:
 
 ```bash
 cd tests
 
-# Validate GUI output against ground truth
+# Uses defaults: --gui-dir ../results_single_cell_gui
+#                --gt-dir  ../results_single_cell
+#                --config  ../config_simple.yaml
+python run_test_gui.py
+```
+
+### Multi-Cell Validation
+
+To validate a multi-cell GUI export, specify the directories explicitly:
+
+```bash
 python run_test_gui.py \
-    --gui-dir ../results_simulated_spots \
-    --gt-dir ../results \
+    --gui-dir ../kk_results_simulated_spots \
+    --gt-dir ../results_multicell \
     --config ../config_multicell.yaml
 ```
 
 ### GUI Validation Tests
 
-| Test | What It Compares |
-| :--- | :--- |
-| **Segmentation** | GUI cell count vs expected (4 cells) |
-| **Spot Count per Cell** | GUI particles vs ground truth (centroid-based matching) |
-| **Compartment Assignment** | GUI nucleus/cytosol vs ground truth labels |
-| **Photobleaching** | GUI decay rates vs config values |
-| **MSD** | GUI D coefficient vs config (with voxel scaling) |
-| **Colocalization** | GUI POOLED % vs ground truth has_ch1_partner |
+| Test | What It Compares | Pass Criteria |
+| :--- | :--- | :--- |
+| **Segmentation** | GUI cell count vs config `num_cells` | Exact match |
+| **Spot Count per Cell** | GUI particles vs ground truth (centroid-based cell matching) | ≤60% error per cell |
+| **Compartment Assignment** | GUI nucleus/cytosol vs ground truth labels | ≥70% accuracy |
+| **Photobleaching** | GUI decay rates vs config values | ≤30% error per channel |
+| **MSD** | GUI D coefficient vs config (with voxel scaling) | ≤80% error |
+| **Colocalization** | GUI POOLED % vs ground truth `has_ch1_partner` | ≤25% absolute error |
+| **is_colocalized Tracking** | Per-particle `is_colocalized` vs ground truth `has_ch1_partner` | ≥75% accuracy |
 
-### Example GUI Validation Output
+> **Note:** The `is_colocalized Tracking` test requires that colocalization analysis
+> is run in the GUI *before* exporting tracking data. If the column is absent, the
+> test is skipped.
+
+### Example GUI Validation Output (Single-Cell)
 
 ```text
 ============================================================
@@ -331,17 +371,29 @@ VALIDATION SUMMARY
 ============================================================
 
   ✅ Passed: 6
-  ❌ Failed: 0
-  📊 Total:  6
-    ✅ Segmentation (4/4 cells)
-    ✅ Spot Count per Cell (52.7% total error)
-    ✅ Compartment Assignment (96.5% accuracy)
-    ✅ Photobleaching (22-24% error)
-    ✅ MSD (59.6% error)
-    ✅ Colocalization (8.0% error)
+  ❌ Failed: 1
+  ⚠️ Skipped: 0
+  📊 Total:  7
+    ✅ Segmentation (1/1 cells)
+    ✅ Spot Count per Cell (32.0% error)
+    ✅ Compartment Assignment (99.8% accuracy)
+    ❌ Photobleaching (Ch2 at 36.2% > 30% threshold)
+    ✅ MSD (14.0% error)
+    ✅ Colocalization (9.3% error)
+    ✅ is_colocalized Tracking (100.0% accuracy)
 
-  Overall: ✅ PASS
+  Overall: ❌ FAIL
 ```
+
+### Cell Matching Strategy
+
+The GUI test uses **centroid-based cell matching** to handle the fact that cell labels
+may differ between the GUI export and ground truth:
+
+1. Load cytosol masks from both GUI and ground truth
+2. Compute centroids for each cell label in each mask
+3. Match by nearest centroid (within 50px)
+4. Align GUI tracking cell IDs (0-indexed) to mask labels (1-indexed) via +1 offset
 
 ## Photobleaching Formula
 
@@ -355,7 +407,7 @@ k = -ln(remaining_fraction) / t_seconds
 Examples:
 - 20% loss: k = -ln(0.80)/600 = 0.00037 s⁻¹
 - 30% loss: k = -ln(0.70)/600 = 0.00060 s⁻¹
-- 40% loss: k = -ln(0.60)/600 = 0.00085 s⁻¹
+- 35% loss: k = -ln(0.65)/600 = 0.000718 s⁻¹
 ```
 
 ## Comparing with MicroLive Analysis

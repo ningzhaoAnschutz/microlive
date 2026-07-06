@@ -6,9 +6,9 @@ MicroLive Simulation Validation Test Suite
 Automated tests to verify MicroLive correctly recovers simulation parameters.
 
 Usage:
-    python run_validation_test.py
-    python run_validation_test.py --sim-dir ../results
-    python run_validation_test.py --config ../config_simple.yaml
+    python run_test.py
+    python run_test.py --sim-dir ../results
+    python run_test.py --config ../config_simple.yaml
 """
 
 # Suppress matplotlib display BEFORE any imports
@@ -46,6 +46,13 @@ try:
 except Exception:
     model_ML = None
 
+from helpers import (
+    extract_tracking_dataframe,
+    count_unique_particles,
+    ensure_unique_particle_column,
+    print_summary,
+)
+
 # =============================================================================
 # THRESHOLDS (relative error unless noted)
 # =============================================================================
@@ -59,55 +66,7 @@ THRESHOLD_COLOCALIZATION = 0.25    # ≤25% absolute error on coloc % (accounts 
 THRESHOLD_POSITION = 5.0           # ≤5 pixels mean position error
 
 
-def _extract_tracking_dataframe(tracking_result) -> pd.DataFrame:
-    """Normalize ParticleTracking outputs to a single DataFrame."""
-    if isinstance(tracking_result, tuple):
-        tracking_result = tracking_result[0]
 
-    if isinstance(tracking_result, list):
-        if len(tracking_result) > 0 and hasattr(tracking_result[0], 'columns'):
-            tracking_result = tracking_result[0]
-        else:
-            return pd.DataFrame()
-
-    if isinstance(tracking_result, pd.DataFrame):
-        return tracking_result
-
-    return pd.DataFrame()
-
-
-def _count_unique_particles(df: Optional[pd.DataFrame]) -> int:
-    """Count unique particle identities in a tracking dataframe."""
-    if df is None or not isinstance(df, pd.DataFrame) or len(df) == 0:
-        return 0
-
-    if 'unique_particle' in df.columns:
-        return df['unique_particle'].nunique()
-    if 'cell_id' in df.columns and 'particle' in df.columns:
-        return (df['cell_id'].astype(str) + '_' + df['particle'].astype(str)).nunique()
-    if 'particle' in df.columns:
-        return df['particle'].nunique()
-    return 0
-
-
-def _ensure_unique_particle_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Ensure dataframe has a stable per-trajectory id column: unique_particle."""
-    if df is None or not isinstance(df, pd.DataFrame) or len(df) == 0:
-        return pd.DataFrame() if df is None else df
-
-    if 'unique_particle' in df.columns:
-        return df
-
-    df = df.copy()
-    if 'cell_id' in df.columns and 'particle' in df.columns:
-        df['unique_particle'] = (
-            df['cell_id'].astype(str) + '_' + df['particle'].astype(str)
-        )
-    elif 'particle' in df.columns:
-        df['unique_particle'] = df['particle'].astype(str)
-    else:
-        df['unique_particle'] = np.arange(len(df)).astype(str)
-    return df
 
 
 # =============================================================================
@@ -829,10 +788,10 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
         target_source = 'config'
 
         # Determine trajectory source
-        df_tracking_src = _ensure_unique_particle_column(
+        df_tracking_src = ensure_unique_particle_column(
             df_tracked if df_tracked is not None else pd.DataFrame()
         )
-        n_tracking_particles = _count_unique_particles(df_tracking_src)
+        n_tracking_particles = count_unique_particles(df_tracking_src)
         use_ground_truth = trajectory_source == 'ground_truth'
         if trajectory_source == 'auto':
             use_ground_truth = n_tracking_particles < min_valid_crops
@@ -846,7 +805,7 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
             if len(df_source) == 0:
                 print("  ⚠️ Ground truth contains no Ch0 trajectories")
                 return {'passed': False, 'error': 'No Ch0 trajectories in ground truth'}
-            df_source = _ensure_unique_particle_column(df_source)
+            df_source = ensure_unique_particle_column(df_source)
 
             # Use measured ground-truth partner rates for the selected trajectories.
             per_particle_gt = df_source.groupby('unique_particle', as_index=False)[
@@ -902,7 +861,7 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
             df_spots = df_source.copy()
         
         n_spots_total = len(df_spots)
-        n_particles_total = _count_unique_particles(df_spots)
+        n_particles_total = count_unique_particles(df_spots)
         print(f"  Spot observations: {n_spots_total}")
         print(f"  Trajectories used: {n_particles_total}")
         
@@ -912,7 +871,7 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
         
         # Use CropArray like the GUI does
         try:
-            _, mean_crop, _, _ = mi.CropArray(
+            crop_result = mi.CropArray(
                 image=image_for_coloc,
                 df_crops=df_spots,
                 crop_size=crop_size,
@@ -921,6 +880,7 @@ def test_colocalization_recovery(image_tzyxc: np.ndarray,
                 selected_time_point=None,
                 normalize_each_particle=False
             ).run()
+            mean_crop = crop_result[1]
         except Exception as crop_err:
             print(f"  ⚠️ CropArray failed: {crop_err}")
             return {'passed': False, 'error': f'CropArray failed: {crop_err}'}
@@ -1080,16 +1040,18 @@ def test_colocalization(df_gt: pd.DataFrame, config: dict) -> Dict:
     ch1_prob_config = coloc_config.get('ch1_probability', 0.7)
     ch2_prob_config = coloc_config.get('ch2_probability', 0.3)
     
-    # Use has_ch1_partner and has_ch2_partner columns from ground truth
-    ch0 = df_gt[df_gt['spot_type'] == 0]
+    # Use one row per Ch0 particle so long-lived tracks do not receive
+    # more weight than short-lived tracks.
+    ch0 = ensure_unique_particle_column(df_gt[df_gt['spot_type'] == 0].copy())
+    ch0_particles = ch0.drop_duplicates(subset=['unique_particle'])
     
-    if 'has_ch1_partner' in ch0.columns:
-        ch1_measured = ch0['has_ch1_partner'].mean()
+    if 'has_ch1_partner' in ch0_particles.columns:
+        ch1_measured = ch0_particles['has_ch1_partner'].mean()
     else:
         ch1_measured = 0.0
     
-    if 'has_ch2_partner' in ch0.columns:
-        ch2_measured = ch0['has_ch2_partner'].mean()
+    if 'has_ch2_partner' in ch0_particles.columns:
+        ch2_measured = ch0_particles['has_ch2_partner'].mean()
     else:
         ch2_measured = 0.0
     
@@ -1104,10 +1066,17 @@ def test_colocalization(df_gt: pd.DataFrame, config: dict) -> Dict:
     print(f"  Ch2 coloc: config={ch2_prob_config:.1%}, measured={ch2_measured:.1%}, "
           f"error={ch2_error:.1%} {'✅' if ch2_passed else '❌'}")
     
-    # Distance verification: check that colocalized spots are at same position
+    print(f"  Ch0 particles: {len(ch0_particles)}")
+
+    # Distance verification: check that colocalized spots are at same position.
+    # Pick an actual frame near the median; median() itself can be fractional.
     distance_check = True
-    test_frame = df_gt['frame'].median()
-    df_frame = df_gt[df_gt['frame'] == test_frame]
+    frames = np.sort(df_gt['frame'].dropna().unique())
+    test_frame = None
+    if len(frames) > 0:
+        median_frame = np.median(frames)
+        test_frame = frames[np.argmin(np.abs(frames - median_frame))]
+    df_frame = df_gt[df_gt['frame'] == test_frame] if test_frame is not None else pd.DataFrame()
     ch0_frame = df_frame[df_frame['spot_type'] == 0]
     ch1_frame = df_frame[df_frame['spot_type'] == 1]
     
@@ -1120,7 +1089,7 @@ def test_colocalization(df_gt: pd.DataFrame, config: dict) -> Dict:
                 distances.append(dists.min())
             max_dist = np.max(distances) if distances else 0
             distance_check = max_dist < 1.0  # Should be at exact same position
-            print(f"  Distance verification: max={max_dist:.2f}px {'✅' if distance_check else '❌'}")
+            print(f"  Distance verification frame {test_frame}: max={max_dist:.2f}px {'✅' if distance_check else '❌'}")
     
     passed = ch1_passed and ch2_passed and distance_check
     overall = "✅ PASS" if passed else "❌ FAIL"
@@ -1136,6 +1105,8 @@ def test_colocalization(df_gt: pd.DataFrame, config: dict) -> Dict:
         'ch2_error': ch2_error,
         'ch2_passed': ch2_passed,
         'distance_check': distance_check,
+        'distance_check_frame': test_frame,
+        'n_particles': len(ch0_particles),
         'passed': passed
     }
 
@@ -1257,24 +1228,32 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Count passes
     total = len(results)
-    passed = sum(1 for r in results.values() if r.get('passed', False))
-    failed = total - passed
+    skipped = sum(1 for r in results.values() if r.get('skipped', False))
+    passed = sum(
+        1 for r in results.values()
+        if r.get('passed', False) and not r.get('skipped', False)
+    )
+    failed = sum(1 for r in results.values() if not r.get('passed', False))
+    status_text = '✅ ALL PASS'
+    if failed > 0:
+        status_text = f'❌ {failed} FAIL'
+    elif skipped > 0:
+        status_text = f'✅ PASS ({skipped} SKIPPED)'
     
     lines = [
         "# MicroLive Simulation Validation Report",
         "",
         f"**Generated:** {timestamp}  ",
-        f"**Status:** {'✅ ALL PASS' if failed == 0 else f'❌ {failed} FAIL'}",
+        f"**Status:** {status_text}",
         "",
         "---",
         "",
         "## Summary",
         "",
-        f"| Passed | Failed | Total |",
-        f"| :---: | :---: | :---: |",
-        f"| {passed} | {failed} | {total} |",
+        f"| Passed | Failed | Skipped | Total |",
+        f"| :---: | :---: | :---: | :---: |",
+        f"| {passed} | {failed} | {skipped} | {total} |",
         "",
     ]
     
@@ -1366,7 +1345,10 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
     ])
     
     for test_name, result in results.items():
-        status = "✅ PASS" if result.get('passed', False) else "❌ FAIL"
+        if result.get('skipped', False):
+            status = "⚠️ SKIPPED"
+        else:
+            status = "✅ PASS" if result.get('passed', False) else "❌ FAIL"
         lines.append(f"### {test_name}")
         lines.append("")
         lines.append(f"**Status:** {status}")
@@ -1376,13 +1358,13 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
         test_descriptions = {
             'Ground Truth Quality': (
                 "Validates that the simulation correctly generates ground truth data. "
-                "Checks that particles are assigned to cells (not background), all cells contain particles, "
+                "Checks that fewer than 10% of particles are assigned to background, all cells contain particles, "
                 "and the measured SNR matches the configured value within tolerance."
             ),
             'Colocalization': (
                 "Verifies that channel colocalization probabilities are correctly implemented. "
                 "For each spot in Channel 0, checks that the fraction with co-localized signal in "
-                "Channel 1 and Channel 2 matches the configured probabilities (±10% tolerance)."
+                "Channel 1 and Channel 2 matches the configured probabilities (≤25% absolute error)."
             ),
             'Photobleaching': (
                 "Tests recovery of photobleaching decay rates from simulated images. "
@@ -1532,15 +1514,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_validation_test.py
-  python run_validation_test.py --sim-dir ../results
-  python run_validation_test.py --config ../config_simple.yaml
+  python run_test.py
+  python run_test.py --sim-dir ../results
+  python run_test.py --config ../config_simple.yaml
         """
     )
     parser.add_argument(
         '--sim-dir', '-s',
-        default='../results',
-        help='Path to simulation results directory (default: ../results)'
+        default='../results_single_cell',
+        help='Path to simulation results directory (default: ../results_single_cell)'
     )
     parser.add_argument(
         '--config', '-c',
@@ -1684,9 +1666,9 @@ Examples:
         )
         
         result = tracker.run()
-        df_tracked_shared = _extract_tracking_dataframe(result)
+        df_tracked_shared = extract_tracking_dataframe(result)
         n_tracked = len(df_tracked_shared) if df_tracked_shared is not None else 0
-        n_particles = _count_unique_particles(df_tracked_shared)
+        n_particles = count_unique_particles(df_tracked_shared)
         print(f"  Tracked spots: {n_tracked}, Particles: {n_particles}")
     except Exception as e:
         print(f"  ⚠️ Tracking failed: {e}")
@@ -1697,7 +1679,7 @@ Examples:
     df_tracked_coloc = df_tracked_shared
     coloc_ml_cfg = test_cfg.get('colocalization_ml', {})
     min_valid_crops = int(coloc_ml_cfg.get('min_valid_crops', 10))
-    shared_particles = _count_unique_particles(df_tracked_shared)
+    shared_particles = count_unique_particles(df_tracked_shared)
 
     enable_coloc_fallback = bool(
         coloc_ml_cfg.get('enable_relaxed_tracking_fallback', False)
@@ -1738,9 +1720,9 @@ Examples:
                 verbose=False
             )
             result_coloc = tracker_coloc.run()
-            df_tracked_coloc_candidate = _extract_tracking_dataframe(result_coloc)
+            df_tracked_coloc_candidate = extract_tracking_dataframe(result_coloc)
             n_tracked_coloc = len(df_tracked_coloc_candidate)
-            n_particles_coloc = _count_unique_particles(df_tracked_coloc_candidate)
+            n_particles_coloc = count_unique_particles(df_tracked_coloc_candidate)
             print(
                 f"  Fallback tracked spots: {n_tracked_coloc}, "
                 f"Particles: {n_particles_coloc}"
@@ -1766,23 +1748,10 @@ Examples:
     print("\n" + "=" * 60)
     print("VALIDATION SUMMARY")
     print("=" * 60)
-    
-    total = len(results)
-    passed = sum(1 for r in results.values() if r.get('passed', False))
-    failed = total - passed
-    
-    print(f"\n  ✅ Passed: {passed}")
-    print(f"  ❌ Failed: {failed}")
-    print(f"  📊 Total:  {total}")
-    
-    for name, result in results.items():
-        status = "✅" if result.get('passed', False) else "❌"
-        print(f"    {status} {name}")
-    
-    overall = "PASS" if failed == 0 else "FAIL"
-    print(f"\n  Overall: {'✅ PASS' if overall == 'PASS' else '❌ FAIL'}")
-    
-    return 0 if overall == "PASS" else 1
+
+    overall_pass = print_summary(results)
+
+    return 0 if overall_pass else 1
 
 
 if __name__ == '__main__':
