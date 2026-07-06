@@ -11,7 +11,7 @@ Tests:
   1. Segmentation: Verifies expected number of cells were detected
   2. Spot Count per Cell: Compares spot counts (centroid-based cell matching)
   3. Compartment Assignment: Validates nucleus/cytosol classification
-  4. Photobleaching: Compares decay rates (GUI vs ground truth config)
+  4. Photobleaching: Compares final retained intensity (GUI vs ground truth config)
   5. MSD: Compares diffusion coefficient (GUI vs ground truth config)
   6. Colocalization: Compares Ch0 vs Ch1 colocalization (GUI vs ground truth)
   7. is_colocalized Tracking: Validates per-particle is_colocalized column
@@ -56,13 +56,30 @@ from helpers import (
 # =============================================================================
 # THRESHOLD CONSTANTS
 # =============================================================================
-THRESHOLD_PHOTOBLEACHING = 0.30    # ≤30% error on decay rate
+THRESHOLD_PHOTOBLEACHING = 0.10    # ≤0.10 absolute error in final retained intensity
 THRESHOLD_COLOCALIZATION = 0.25    # ≤25% absolute error on coloc %
 THRESHOLD_MSD = 0.80               # ≤80% error on D (relaxed for GUI noise)
 THRESHOLD_SPOT_COUNT = 0.60        # ≤60% error on spot count (relaxed - GUI may miss low-SNR spots)
 THRESHOLD_COMPARTMENT = 0.70       # ≥70% compartment accuracy
 THRESHOLD_IS_COLOCALIZED = 0.75    # ≥75% per-particle agreement with ground truth
 
+
+
+def photobleaching_duration_seconds(config: Dict) -> float:
+    """Return the last-frame acquisition time used for final retained comparisons.
+
+    The simulator creates ``int(total_time_seconds / frame_rate_seconds)``
+    frames, and the photobleaching fitter uses frame times starting at 0.
+    Therefore a 600 s movie sampled every 5 s has 120 frames with a last
+    frame at 595 s.
+    """
+    sim_cfg = config.get('simulation', {})
+    total_time = float(sim_cfg.get('total_time_seconds', 0) or 0)
+    frame_rate = float(sim_cfg.get('frame_rate_seconds', 1) or 1)
+    if total_time <= 0 or frame_rate <= 0:
+        return 0.0
+    n_frames = int(total_time / frame_rate)
+    return max(0.0, (n_frames - 1) * frame_rate)
 
 
 
@@ -380,17 +397,19 @@ def test_photobleaching(metadata: Dict, config: Dict) -> Dict:
     """
     TEST 4: Photobleaching Recovery
     
-    Compares photobleaching decay rates recovered by the GUI against the
-    configured ground truth values. Tests all 3 channels.
+    Compares photobleaching final retained intensity recovered by the GUI
+    against the configured ground truth values. Tests all 3 channels.
     """
     print("\n" + "=" * 60)
     print("TEST: Photobleaching Recovery")
     print("=" * 60)
     
     pb_cfg = config.get('photobleaching', {})
+    duration_seconds = photobleaching_duration_seconds(config)
+    print(f"  Duration for final retained intensity comparison: {duration_seconds:.1f} s")
     
-    print("\n  | Channel | Config | GUI | Error |")
-    print("  | :---: | :---: | :---: | :---: |")
+    print("\n  | Channel | Config k | GUI k | Config retained | GUI retained | Abs retained error |")
+    print("  | :---: | :---: | :---: | :---: | :---: | :---: |")
     
     all_pass = True
     channel_results = {}
@@ -398,21 +417,25 @@ def test_photobleaching(metadata: Dict, config: Dict) -> Dict:
     for ch in range(3):
         k_config = pb_cfg.get(f'ch{ch}_decay_rate', 0)
         k_gui = metadata.get(f'k_ch{ch}', 0)
-        
-        if k_config > 0:
-            error = abs(k_gui - k_config) / k_config
-        else:
-            error = 0 if k_gui == 0 else 1.0
+
+        retained_config = np.exp(-k_config * duration_seconds)
+        retained_gui = np.exp(-k_gui * duration_seconds)
+        error = abs(retained_gui - retained_config)
         
         passed = error <= THRESHOLD_PHOTOBLEACHING
         all_pass = all_pass and passed
         status = "✅" if passed else "❌"
         
-        print(f"  | Ch{ch} | {k_config:.6f} | {k_gui:.6f} | {error:.1%} {status} |")
+        print(
+            f"  | Ch{ch} | {k_config:.6f} | {k_gui:.6f} | "
+            f"{retained_config:.3f} | {retained_gui:.3f} | {error:.3f} {status} |"
+        )
         
         channel_results[ch] = {
             'config': k_config,
             'gui': k_gui,
+            'retained_config': retained_config,
+            'retained_gui': retained_gui,
             'error': error,
             'passed': passed
         }
@@ -766,8 +789,9 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
             "Requires ≥70% compartment accuracy."
         ),
         'Photobleaching': (
-            "Compares photobleaching decay rates (k) recovered by the GUI against the "
-            "configured ground truth values. Tests all 3 channels with ≤30% error threshold."
+            "Compares photobleaching final retained intensity exp(-k*T) recovered by the GUI "
+            "against the configured ground truth values. Tests all 3 channels with "
+            f"≤{THRESHOLD_PHOTOBLEACHING:.2f} absolute retained-intensity error threshold."
         ),
         'MSD': (
             "Compares the diffusion coefficient (D in µm²/s) recovered by the GUI's MSD "
@@ -837,10 +861,13 @@ def generate_report(results: Dict, output_path: Path, config: Dict) -> str:
         elif name == 'Photobleaching':
             if 'channel_results' in result:
                 lines.append("")
-                lines.append("| Channel | Config | GUI | Error |")
-                lines.append("| :---: | :---: | :---: | :---: |")
+                lines.append("| Channel | Config k | GUI k | Config retained | GUI retained | Abs retained error |")
+                lines.append("| :---: | :---: | :---: | :---: | :---: | :---: |")
                 for ch, r in result['channel_results'].items():
-                    lines.append(f"| Ch{ch} | {r['config']:.6f} | {r['gui']:.6f} | {r['error']:.1%} |")
+                    lines.append(
+                        f"| Ch{ch} | {r['config']:.6f} | {r['gui']:.6f} | "
+                        f"{r['retained_config']:.3f} | {r['retained_gui']:.3f} | {r['error']:.3f} |"
+                    )
         
         elif name == 'MSD':
             lines.append(f"- Config D: {result.get('D_config', 0):.6f} µm²/s")

@@ -57,7 +57,7 @@ from helpers import (
 # THRESHOLDS (relative error unless noted)
 # =============================================================================
 
-THRESHOLD_PHOTOBLEACHING = 0.30    # ≤30% error on decay rate k
+THRESHOLD_PHOTOBLEACHING = 0.10    # ≤0.10 absolute error in final retained intensity
 THRESHOLD_SPOT_COUNT = 0.50        # ≤50% error on avg spots/frame
 THRESHOLD_DIFFUSION = 0.50         # ≤50% error on D coefficient
 THRESHOLD_SNR = 0.40               # ≤40% error on SNR recovery
@@ -76,14 +76,14 @@ THRESHOLD_POSITION = 5.0           # ≤5 pixels mean position error
 def test_photobleaching(image_tzyxc: np.ndarray,
                         config: dict,
                         mask_yx: Optional[np.ndarray] = None) -> Dict:
-    """Test photobleaching decay rate recovery.
+    """Test photobleaching final retained intensity recovery.
     
     Args:
         image_tzyxc: 5D image array [T, Z, Y, X, C]
         config: Simulation configuration
         
     Returns:
-        Dictionary with results per channel
+        Dictionary with k and final retained intensity results per channel
     """
     print("\n" + "=" * 60)
     print("TEST: Photobleaching Recovery")
@@ -91,6 +91,8 @@ def test_photobleaching(image_tzyxc: np.ndarray,
     
     frame_rate = config.get('simulation', {}).get('frame_rate_seconds', 5.0)
     pb_config = config.get('photobleaching', {})
+    duration_seconds = max(0.0, (image_tzyxc.shape[0] - 1) * frame_rate)
+    print(f"  Duration for final retained intensity comparison: {duration_seconds:.1f} s")
     
     try:
         pb = mi.Photobleaching(
@@ -109,24 +111,25 @@ def test_photobleaching(image_tzyxc: np.ndarray,
             # Extract k from fit params (k is first element for each channel)
             k_measured = decay_params[ch * 2] if decay_params[ch * 2] is not None else 0.0
             
-            if k_config > 0:
-                error = abs(k_measured - k_config) / k_config
-            else:
-                error = k_measured  # Error = measured value if config is 0
+            retained_config = np.exp(-k_config * duration_seconds)
+            retained_measured = np.exp(-k_measured * duration_seconds)
+            error = abs(retained_measured - retained_config)
             
-            ch_passed = error <= THRESHOLD_PHOTOBLEACHING or k_config == 0
+            ch_passed = error <= THRESHOLD_PHOTOBLEACHING
             
             results['channels'].append({
                 'channel': ch,
                 'k_config': k_config,
                 'k_measured': k_measured,
+                'retained_config': retained_config,
+                'retained_measured': retained_measured,
                 'error': error,
                 'passed': ch_passed
             })
             
             status = "✅" if ch_passed else "❌"
             print(f"  Ch{ch}: k_config={k_config:.6f}, k_measured={k_measured:.6f}, "
-                  f"error={error:.1%} {status}")
+                  f"final retained error={error:.3f} {status}")
             
             if not ch_passed:
                 results['passed'] = False
@@ -1367,9 +1370,10 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
                 "Channel 1 and Channel 2 matches the configured probabilities (≤25% absolute error)."
             ),
             'Photobleaching': (
-                "Tests recovery of photobleaching decay rates from simulated images. "
+                "Tests recovery of photobleaching final retained intensity from simulated images. "
                 "Fits an exponential decay to mean intensity over time for each channel and compares "
-                "the recovered decay constant (k) to the configured value (≤30% error threshold)."
+                "the recovered final retained intensity exp(-k*T) to the configured value "
+                f"(≤{THRESHOLD_PHOTOBLEACHING:.2f} absolute retained-intensity error threshold)."
             ),
             'Spot Detection': (
                 "Evaluates spot detection accuracy using BigFISH's automatic thresholding. "
@@ -1415,11 +1419,12 @@ def generate_report(results: Dict, output_path: Path, config: dict = None) -> st
         
         # Add specific details based on test type
         if 'channels' in result:
-            lines.append("| Channel | Config | Measured | Error |")
-            lines.append("| :---: | :---: | :---: | :---: |")
+            lines.append("| Channel | Config k | Measured k | Config retained | Measured retained | Abs retained error |")
+            lines.append("| :---: | :---: | :---: | :---: | :---: | :---: |")
             for ch in result['channels']:
                 lines.append(f"| {ch['channel']} | {ch['k_config']:.6f} | "
-                           f"{ch['k_measured']:.6f} | {ch['error']:.1%} |")
+                           f"{ch['k_measured']:.6f} | {ch['retained_config']:.3f} | "
+                           f"{ch['retained_measured']:.3f} | {ch['error']:.3f} |")
             lines.append("")
         
         if 'mean_position_error' in result:

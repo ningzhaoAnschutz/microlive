@@ -59,13 +59,45 @@ The automated test suite validates MicroLive's recovery of simulation parameters
 | :--- | :--- |
 | **Ground Truth Quality** | Data integrity, <10% background particles |
 | **Colocalization** | Ch1/Ch2 percentage recovery + distance verification |
-| **Photobleaching** | Decay rate (k) recovery accuracy |
+| **Photobleaching** | Final retained intensity (`exp(-k*T)`) recovery accuracy |
 | **Spot Detection** | True positive rate using BigFISH detector |
 | **Position Accuracy** | Sub-pixel position error via tracking |
 | **Compartment Assignment** | Nucleus vs cytosol classification accuracy |
 | **MSD Recovery** | Diffusion coefficient (D) from ParticleMotion |
 | **Colocalization Recovery** | ML-based colocalization detection (CNN classifier) |
 | **GUI Syntax** | Python syntax validation for GUI module |
+
+### Latest Validation Run
+
+The single-cell simulation suite was last verified on **2026-07-06** using
+the `microlive` conda environment, the current working tree, and the checked-in
+`results_single_cell` dataset.
+
+```bash
+conda run -n microlive python simulations/tests/run_test.py \
+    --report /tmp/microlive-simulation-report.md
+```
+
+| Result | Count |
+| :--- | ---: |
+| Passed | 9 |
+| Failed | 0 |
+| Skipped | 0 |
+
+The photobleaching recovery test passed for every channel using the final
+retained intensity error threshold (`≤0.10`). Here `T` is the last-frame
+acquisition time (`595 s` for the single-cell dataset), and retained intensity
+is calculated as `exp(-k*T)`:
+
+| Channel | Configured k (s⁻¹) | Measured k (s⁻¹) | Config retained | Measured retained | Abs retained error | Result |
+| :---: | ---: | ---: | ---: | ---: | ---: | :---: |
+| Ch0 | 0.000370 | 0.000300 | 0.802 | 0.836 | 0.034 | Pass |
+| Ch1 | 0.000600 | 0.000476 | 0.700 | 0.753 | 0.053 | Pass |
+| Ch2 | 0.000718 | 0.000660 | 0.652 | 0.675 | 0.023 | Pass |
+
+This validation used the current photobleaching implementation unchanged; the
+offset-aware changes proposed in `../kk_corrections/corrections_photobleaching.md`
+were not applied for this run.
 
 ## File Structure
 
@@ -293,7 +325,7 @@ VALIDATION SUMMARY
   📊 Total:  9
     ✅ Ground Truth Quality
     ✅ Colocalization
-    ✅ Photobleaching
+    ✅ Photobleaching (max final retained error = 0.053)
     ✅ Spot Detection
     ✅ Position Accuracy
     ✅ Compartment Assignment
@@ -310,7 +342,7 @@ VALIDATION SUMMARY
 | :--- | :--- | :--- |
 | Ground Truth | <10% in background | 0.0% ✅ |
 | Colocalization | ≤25% error | <5% error |
-| Photobleaching | ≤30% error on k | 22-25% error |
+| Photobleaching | ≤0.10 final retained intensity error | max 0.053 ✅ |
 | Spot Detection | ≥80% true positive | 95% matched |
 | Position | ≥50% recall or <5px error | 2.6px error |
 | Compartment | ≥75% accuracy | 80-97% |
@@ -354,7 +386,7 @@ python run_test_gui.py \
 | **Segmentation** | GUI cell count vs config `num_cells` | Exact match |
 | **Spot Count per Cell** | GUI particles vs ground truth (centroid-based cell matching) | ≤60% error per cell |
 | **Compartment Assignment** | GUI nucleus/cytosol vs ground truth labels | ≥70% accuracy |
-| **Photobleaching** | GUI decay rates vs config values | ≤30% error per channel |
+| **Photobleaching** | GUI final retained intensity (`exp(-k*T)`) vs config values | ≤0.10 absolute retained-intensity error per channel |
 | **MSD** | GUI D coefficient vs config (with voxel scaling) | ≤80% error |
 | **Colocalization** | GUI POOLED % vs ground truth `has_ch1_partner` | ≤25% absolute error |
 | **is_colocalized Tracking** | Per-particle `is_colocalized` vs ground truth `has_ch1_partner` | ≥75% accuracy |
@@ -377,7 +409,7 @@ VALIDATION SUMMARY
     ✅ Segmentation (1/1 cells)
     ✅ Spot Count per Cell (32.0% error)
     ✅ Compartment Assignment (99.8% accuracy)
-    ❌ Photobleaching (Ch2 at 36.2% > 30% threshold)
+    ❌ Photobleaching (Ch2 retained error 0.109 > 0.10 threshold)
     ✅ MSD (14.0% error)
     ✅ Colocalization (9.3% error)
     ✅ is_colocalized Tracking (100.0% accuracy)
@@ -410,6 +442,16 @@ Examples:
 - 35% loss: k = -ln(0.65)/600 = 0.000718 s⁻¹
 ```
 
+Validation compares final retained intensity rather than relative error on the
+small `k` values:
+
+```text
+retained_error = |exp(-k_measured * T) - exp(-k_config * T)|
+```
+
+For the default single-cell dataset, the simulator creates 120 frames sampled
+every 5 seconds, so the fitted time axis is `0 ... 595 s` and `T = 595 s`.
+
 ## Comparing with MicroLive Analysis
 
 ```python
@@ -429,7 +471,11 @@ decay_params = pb.calculate_photobleaching()
 # Returns [k0, I0_ch0, k1, I0_ch1, k2, I0_ch2]
 
 # Compare to ground truth
-print(f"Config k0: 0.00037, Measured k0: {decay_params[0]:.6f}")
+duration_seconds = (image_tzyxc.shape[0] - 1) * 5.0
+retained_config = np.exp(-0.00037 * duration_seconds)
+retained_measured = np.exp(-decay_params[0] * duration_seconds)
+retained_error = abs(retained_measured - retained_config)
+print(f"Config k0: 0.00037, Measured k0: {decay_params[0]:.6f}, retained error: {retained_error:.3f}")
 
 # Run MicroLive MSD analysis
 ch0 = df_gt[df_gt['spot_type'] == 0]
