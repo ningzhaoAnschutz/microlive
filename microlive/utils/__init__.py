@@ -8,6 +8,7 @@ from .model_downloader import (
     list_cached_models,
     MODEL_DIR,
 )
+from .frame_range import FrameRange, is_full_selection
 
 __all__ = [
     "get_device",
@@ -21,4 +22,7 @@ __all__ = [
     "cache_model",
     "list_cached_models",
     "MODEL_DIR",
+    # Frame range
+    "FrameRange",
+    "is_full_selection",
 ]

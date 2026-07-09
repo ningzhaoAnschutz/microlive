@@ -32,6 +32,7 @@ if sys.platform == 'darwin':
 
 # Package-aware imports (pip packaging compatible)
 from microlive.imports import *
+from microlive.utils.frame_range import FrameRange
 # PyQt5 imports
 from PyQt5.QtCore import (
     Qt,
@@ -630,6 +631,15 @@ class Metadata:
                     write_value('Image Dimensions (T,Z,Y,X,C)', str(self.image_stack.shape))
                 else:
                     write_value('Image Dimensions', 'None')
+
+                # Processing Frame Range (crop is the movie). Active frame/time are
+                # zero-based within the crop; these bounds are the only record of cropping.
+                write_subsection('Processing Frame Range')
+                write_value('Frame Range Applied', getattr(self, 'frame_crop_applied', 'No'))
+                write_value('Original Total Frames', getattr(self, 'source_total_frames', 'N/A'))
+                write_value('Cropped Frames (0-based)',
+                            f"{getattr(self, 'frame_crop_start', 0)} - {getattr(self, 'frame_crop_end', 0)}")
+                write_value('Active Frame Count', getattr(self, 'active_frame_count', 'N/A'))
                 
                 # Registration
                 write_subsection('Image Registration')
@@ -998,6 +1008,13 @@ class GUI(QMainWindow):
         self.use_fixed_size_for_intensity_calculation = True
         self.fast_gaussian_fit = True  # Use fast moment-based PSF estimation by default
         self.use_fixed_threshold = False  # Fixed threshold mode for decreasing-signal experiments
+        # Frame-range crop state ("crop is the movie"): source_image_stack is the full
+        # loaded movie; image_stack is the active (possibly cropped) view.
+        self.source_image_stack = None
+        self.source_total_frames = 0
+        self.active_frame_range = None  # FrameRange or None (None == no image)
+        self._range_apply_in_progress = False
+        self._analysis_busy = False
         # Registration state
         self.registered_image = None  # [T,Z,Y,X,C] registered image
         self.registration_roi = None  # (y_min, y_max, x_min, x_max)
@@ -1098,14 +1115,18 @@ class GUI(QMainWindow):
         When TYX mode is active, returns the mask for the current frame.
         """
         if self._active_mask_source == 'cellpose':
-            # Check for TYX masks first - return current frame's mask
+            # TYX masks: use the current frame when the mask matches the active movie,
+            # otherwise collapse via maximum temporal projection (frame-range crop policy).
+            # No silent "last frame" fallback.
             if getattr(self, 'use_tyx_masks', False):
-                if hasattr(self, 'cellpose_masks_cyto_tyx') and self.cellpose_masks_cyto_tyx is not None:
-                    idx = min(self.current_frame, len(self.cellpose_masks_cyto_tyx) - 1)
-                    return (self.cellpose_masks_cyto_tyx[idx] > 0).astype(np.uint8)
-                elif hasattr(self, 'cellpose_masks_nuc_tyx') and self.cellpose_masks_nuc_tyx is not None:
-                    idx = min(self.current_frame, len(self.cellpose_masks_nuc_tyx) - 1)
-                    return (self.cellpose_masks_nuc_tyx[idx] > 0).astype(np.uint8)
+                for tyx in (getattr(self, 'cellpose_masks_cyto_tyx', None),
+                            getattr(self, 'cellpose_masks_nuc_tyx', None)):
+                    if tyx is not None:
+                        if len(tyx) == int(self.total_frames):
+                            frame_mask = tyx[self.current_frame]
+                        else:
+                            frame_mask = np.max(tyx, axis=0)
+                        return (frame_mask > 0).astype(np.uint8)
             # Fallback to YX masks
             if self.cellpose_masks_cyto is not None:
                 return (self.cellpose_masks_cyto > 0).astype(np.uint8)
@@ -1149,9 +1170,22 @@ class GUI(QMainWindow):
             return "N/A"
 
     def _get_tracking_masks(self):
+        """Return tracking masks coerced to the active (possibly cropped) movie.
+
+        Any TYX mask whose temporal dimension does not match the active frame count
+        is collapsed to a static YX mask via maximum temporal projection
+        (see coerce_mask_for_active_movie), so the engine never receives a mask with
+        a mismatched T.
+        """
+        masks_complete, masks_nuc, masks_cyto_no_nuc = self._get_tracking_masks_raw()
+        return (self.coerce_mask_for_active_movie(masks_complete),
+                self.coerce_mask_for_active_movie(masks_nuc),
+                self.coerce_mask_for_active_movie(masks_cyto_no_nuc))
+
+    def _get_tracking_masks_raw(self):
         """
         Prepares masks for tracking based on available segmentation data.
-        
+
         Returns TYX [T,Y,X] masks when TYX mode is active, otherwise YX [Y,X].
         ParticleTracking normalizes to TYX internally for backward compatibility.
         """
@@ -1159,9 +1193,19 @@ class GUI(QMainWindow):
         if self._active_mask_source == 'cellpose':
             # Check if TYX masks are active
             if getattr(self, 'use_tyx_masks', False):
-                masks_cyto = getattr(self, 'cellpose_masks_cyto_tyx', None)
-                masks_nuc = getattr(self, 'cellpose_masks_nuc_tyx', None)
-                
+                # Coerce each mask to the active movie BEFORE the overlap computation so a
+                # cyto/nucleus temporal mismatch cannot crash the boolean AND below.
+                masks_cyto = self.coerce_mask_for_active_movie(getattr(self, 'cellpose_masks_cyto_tyx', None))
+                masks_nuc = self.coerce_mask_for_active_movie(getattr(self, 'cellpose_masks_nuc_tyx', None))
+                # If coercion left them at different ndims (one static YX, one per-frame TYX),
+                # reduce both to a common static YX so the overlap stays shape-consistent.
+                if (masks_cyto is not None and masks_nuc is not None
+                        and masks_cyto.ndim != masks_nuc.ndim):
+                    if masks_cyto.ndim == 3:
+                        masks_cyto = np.max(masks_cyto, axis=0)
+                    if masks_nuc.ndim == 3:
+                        masks_nuc = np.max(masks_nuc, axis=0)
+
                 if masks_cyto is not None and masks_nuc is not None:
                     # Compute cytosol_no_nuclei as TYX (per-frame overlap removal)
                     masks_cytosol_no_nuclei = masks_cyto.copy()
@@ -1212,9 +1256,316 @@ class GUI(QMainWindow):
                                          self.voxel_yx_nm > 0) else 160
         return [voxel_z, voxel_yx]
 
+    # =========================================================================
+    # FRAME-RANGE CROP ("crop is the movie")
+    # =========================================================================
+    def get_selected_frame_range(self):
+        """Return (start, end) inclusive original indices of the active movie."""
+        if self.active_frame_range is None:
+            T = int(self.total_frames or 1)
+            return (0, max(0, T - 1))
+        return (self.active_frame_range.start, self.active_frame_range.end)
+
+    def is_frame_range_cropped(self):
+        """True when a strict sub-range of the source movie is active."""
+        return self.active_frame_range is not None and not self.active_frame_range.is_full
+
+    def coerce_mask_for_active_movie(self, mask):
+        """Return a mask valid for the active movie.
+
+        If a 3D (TYX) mask's temporal dimension does not match the active frame
+        count, collapse it with a maximum temporal projection into a single static
+        YX mask that applies to all active frames. 2D masks and matching TYX masks
+        are returned unchanged.
+        """
+        if mask is None:
+            return None
+        try:
+            if mask.ndim == 3 and int(mask.shape[0]) != int(self.total_frames):
+                projected = np.max(mask, axis=0)
+                try:
+                    self.statusBar().showMessage(
+                        f"Mask had {mask.shape[0]} frames; using maximum temporal projection.", 5000)
+                except Exception:
+                    pass
+                return projected
+        except Exception:
+            return mask
+        return mask
+
+    def _sync_active_frame_dimensions(self, active_t):
+        """Set frame counts, all frame sliders, and frame labels to a movie of
+        ``active_t`` frames. Signals are blocked so no slider handler renders while
+        the stack and indices disagree; callers refresh the views once afterward.
+        """
+        active_t = int(active_t)
+        self.total_frames = active_t
+        self.current_frame = 0
+        self.segmentation_current_frame = 0
+        max_idx = max(0, active_t - 1)
+        self.max_lag = active_t - 1
+        if hasattr(self, 'max_lag_input'):
+            self.max_lag_input.blockSignals(True)
+            self.max_lag_input.setMaximum(max(1, self.max_lag - 1))
+            self.max_lag_input.setValue(max(1, self.max_lag - 1))
+            self.max_lag_input.blockSignals(False)
+        # All frame-indexed sliders resolve to the active range and reset to frame 0.
+        for name in ('time_slider_display', 'time_slider_tracking', 'time_slider_tracking_vis',
+                     'segmentation_time_slider', 'time_slider_reg', 'dist_frame_slider'):
+            slider = getattr(self, name, None)
+            if slider is not None:
+                slider.blockSignals(True)
+                slider.setMaximum(max_idx)
+                slider.setValue(0)
+                slider.blockSignals(False)
+        frame_text = f"0/{max_idx}"
+        for name in ('frame_label_display', 'frame_label_tracking', 'frame_label_tracking_vis',
+                     'frame_label_segmentation', 'frame_label_reg'):
+            label = getattr(self, name, None)
+            if label is not None:
+                label.setText(frame_text)
+        if hasattr(self, 'dist_frame_label') and self.dist_frame_label is not None:
+            self.dist_frame_label.setText(f"Frame: 0/{max_idx}")
+        # Image Information "Frames:" reflects the active (possibly cropped) movie.
+        if hasattr(self, 'frames_label') and self.frames_label is not None:
+            self.frames_label.setText(str(active_t))
+        # Keep Cellpose temporal control bounds in sync with the active frame count.
+        if hasattr(self, '_update_cellpose_sliders_for_image'):
+            try:
+                self._update_cellpose_sliders_for_image(active_t)
+            except Exception:
+                pass
+
+    def _sync_frame_range_widget_to_state(self):
+        """Push current source/active-range state into the crop widget."""
+        if not hasattr(self, 'frame_range_group'):
+            return
+        T0 = int(self.source_total_frames or 0)
+        has_source = self.source_image_stack is not None and T0 >= 1
+        self.frame_range_group.setEnabled(has_source)
+        if not has_source:
+            self.frame_range_available_label.setText("Frames available: —")
+            self.frame_range_summary_label.setText("")
+            self.frame_range_status_label.setText("")
+            return
+        fr = self.active_frame_range or FrameRange.full_range(T0)
+        single = (T0 == 1)
+        for spin in (self.frame_crop_start_spin, self.frame_crop_end_spin):
+            spin.blockSignals(True)
+            spin.setMinimum(0)
+            spin.setMaximum(T0 - 1)
+            spin.blockSignals(False)
+        self.frame_crop_start_spin.blockSignals(True)
+        self.frame_crop_start_spin.setValue(fr.start)
+        self.frame_crop_start_spin.blockSignals(False)
+        self.frame_crop_end_spin.blockSignals(True)
+        self.frame_crop_end_spin.setValue(fr.end)
+        self.frame_crop_end_spin.blockSignals(False)
+        self.frame_crop_start_spin.setEnabled(not single)
+        self.frame_crop_end_spin.setEnabled(not single)
+        self.frame_range_available_label.setText(f"Frames available (0-based): 0–{T0 - 1}")
+        if single:
+            self.frame_range_summary_label.setText("Frame 0 only.")
+            self.apply_frame_range_button.setEnabled(False)
+            self.use_full_movie_button.setEnabled(False)
+        else:
+            self.frame_range_summary_label.setText(
+                f"Selected frames {fr.start}–{fr.end} ({fr.count} frames).")
+            self._update_apply_enabled()
+            self.use_full_movie_button.setEnabled(not fr.is_full)
+        self.frame_range_status_label.setText("Full movie" if fr.is_full else "Cropped")
+
+    def _update_apply_enabled(self):
+        """Enable Apply only for a valid draft that differs from the active range."""
+        if not hasattr(self, 'apply_frame_range_button'):
+            return
+        if int(self.source_total_frames or 0) <= 1:
+            self.apply_frame_range_button.setEnabled(False)
+            return
+        s = self.frame_crop_start_spin.value()
+        e = self.frame_crop_end_spin.value()
+        active = self.active_frame_range
+        differs = active is None or (s, e) != (active.start, active.end)
+        self.apply_frame_range_button.setEnabled(differs and s <= e)
+
+    def on_frame_crop_draft_changed(self, *args):
+        """Live handler for the crop spin boxes: keep start<=end, preview, enable Apply."""
+        s = self.frame_crop_start_spin.value()
+        e = self.frame_crop_end_spin.value()
+        # Couple the handles so start can never exceed end.
+        self.frame_crop_end_spin.blockSignals(True)
+        self.frame_crop_end_spin.setMinimum(s)
+        self.frame_crop_end_spin.blockSignals(False)
+        self.frame_crop_start_spin.blockSignals(True)
+        self.frame_crop_start_spin.setMaximum(e if e >= s else s)
+        self.frame_crop_start_spin.blockSignals(False)
+        s = self.frame_crop_start_spin.value()
+        e = self.frame_crop_end_spin.value()
+        if int(self.source_total_frames or 0) >= 1:
+            count = e - s + 1
+            self.frame_range_summary_label.setText(
+                f"Selected frames {s}–{e} ({count} frames).")
+        self._update_apply_enabled()
+
+    def on_apply_frame_range_clicked(self):
+        self.apply_frame_range(self.frame_crop_start_spin.value(), self.frame_crop_end_spin.value())
+
+    def on_use_full_movie_clicked(self):
+        if int(self.source_total_frames or 0) >= 1:
+            self.apply_frame_range(0, self.source_total_frames - 1)
+
+    def _has_frame_dependent_results(self):
+        """True if any image-derived result would be invalidated by a crop change."""
+        if self.registered_image is not None:
+            return True
+        if self.corrected_image is not None:
+            return True
+        if getattr(self, 'photobleaching_calculated', False):
+            return True
+        if self.segmentation_mask is not None:
+            return True
+        if getattr(self, 'cellpose_masks_cyto', None) is not None:
+            return True
+        if getattr(self, 'cellpose_masks_nuc', None) is not None:
+            return True
+        if isinstance(self.df_tracking, pd.DataFrame) and not self.df_tracking.empty:
+            return True
+        if getattr(self, 'multi_channel_tracking_data', None):
+            return True
+        if getattr(self, 'correlation_results', None):
+            return True
+        if getattr(self, 'distance_coloc_results', None) is not None:
+            return True
+        return False
+
+    def clear_frame_range_results_without_reset(self):
+        """Clear every image-derived result on a crop commit, preserving user controls.
+
+        Registration, photobleaching, masks, tracking, MSD, correlation, and
+        colocalization *results* are cleared; parameter widgets/values are kept.
+        """
+        # Registration + photobleaching-derived images
+        self.registered_image = None
+        self.corrected_image = None
+        self.photobleaching_calculated = False
+        self.photobleaching_data = None
+        self.photobleaching_applied_to_source = None
+        self.photobleaching_fit_parameters_source = None
+        # Masks (all cleared: a mask may derive from an excluded/projected/derived source)
+        self.segmentation_mask = None
+        self.cellpose_masks_cyto = None
+        self.cellpose_masks_nuc = None
+        self.cellpose_masks_cyto_tyx = None
+        self.cellpose_masks_nuc_tyx = None
+        self._original_cellpose_masks_cyto_tyx = None
+        self._original_cellpose_masks_nuc_tyx = None
+        self.use_tyx_masks = False
+        self.masks_imported = False
+        self._active_mask_source = 'none'
+        # Segmentation caches derived from frames (stale after a crop)
+        self.segmentation_maxproj = None
+        self._original_watershed_mask = None
+        # Tracking + downstream results
+        self.df_tracking = pd.DataFrame()
+        self.multi_channel_tracking_data = {}
+        self.tracked_channels = []
+        self.tracking_thresholds = {}
+        self.auto_threshold_per_channel = {}
+        self.tracking_parameters_per_channel = {}
+        self.primary_tracking_channel = None
+        self.df_random_spots = pd.DataFrame()
+        self.detected_spots_frame = None
+        self.has_tracked = False
+        self.correlation_results = []
+        self.current_total_plots = None
+        self.tracking_D_um2_s = None
+        self.tracking_D_px2_s = None
+        self.tracking_msd_mode = None
+        self.colocalization_results = None
+        self.distance_coloc_results = None
+        # MSD results (frame-dependent) — otherwise exportable under a cropped filename
+        self.msd_data = None
+        self.msd_per_trajectory = None
+        self.msd_per_cell = None
+        self.tracking_msd_channel = None
+        # Colocalization result dataframes
+        self.df_colocalization = None
+        self.df_manual_colocalization = None
+        # Mask edit-session state + 2D original Cellpose masks (would otherwise let
+        # "Apply Edits" restore a pre-crop mask into the cropped movie)
+        self._original_cellpose_masks_cyto = None
+        self._original_cellpose_masks_nuc = None
+        self.edit_working_mask = None
+        self.edit_original_mask = None
+        self.edit_current_mask_key = None
+        self.edit_undo_stack = []
+
+    def apply_frame_range(self, start, end, confirm=True):
+        """Atomically make source frames [start, end] the active movie.
+
+        Validates the range, optionally confirms result invalidation, stops all
+        playback/pending timers, clears crop-dependent results, re-slices the source
+        into image_stack, synchronizes every frame control, and refreshes once.
+        """
+        if self.source_image_stack is None:
+            return
+        if getattr(self, '_range_apply_in_progress', False) or getattr(self, '_analysis_busy', False):
+            return
+        T0 = int(self.source_total_frames or 0)
+        try:
+            # Pass endpoints through unmodified so FrameRange rejects non-integral input
+            # instead of silently truncating it.
+            new_range = FrameRange(T0, start, end)
+        except (ValueError, TypeError) as exc:
+            QMessageBox.warning(self, "Invalid Frame Range", f"Invalid frame range: {exc}")
+            self._sync_frame_range_widget_to_state()
+            return
+        if self.active_frame_range is not None and \
+                new_range.signature() == self.active_frame_range.signature():
+            self._sync_frame_range_widget_to_state()  # true no-op
+            return
+        if confirm and self._has_frame_dependent_results():
+            reply = QMessageBox.question(
+                self, "Change Frame Range",
+                "Applying a frame range makes the selected frames the movie and will clear "
+                "existing registration, photobleaching, masks, tracking, MSD, correlation, and "
+                "colocalization results.\n\nYour parameter settings are kept. Continue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                self._sync_frame_range_widget_to_state()  # revert draft
+                return
+        self._range_apply_in_progress = True
+        try:
+            # Stop every playback/pending timer before touching the stack.
+            self.stop_all_playback()
+            for tname in ('play_tracking_vis_timer', '_correlation_recompute_timer'):
+                timer = getattr(self, tname, None)
+                if timer is not None:
+                    try:
+                        timer.stop()
+                    except Exception:
+                        pass
+            # Clear crop-dependent results with no rendering.
+            self.clear_frame_range_results_without_reset()
+            # Atomically install the new active movie.
+            self.active_frame_range = new_range
+            self.image_stack = self.source_image_stack[new_range.slice_for_source_stack()]
+            self._sync_active_frame_dimensions(new_range.count)
+            self._sync_frame_range_widget_to_state()
+            # Refresh visible panels once.
+            for refresh in ('plot_image', 'plot_tracking', 'plot_registration_panels'):
+                fn = getattr(self, refresh, None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception:
+                        pass
+        finally:
+            self._range_apply_in_progress = False
+
 # =============================================================================
 # =============================================================================
-# STARTING THE GUI 
+# STARTING THE GUI
 # =============================================================================
 # =============================================================================
     def initUI(self):
@@ -2078,48 +2429,24 @@ class GUI(QMainWindow):
         # Reset all tabs and state for new data
         self.reset_all_state()
         
-        # Initialize frame counts
-        self.total_frames = T
-        self.max_lag = T - 1
-        if hasattr(self, 'max_lag_input'):
-            self.max_lag_input.setMaximum(self.max_lag - 1)
-            self.max_lag_input.setValue(self.max_lag - 1)
-        
-        # Auto-adjust min_length_trajectory based on movie length
+        # Install source ownership: the active movie starts as the full source.
+        # A frame-range crop later re-slices source_image_stack into image_stack.
+        self.source_image_stack = self.image_stack
+        self.source_total_frames = T
+        self.active_frame_range = FrameRange.full_range(T)
+
+        # Auto-adjust min_length_trajectory based on movie length (new image only)
         optimal_min_traj = self._calculate_optimal_min_trajectory(T)
         self.min_length_trajectory = optimal_min_traj
         if hasattr(self, 'min_length_input'):
             self.min_length_input.blockSignals(True)
             self.min_length_input.setValue(optimal_min_traj)
             self.min_length_input.blockSignals(False)
-        
-        # Set time slider maximums for all tabs
-        self.time_slider_display.setMaximum(T - 1)
-        self.time_slider_display.setValue(0)
-        self.time_slider_tracking.setMaximum(T - 1)
-        self.time_slider_tracking.setValue(0)
-        self.time_slider_tracking_vis.setMaximum(T - 1)
-        self.time_slider_tracking_vis.setValue(0)
-        self.segmentation_time_slider.setMaximum(T - 1)
-        # NOTE: Cellpose now shares segmentation_time_slider, no separate slider needed
-        
-        # Setup registration tab time slider
-        if hasattr(self, 'time_slider_reg'):
-            self.time_slider_reg.setMaximum(T - 1)
-            self.time_slider_reg.setValue(0)
-        
-        # Initialize all frame labels with correct values
-        frame_text = f"0/{T - 1}"
-        if hasattr(self, 'frame_label_display'):
-            self.frame_label_display.setText(frame_text)
-        if hasattr(self, 'frame_label_tracking'):
-            self.frame_label_tracking.setText(frame_text)
-        if hasattr(self, 'frame_label_tracking_vis'):
-            self.frame_label_tracking_vis.setText(frame_text)
-        if hasattr(self, 'frame_label_segmentation'):
-            self.frame_label_segmentation.setText(frame_text)
-        if hasattr(self, 'frame_label_reg'):
-            self.frame_label_reg.setText(frame_text)
+
+        # Set frame counts, all frame sliders, and frame labels to the active movie,
+        # then reset the crop widget to the full range of the new movie.
+        self._sync_active_frame_dimensions(T)
+        self._sync_frame_range_widget_to_state()
         
         # Reset registration state when loading new image
         self.reset_registration_state()
@@ -2345,10 +2672,13 @@ class GUI(QMainWindow):
                 else:
                     # Already in standard order
                     raw = data
-        # Convert raw image data to standard internal format
-        self.image_stack = self.convert_to_standard_format(raw)
-        if self.image_stack is None:
+        # Convert raw image data to standard internal format. Validate before installing
+        # so a cancelled/failed conversion leaves the prior movie and source state intact
+        # (never pairs a stale source_image_stack with image_stack=None).
+        converted = self.convert_to_standard_format(raw)
+        if converted is None:
             return
+        self.image_stack = converted
         # Update dimensions and channel count
         dims = self.image_stack.shape
         T = dims[0]
@@ -2366,7 +2696,7 @@ class GUI(QMainWindow):
         # Populate various UI elements with image info
         p = Path(file_path)
         self.data_folder_path = p
-        self.selected_image_name = p.stem
+        self.selected_image_name = p.stem.split('.')[0]
         self.list_names = [self.selected_image_name]
         self.list_time_intervals = [self.time_interval_value]
         if getattr(self, 'bit_depth', None) is None:
@@ -2423,7 +2753,12 @@ class GUI(QMainWindow):
         self.time_interval_value = self.list_time_intervals[image_index]
         self.bit_depth = bd
         raw5d = reader.read_scene(image_index)
-        self.image_stack = self.convert_to_standard_format(raw5d)
+        # Validate the conversion before dereferencing (avoids a None .shape crash and a
+        # source_image_stack/image_stack desync on a failed scene load).
+        converted = self.convert_to_standard_format(raw5d)
+        if converted is None:
+            return
+        self.image_stack = converted
         self.data_folder_path = Path(file_path)
         self.selected_image_name = self.list_names[image_index]
         self.file_label.setText(self.data_folder_path.name)
@@ -2502,6 +2837,12 @@ class GUI(QMainWindow):
         self.playing_tracking_vis = False
         if hasattr(self, 'play_button_tracking_vis'):
             self.play_button_tracking_vis.setText("Play")
+        # Stop the separate tracking-visualization playback timer (distinct from timer_tracking_vis)
+        if hasattr(self, 'play_tracking_vis_timer') and self.play_tracking_vis_timer is not None:
+            try:
+                self.play_tracking_vis_timer.stop()
+            except Exception:
+                pass
         
         # Stop registration timer
         if hasattr(self, 'reg_timer'):
@@ -2921,12 +3262,16 @@ class GUI(QMainWindow):
         if hasattr(self, 'data_folder_path') and str(self.data_folder_path) == file_path:
             # Clear core data specific to closing a file
             self.image_stack = None
+            self.source_image_stack = None
+            self.source_total_frames = 0
+            self.active_frame_range = None
             self.data_folder_path = None
             self.colocalization_results = None
             self.current_total_plots = None
-            
+
             # Use unified reset for all tabs and state (includes registration tab)
             self.reset_all_state()
+            self._sync_frame_range_widget_to_state()
 
             # Clear info labels (close-specific: show empty state)
             labels_to_clear = [
@@ -3026,12 +3371,16 @@ class GUI(QMainWindow):
         
         # Clear core data
         self.image_stack = None
+        self.source_image_stack = None
+        self.source_total_frames = 0
+        self.active_frame_range = None
         self.data_folder_path = None
         self.colocalization_results = None
         self.current_total_plots = None
-        
+
         # Use unified reset for all tabs and state
         self.reset_all_state()
+        self._sync_frame_range_widget_to_state()
         
         # Clear info labels
         labels_to_clear = [
@@ -3456,6 +3805,47 @@ class GUI(QMainWindow):
         display_right_layout.addLayout(close_buttons_layout)
         # Visualization controls
         self.control_panel_image_properties(display_right_layout)
+        # Processing Frame Range (crop) group
+        self.frame_range_group = QGroupBox("Processing Frame Range")
+        frame_range_layout = QVBoxLayout()
+        self.frame_range_group.setLayout(frame_range_layout)
+        self.frame_range_available_label = QLabel("Frames available: —")
+        frame_range_layout.addWidget(self.frame_range_available_label)
+        fr_spin_layout = QHBoxLayout()
+        fr_spin_layout.addWidget(QLabel("Start:"))
+        self.frame_crop_start_spin = QSpinBox()
+        self.frame_crop_start_spin.setMinimum(0)
+        self.frame_crop_start_spin.setMaximum(0)
+        self.frame_crop_start_spin.setToolTip("First source frame to process (0-based, inclusive).")
+        self.frame_crop_start_spin.valueChanged.connect(self.on_frame_crop_draft_changed)
+        fr_spin_layout.addWidget(self.frame_crop_start_spin)
+        fr_spin_layout.addWidget(QLabel("End:"))
+        self.frame_crop_end_spin = QSpinBox()
+        self.frame_crop_end_spin.setMinimum(0)
+        self.frame_crop_end_spin.setMaximum(0)
+        self.frame_crop_end_spin.setToolTip("Last source frame to process (0-based, inclusive).")
+        self.frame_crop_end_spin.valueChanged.connect(self.on_frame_crop_draft_changed)
+        fr_spin_layout.addWidget(self.frame_crop_end_spin)
+        frame_range_layout.addLayout(fr_spin_layout)
+        self.frame_range_summary_label = QLabel("")
+        self.frame_range_summary_label.setWordWrap(True)
+        frame_range_layout.addWidget(self.frame_range_summary_label)
+        fr_btn_layout = QHBoxLayout()
+        self.apply_frame_range_button = QPushButton("Apply Range")
+        self.apply_frame_range_button.setToolTip(
+            "Make the selected frames the active movie. This clears existing registration, "
+            "photobleaching, masks, tracking, MSD, correlation, and colocalization results.")
+        self.apply_frame_range_button.clicked.connect(self.on_apply_frame_range_clicked)
+        fr_btn_layout.addWidget(self.apply_frame_range_button)
+        self.use_full_movie_button = QPushButton("Use Full Movie")
+        self.use_full_movie_button.clicked.connect(self.on_use_full_movie_clicked)
+        fr_btn_layout.addWidget(self.use_full_movie_button)
+        frame_range_layout.addLayout(fr_btn_layout)
+        self.frame_range_status_label = QLabel("")
+        self.frame_range_status_label.setStyleSheet("color: #888888; font-size: 10px;")
+        frame_range_layout.addWidget(self.frame_range_status_label)
+        self.frame_range_group.setEnabled(False)
+        display_right_layout.addWidget(self.frame_range_group)
         # Group box for image info
         image_info_group = QGroupBox("Image Information")
         image_info_layout = QFormLayout()
@@ -4613,39 +5003,15 @@ class GUI(QMainWindow):
                         is_valid = True
                         is_tyx = True
                         dim_info += f"✓ Valid 3D (TYX) mask with {mask_T} frames.\n"
-                    elif mask_T < T:
-                        # Fewer frames than image - ask user
-                        reply = QMessageBox.question(
-                            self,
-                            "Partial TYX Mask",
-                            f"Mask has {mask_T} frames but image has {T} frames.\n\n"
-                            f"Only the first {mask_T} frames will have mask coverage.\n"
-                            "Continue anyway?",
-                            QMessageBox.Yes | QMessageBox.No
-                        )
-                        if reply == QMessageBox.Yes:
-                            is_valid = True
-                            is_tyx = True
-                            dim_info += f"⚠ Partial TYX mask: {mask_T}/{T} frames covered.\n"
-                        else:
-                            return
                     else:
-                        # More frames than image
-                        reply = QMessageBox.question(
-                            self,
-                            "Mask Has More Frames",
-                            f"Mask has {mask_T} frames but image has only {T} frames.\n\n"
-                            f"Only the first {T} frames of the mask will be used.\n"
-                            "Continue anyway?",
-                            QMessageBox.Yes | QMessageBox.No
-                        )
-                        if reply == QMessageBox.Yes:
-                            mask_data = mask_data[:T]  # Truncate
-                            is_valid = True
-                            is_tyx = True
-                            dim_info += f"⚠ TYX mask truncated to {T} frames.\n"
-                        else:
-                            return
+                        # Temporal-dimension mismatch (mask_T != T): collapse to a static
+                        # YX mask via maximum temporal projection so it applies to all active
+                        # frames. Never truncate or accept partial coverage (crop policy).
+                        mask_data = mask_data.max(axis=0)
+                        is_valid = True
+                        is_tyx = False
+                        dim_info += (f"⚠ Mask has {mask_T} frames but movie has {T}; "
+                                     f"using maximum temporal projection (static mask).\n")
                 else:
                     dim_info += f"✗ Dimension mismatch! Expected YX=({Y}, {X}), got ({mask_Y}, {mask_X})\n"
             else:
@@ -16307,6 +16673,10 @@ class GUI(QMainWindow):
         # Only add image name if different from base file name (avoid duplication)
         if safe_image_name and safe_image_name != safe_base_file_name:
             name_components.append(safe_image_name)
+        # Mark the exported frame range when a crop is active.
+        fr = getattr(self, 'active_frame_range', None)
+        if fr is not None and not fr.is_full:
+            name_components.append(f"frames_{fr.start:03d}-{fr.end:03d}")
         final_name = '_'.join([comp for comp in name_components if comp])
         # Append extension if provided
         if extension:
@@ -16740,7 +17110,7 @@ class GUI(QMainWindow):
             print(f"Failed to export tracking data: {e}")
 
     def _export_colocalization_data_to_csv(self, out_folder: Path):
-        if not hasattr(self, 'df_colocalization') or self.df_colocalization.empty:
+        if not hasattr(self, 'df_colocalization') or self.df_colocalization is None or self.df_colocalization.empty:
             return
         try:
             self.df_colocalization.to_csv(out_folder, index=False)
@@ -17004,6 +17374,17 @@ class GUI(QMainWindow):
             actual_desc = ", ".join(actual_sources)
             img_source = f"{img_source} (actual used: {actual_desc})"
 
+        # Frame-range crop provenance (the only record of cropping).
+        fr = getattr(self, 'active_frame_range', None)
+        if fr is not None:
+            frame_crop_applied = 'No' if fr.is_full else 'Yes'
+            frame_crop_start, frame_crop_end = fr.start, fr.end
+            active_frame_count = fr.count
+            source_total_frames = fr.source_total_frames
+        else:
+            frame_crop_applied = 'No'
+            frame_crop_start = frame_crop_end = active_frame_count = source_total_frames = 0
+
         meta = Metadata(
             correct_baseline=self.correct_baseline,
             data_folder_path=self.data_folder_path,
@@ -17092,7 +17473,15 @@ class GUI(QMainWindow):
             primary_tracking_channel=getattr(self, 'primary_tracking_channel', None),
             
             # Distance Colocalization Parameters
-            distance_coloc_results=getattr(self, 'distance_coloc_results', None)
+            distance_coloc_results=getattr(self, 'distance_coloc_results', None),
+
+            # Frame-range crop provenance
+            frame_crop_applied=frame_crop_applied,
+            frame_crop_start=frame_crop_start,
+            frame_crop_end=frame_crop_end,
+            active_frame_count=active_frame_count,
+            source_total_frames=source_total_frames,
+            time_interval_value_for_crop=self.time_interval_value,
         )
         try:
             meta.write_metadata()
