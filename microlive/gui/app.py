@@ -5786,8 +5786,8 @@ class GUI(QMainWindow):
     def update_segmentation_source(self, state):
         """Toggle between using original or photobleaching-corrected image for segmentation."""
         if state == Qt.Checked:
-            self.compute_max_proj_segmentation()
             self.use_max_proj_for_segmentation = True
+            self.compute_max_proj_segmentation()
             # Disable time controls since all frames are projected
             self.segmentation_time_slider.setEnabled(False)
             if hasattr(self, 'play_button_segmentation'):
@@ -19682,6 +19682,25 @@ class GUI(QMainWindow):
         # 5=MSD, 6=Distribution, 7=Time Course, 8=Correlation, 9=Colocalization,
         # 10=Tracking Visualization, 11=Export
         if index == 0:  # Import
+            # Sync current_frame with display slider to fix stale-frame display
+            slider_val = self.time_slider_display.value()
+            if self.current_frame != slider_val:
+                self.current_frame = slider_val
+                self.time_slider_tracking.blockSignals(True)
+                self.time_slider_tracking.setValue(slider_val)
+                self.time_slider_tracking.blockSignals(False)
+                if hasattr(self, 'time_slider_tracking_vis'):
+                    self.time_slider_tracking_vis.blockSignals(True)
+                    self.time_slider_tracking_vis.setValue(slider_val)
+                    self.time_slider_tracking_vis.blockSignals(False)
+                total_frames = getattr(self, 'total_frames', 1)
+                frame_text = f"{slider_val}/{total_frames - 1}"
+                if hasattr(self, 'frame_label_display'):
+                    self.frame_label_display.setText(frame_text)
+                if hasattr(self, 'frame_label_tracking'):
+                    self.frame_label_tracking.setText(frame_text)
+                if hasattr(self, 'frame_label_tracking_vis'):
+                    self.frame_label_tracking_vis.setText(frame_text)
             self.plot_image()
         elif index == 1:  # Registration
             self.plot_registration_panels()
@@ -19700,6 +19719,27 @@ class GUI(QMainWindow):
         elif index == 4:  # Tracking
             # Reset MSD results when returning to tracking tab (user may add new channels)
             self.reset_msd_tab()
+            # Sync current_frame with tracking slider to fix stale-frame display
+            slider_val = self.time_slider_tracking.value()
+            if self.current_frame != slider_val:
+                self.current_frame = slider_val
+                # Update the display and visualization sliders to match
+                self.time_slider_display.blockSignals(True)
+                self.time_slider_display.setValue(slider_val)
+                self.time_slider_display.blockSignals(False)
+                if hasattr(self, 'time_slider_tracking_vis'):
+                    self.time_slider_tracking_vis.blockSignals(True)
+                    self.time_slider_tracking_vis.setValue(slider_val)
+                    self.time_slider_tracking_vis.blockSignals(False)
+                # Update frame labels
+                total_frames = getattr(self, 'total_frames', 1)
+                frame_text = f"{slider_val}/{total_frames - 1}"
+                if hasattr(self, 'frame_label_display'):
+                    self.frame_label_display.setText(frame_text)
+                if hasattr(self, 'frame_label_tracking'):
+                    self.frame_label_tracking.setText(frame_text)
+                if hasattr(self, 'frame_label_tracking_vis'):
+                    self.frame_label_tracking_vis.setText(frame_text)
             self.plot_tracking()
             self.update_threshold_histogram()
         elif index == 5:  # MSD
