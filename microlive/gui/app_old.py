@@ -1,7 +1,6 @@
-"""MicroLive Aurora desktop application.
-
-This single module contains the complete microscopy-analysis implementation
-and the Aurora presentation layer used by the final :class:`GUI` window.
+"""
+micro.py: is a library designed to process live-cell microscope images and perform single-molecule measurements. 
+Author: Luis Aguilera
 """
 
 # =============================================================================
@@ -34,7 +33,6 @@ if sys.platform == 'darwin':
 # Package-aware imports (pip packaging compatible)
 from microlive.imports import *
 from microlive.utils.frame_range import FrameRange
-from microlive.utils.resources import get_icon_path
 # PyQt5 imports
 from PyQt5.QtCore import (
     Qt,
@@ -105,8 +103,6 @@ from matplotlib.backends.backend_qt5agg import (
     NavigationToolbar2QT as NavigationToolbar,)
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-
-
 from functools import partial
 from scipy.optimize import curve_fit
 from scipy.ndimage import gaussian_filter, distance_transform_edt
@@ -121,11 +117,6 @@ try:
     from vispy import logging as vispy_logging
 except ImportError:
     pass
-
-# Keep both threshold-histogram render paths aligned. The extra 0.05% of the
-# positive intensity distribution helps preserve bright outliers without using
-# the absolute maximum, which can be dominated by a single hot pixel.
-THRESHOLD_HISTOGRAM_MAX_PERCENTILE = 99.95
 
 
 # =============================================================================
@@ -838,41 +829,14 @@ class Metadata:
                 msd_mode = getattr(self, 'tracking_msd_mode', None)
                 msd_D = getattr(self, 'tracking_D_um2_s', None)
                 msd_D_px = getattr(self, 'tracking_D_px2_s', None)
-                fit_requested = getattr(self, 'tracking_msd_fit_points_requested', None)
-                fit_used = getattr(self, 'tracking_msd_fit_points_used', None)
-                fit_lag_start = getattr(self, 'tracking_msd_fit_lag_start_s', None)
-                fit_lag_end = getattr(self, 'tracking_msd_fit_lag_end_s', None)
-                display_D = getattr(self, 'tracking_msd_display_D_um2_s', None)
-                display_D_px = getattr(self, 'tracking_msd_display_D_px2_s', None)
-                display_std = getattr(self, 'tracking_msd_display_D_std_um2_s', None)
-                display_std_px = getattr(self, 'tracking_msd_display_D_std_px2_s', None)
-                summary_method = getattr(self, 'tracking_msd_summary_method', None)
                 if msd_ch is not None:
                     write_value('MSD Calculated for Channel', msd_ch)
                 if msd_mode is not None:
                     write_value('MSD Mode', msd_mode)
-                if fit_requested is not None:
-                    write_value('Fit Lag Points Requested', fit_requested)
-                if fit_used is not None:
-                    write_value('Fit Lag Points Used', fit_used)
-                if fit_lag_start is not None and fit_lag_end is not None:
-                    write_value('Fitted Lag-Time Range (s)', f'{fit_lag_start:.6g} - {fit_lag_end:.6g}')
                 if msd_D is not None:
-                    write_value('Ensemble Diffusion Coefficient (µm²/s)', f'{msd_D:.4e}')
+                    write_value('Diffusion Coefficient (µm²/s)', f'{msd_D:.4e}')
                 if msd_D_px is not None:
-                    write_value('Ensemble Diffusion Coefficient (px²/s)', f'{msd_D_px:.4e}')
-                if summary_method is not None:
-                    write_value('Displayed Summary Method', summary_method)
-                if display_D is not None:
-                    display_text = f'{display_D:.4e}'
-                    if display_std is not None:
-                        display_text += f' +/- {display_std:.4e}'
-                    write_value('Displayed Diffusion Coefficient (µm²/s)', display_text)
-                if display_D_px is not None:
-                    display_px_text = f'{display_D_px:.4e}'
-                    if display_std_px is not None:
-                        display_px_text += f' +/- {display_std_px:.4e}'
-                    write_value('Displayed Diffusion Coefficient (px²/s)', display_px_text)
+                    write_value('Diffusion Coefficient (px²/s)', f'{msd_D_px:.4e}')
                 if msd_ch is None and msd_D is None:
                     write_value('Note', 'MSD not yet calculated in MSD tab')
                 
@@ -951,7 +915,7 @@ class Metadata:
 # =============================================================================
 # =============================================================================
 
-class MicroLiveGUI(QMainWindow):
+class GUI(QMainWindow): 
     """
     Micro is a comprehensive GUI application for microscopy image analysis.
     A PyQt5 QMainWindow‐based application for interactive analysis of multi-dimensional microscopy image data.
@@ -990,12 +954,11 @@ class MicroLiveGUI(QMainWindow):
             – Batch export of images, masks, metadata, user comments, and data tables into structured result folders.
     """
     
-    def __init__(self, icon_path=None):
+    def __init__(self, icon_path):
         super().__init__()
         configure_logging_and_styles()
-        icon_path = icon_path or get_aurora_app_icon_path()
         self.setWindowTitle("MicroLive")
-        self.setWindowIcon(QIcon(str(icon_path)) if icon_path else QIcon())
+        self.setWindowIcon(QIcon(str(icon_path)))
         # Adapt initial window size to the current monitor to avoid oversized layouts.
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
@@ -1138,9 +1101,6 @@ class MicroLiveGUI(QMainWindow):
         self.use_multi = False
         mi.Banner().print_banner()
         self.initUI()
-        self._redesign_import_workspace()
-        self._move_import_actions_to_canvas_footer()
-        self.applyTheme(self.themeToggle.isChecked())
 
 # =============================================================================
 # =============================================================================
@@ -1366,9 +1326,6 @@ class MicroLiveGUI(QMainWindow):
                 label.setText(frame_text)
         if hasattr(self, 'dist_frame_label') and self.dist_frame_label is not None:
             self.dist_frame_label.setText(f"Frame: 0/{max_idx}")
-        # The MSD fit control follows the active movie, including cropped movies.
-        if hasattr(self, 'msd_fit_points_slider'):
-            self._sync_msd_fit_points_slider(active_t)
         # Image Information "Frames:" reflects the active (possibly cropped) movie.
         if hasattr(self, 'frames_label') and self.frames_label is not None:
             self.frames_label.setText(str(active_t))
@@ -1379,7 +1336,7 @@ class MicroLiveGUI(QMainWindow):
             except Exception:
                 pass
 
-    def _sync_frame_range_widget_to_state_base(self):
+    def _sync_frame_range_widget_to_state(self):
         """Push current source/active-range state into the crop widget."""
         if not hasattr(self, 'frame_range_group'):
             return
@@ -1524,15 +1481,6 @@ class MicroLiveGUI(QMainWindow):
         self.tracking_D_um2_s = None
         self.tracking_D_px2_s = None
         self.tracking_msd_mode = None
-        self.tracking_msd_fit_points_requested = None
-        self.tracking_msd_fit_points_used = None
-        self.tracking_msd_fit_lag_start_s = None
-        self.tracking_msd_fit_lag_end_s = None
-        self.tracking_msd_display_D_um2_s = None
-        self.tracking_msd_display_D_px2_s = None
-        self.tracking_msd_display_D_std_um2_s = None
-        self.tracking_msd_display_D_std_px2_s = None
-        self.tracking_msd_summary_method = None
         self.colocalization_results = None
         self.distance_coloc_results = None
         # MSD results (frame-dependent) — otherwise exportable under a cropped filename
@@ -1540,10 +1488,6 @@ class MicroLiveGUI(QMainWindow):
         self.msd_per_trajectory = None
         self.msd_per_cell = None
         self.tracking_msd_channel = None
-        # Crop changes invalidate the rendered MSD fit as well as its data.
-        # Keep the user's fit-point selection; _sync_active_frame_dimensions
-        # will clamp it to the new active frame count.
-        self.reset_msd_tab(reset_fit_control=False)
         # Colocalization result dataframes
         self.df_colocalization = None
         self.df_manual_colocalization = None
@@ -1816,6 +1760,410 @@ class MicroLiveGUI(QMainWindow):
         sigmaSlider.valueChanged.connect(_update_sigma)
         lowSigmaSlider.valueChanged.connect(_update_low_sigma)
         return controls_widget
+
+    def applyTheme(self, useDarkTheme: bool):
+        """
+        Slot to switch between Dark and Light theme styles.
+        """
+        if useDarkTheme:
+            # Dark theme stylesheet
+            dark_style = """
+            QWidget { background-color: #2b2b2b; color: #e0e0e0; }
+            QLabel { color: #e0e0e0; }
+
+            /* Buttons: contrast on dark background with subtle gradient */
+            QPushButton {
+                background: qlineargradient(y1:0, y2:1, stop:0 #d0d0d0, stop:1 #b0b0b0);
+                color: #000000;               /* black text */
+                border: 1px solid #a0a0a0;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: qlineargradient(y1:0, y2:1, stop:0 #e0e0e0, stop:1 #c0c0c0);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(y1:0, y2:1, stop:0 #a0a0a0, stop:1 #909090);
+            }
+            QPushButton:checked {
+                background: qlineargradient(y1:0, y2:1, stop:0 #0090e0, stop:1 #007acc);
+                color: #ffffff;
+                border: 1px solid #0070a0;
+            }
+            /* Inputs with focus indicator */
+            QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {
+                background-color: #3a3a3a;
+                color: #e0e0e0;
+                border: 1px solid #5a5a5a;
+                border-radius: 4px;
+            }
+            QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border: 2px solid #007acc;
+            }
+            
+            /* Tooltips */
+            QToolTip {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #007acc;
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 11px;
+            }
+            
+            /* Tab Widget Styling */
+            QTabWidget::pane {
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QTabBar::tab {
+                background: #3a3a3a;
+                color: #b0b0b0;
+                padding: 10px 16px;
+                border: 1px solid #555555;
+                border-bottom: none;
+                border-radius: 4px 4px 0 0;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #2b2b2b;
+                color: #ffffff;
+                border-bottom: 2px solid #007acc;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #4a4a4a;
+                color: #e0e0e0;
+            }
+
+            /* Panels */
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #555555;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding: 6px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 3px;
+                color: #e0e0e0;
+            }
+
+            /* Sliders */
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #333333;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #e0e0e0;      /* bright handle for dark theme */
+                border: 1px solid #ffffff; /* white border */
+                width: 12px;
+                margin: -4px 0;
+                border-radius: 3px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #777777;
+                border-radius: 3px;
+            }
+
+            /* List selection */
+            QListWidget::item:selected, QListView::item:selected {
+                background: #888888;
+                color: #e0e0e0;
+            }
+
+            /* Tables */
+            QTableWidget {
+                background-color: #2b2b2b;
+                alternate-background-color: #3a3a3a;
+                gridline-color: #555555;
+            }
+            QTableWidget::item:selected {
+                background: #007acc;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #3a3a3a;
+                color: #e0e0e0;
+                padding: 4px;
+                border: none;
+            }
+
+            /* Spin Boxes */
+            QAbstractSpinBox {
+                qproperty-buttonSymbols: QAbstractSpinBox.UpDownArrows;
+                background-color: #3a3a3a;
+                color: #e0e0e0;
+                border: 1px solid #5a5a5a;
+                border-radius: 4px;
+                padding-right: 18px;
+            }
+            QAbstractSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+                background-color: transparent;
+                border: none;
+            }
+            QAbstractSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+                background-color: transparent;
+                border: none;
+            }
+            QAbstractSpinBox::up-arrow {
+                width: 8px; height: 8px;
+                color: #e0e0e0;
+            }
+            QAbstractSpinBox::down-arrow {
+                width: 8px; height: 8px;
+                color: #e0e0e0;
+            }
+            """
+            QApplication.instance().setStyleSheet(dark_style)
+        else:
+            # Light theme stylesheet
+            light_style = """
+            QWidget { background-color: #f0f0f0; color: #2b2b2b; }
+            QLabel { color: #2b2b2b; }
+
+            /* Buttons: contrast on light background with subtle gradient */
+            QPushButton {
+                background: qlineargradient(y1:0, y2:1, stop:0 #505050, stop:1 #404040);
+                color: #ffffff;               /* white text */
+                border: 1px solid #303030;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: qlineargradient(y1:0, y2:1, stop:0 #606060, stop:1 #505050);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(y1:0, y2:1, stop:0 #353535, stop:1 #303030);
+            }
+            QPushButton:checked {
+                background: qlineargradient(y1:0, y2:1, stop:0 #0090e0, stop:1 #007acc);
+                color: #ffffff;
+                border: 1px solid #0070a0;
+            }
+            /* Inputs with focus indicator */
+            QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {
+                background-color: #ffffff;
+                color: #2b2b2b;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+            }
+            QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border: 2px solid #007acc;
+            }
+            
+            /* Tooltips */
+            QToolTip {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #007acc;
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 11px;
+            }
+            
+            /* Tab Widget Styling */
+            QTabWidget::pane {
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QTabBar::tab {
+                background: #e8e8e8;
+                color: #555555;
+                padding: 8px 16px;
+                border: 1px solid #cccccc;
+                border-bottom: none;
+                border-radius: 4px 4px 0 0;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #ffffff;
+                color: #2b2b2b;
+                border-bottom: 2px solid #007acc;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #f5f5f5;
+                color: #2b2b2b;
+            }
+
+            /* Panels */
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #aaaaaa;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding: 6px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 3px;
+                color: #2b2b2b;
+            }
+
+            /* Sliders */
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #bbbbbb;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #333333;      /* dark handle for light theme */
+                border: 1px solid #000000; /* black border */
+                width: 12px;
+                margin: -4px 0;
+                border-radius: 3px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #777777;
+                border-radius: 3px;
+            }
+
+            /* List selection */
+            QListWidget::item:selected, QListView::item:selected {
+                background: #666666;
+                color: #2b2b2b;
+            }
+
+            /* Tables */
+            QTableWidget {
+                background-color: #ffffff;
+                alternate-background-color: #f0f0f0;
+                gridline-color: #cccccc;
+            }
+            QTableWidget::item:selected {
+                background: #007acc;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #e0e0e0;
+                color: #2b2b2b;
+                padding: 4px;
+                border: none;
+            }
+
+            /* Spin Boxes */
+            QAbstractSpinBox {
+                qproperty-buttonSymbols: QAbstractSpinBox.UpDownArrows;
+                background-color: #ffffff;
+                color: #2b2b2b;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                padding-right: 18px;
+            }
+            QAbstractSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+                background-color: transparent;
+                border: none;
+            }
+            QAbstractSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+                background-color: transparent;
+                border: none;
+            }
+            QAbstractSpinBox::up-arrow {
+                width: 8px; height: 8px;
+                color: #2b2b2b;
+            }
+            QAbstractSpinBox::down-arrow {
+                width: 8px; height: 8px;
+                color: #2b2b2b;
+            }
+            """
+            QApplication.instance().setStyleSheet(light_style)
+
+        # Re-apply toggle switch styling
+        toggle_style = f"""
+        QCheckBox#themeToggle {{
+            color: {'#e0e0e0' if useDarkTheme else '#2b2b2b'};
+        }}
+        QCheckBox#themeToggle::indicator {{
+            width: 40px; height: 20px;
+            border-radius: 10px;
+            background-color: #bbb;
+        }}
+        QCheckBox#themeToggle::indicator:checked {{
+            background-color: #007acc;
+        }}
+        QCheckBox#themeToggle::indicator:unchecked {{
+            background-color: #bbb;
+        }}
+        """
+        self.themeToggle.setStyleSheet(toggle_style)
+        self._apply_colocalization_run_button_style()
+        # Enforce uniform spacing & margins on all tabs
+        for tab in (
+            self.display_tab, self.segmentation_tab, self.photobleaching_tab,
+            self.tracking_tab, self.distribution_tab, self.time_course_tab,
+            self.correlation_tab, self.colocalization_tab,
+            self.export_tab
+        ):
+            layout = tab.layout()
+            if layout:
+                layout.setContentsMargins(8, 8, 8, 8)
+                layout.setSpacing(8)
+
+    def _apply_colocalization_run_button_style(self):
+        """Apply the same green style used by Registration to the Visual Run button."""
+        if not hasattr(self, 'compute_colocalization_button') or self.compute_colocalization_button is None:
+            return
+        if hasattr(self, 'perform_registration_btn') and self.perform_registration_btn is not None:
+            reg_style = self.perform_registration_btn.styleSheet()
+            if reg_style:
+                self.compute_colocalization_button.setStyleSheet(reg_style)
+            else:
+                self.compute_colocalization_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #28a745;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 13px;
+                        border-radius: 6px;
+                        border: none;
+                    }
+                    QPushButton:hover {
+                        background-color: #34c759;
+                    }
+                    QPushButton:pressed {
+                        background-color: #1e7e34;
+                    }
+                """)
+        else:
+            self.compute_colocalization_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    font-weight: bold;
+                    font-size: 13px;
+                    border-radius: 6px;
+                    border: none;
+                }
+                QPushButton:hover {
+                    background-color: #34c759;
+                }
+                QPushButton:pressed {
+                    background-color: #1e7e34;
+                }
+            """)
+        self.compute_colocalization_button.style().unpolish(self.compute_colocalization_button)
+        self.compute_colocalization_button.style().polish(self.compute_colocalization_button)
+        self.compute_colocalization_button.update()
 
     def ask_for_metadata_from_user(self, missing_fields):
         """
@@ -2098,10 +2446,6 @@ class MicroLiveGUI(QMainWindow):
         # Set frame counts, all frame sliders, and frame labels to the active movie,
         # then reset the crop widget to the full range of the new movie.
         self._sync_active_frame_dimensions(T)
-        # LIF/CZI loading installs image_stack before total_frames is updated;
-        # explicitly initialize the new dataset's MSD fit range here so it
-        # cannot inherit the previous movie's slider value.
-        self._sync_msd_fit_points_slider(T, reset_value=True)
         self._sync_frame_range_widget_to_state()
         
         # Reset registration state when loading new image
@@ -6124,7 +6468,8 @@ class MicroLiveGUI(QMainWindow):
                 # Also clear photobleaching and tracking that depended on them
                 self.corrected_image = None
                 self.photobleaching_calculated = False
-                self._clear_all_tracking_data()
+                self.df_tracking = pd.DataFrame()
+                self.multi_channel_tracking_data = {}
                 self.tracked_channels = []
                 
                 QMessageBox.warning(
@@ -7441,7 +7786,10 @@ class MicroLiveGUI(QMainWindow):
         # Invalidate downstream calculations
         self.corrected_image = None
         self.photobleaching_calculated = False
-        self._clear_all_tracking_data()
+        if hasattr(self, 'df_tracking'):
+            self.df_tracking = pd.DataFrame()
+        if hasattr(self, 'multi_channel_tracking_data'):
+            self.multi_channel_tracking_data = {}
         
         # Clear edit state
         self.edit_undo_stack = []
@@ -8477,98 +8825,6 @@ class MicroLiveGUI(QMainWindow):
         image, _, _ = self._resolve_tracking_image_source()
         return image
 
-    def _render_threshold_histogram(self, intensity_values, threshold=None):
-        """Render the threshold histogram consistently before and after slider moves."""
-        intensity_values = np.asarray(intensity_values)
-        if intensity_values.size == 0:
-            return None
-
-        upper_limit = float(
-            np.percentile(intensity_values, THRESHOLD_HISTOGRAM_MAX_PERCENTILE)
-        )
-        if not np.isfinite(upper_limit) or upper_limit <= 0:
-            upper_limit = 1.0
-
-        unique_vals = np.unique(intensity_values)
-        bins_to_use = max(1, min(60, unique_vals.size))
-        threshold_value = None
-        if threshold is not None:
-            try:
-                threshold_value = float(threshold)
-                if not np.isfinite(threshold_value):
-                    threshold_value = None
-            except (TypeError, ValueError):
-                threshold_value = None
-
-        # Keep a selected threshold visible even when it is above the plotted
-        # percentile range, while keeping the histogram data range unclipped
-        # by the threshold control itself.
-        axis_upper = max(upper_limit, threshold_value or 0.0)
-        axis_upper *= 1.04
-
-        figure = self.figure_threshold_hist
-        axis = self.ax_threshold_hist
-        figure.patch.set_facecolor("#15161b")
-        axis.clear()
-        axis.set_axis_on()
-        axis.set_facecolor("#1c1d24")
-        axis.hist(
-            intensity_values,
-            bins=bins_to_use,
-            range=(0, upper_limit),
-            color="#c7f3ff",
-            edgecolor="#728391",
-            linewidth=0.35,
-            alpha=0.88,
-            zorder=2,
-        )
-        axis.set_xlim(0, axis_upper)
-        axis.set_yticks([])
-        axis.set_xlabel("Intensity", color="#a9adb8", fontsize=8, labelpad=2)
-        axis.tick_params(
-            axis="x", which="major", labelsize=8, colors="#c8ced8", length=3, pad=2
-        )
-        axis.spines["bottom"].set_color("#697386")
-        axis.spines["bottom"].set_linewidth(0.8)
-        for spine_name in ("top", "left", "right"):
-            axis.spines[spine_name].set_visible(False)
-        axis.grid(
-            axis="x", color="#758096", alpha=0.18, linestyle="--", linewidth=0.5, zorder=1
-        )
-        axis.set_axisbelow(True)
-        axis.text(
-            0.99,
-            0.9,
-            f"P{THRESHOLD_HISTOGRAM_MAX_PERCENTILE:g}: {upper_limit:.0f}",
-            transform=axis.transAxes,
-            ha="right",
-            va="top",
-            color="#a9adb8",
-            fontsize=8,
-        )
-
-        if threshold_value is not None:
-            axis.axvspan(
-                0,
-                min(max(threshold_value, 0.0), axis_upper),
-                color="#00d4aa",
-                alpha=0.08,
-                zorder=0,
-            )
-            axis.axvline(
-                threshold_value,
-                color="#ff684d",
-                linestyle="-",
-                linewidth=2,
-                zorder=4,
-            )
-
-        # Reserve space for the x-axis label on the initial render as well as
-        # on redraws caused by slider movement.
-        figure.subplots_adjust(left=0.035, right=0.985, top=0.96, bottom=0.29)
-        self.canvas_threshold_hist.draw_idle()
-        return upper_limit
-
     def update_threshold_histogram(self):
         if self.image_stack is None:
             self.ax_threshold_hist.clear()
@@ -8586,12 +8842,25 @@ class MicroLiveGUI(QMainWindow):
         intensity_values = intensity_values[intensity_values > 0]
         if len(intensity_values) == 0:
             return
-        selected_threshold = getattr(self, "user_selected_threshold", None)
-        upper_limit = self._render_threshold_histogram(
-            intensity_values, threshold=selected_threshold
+        lower_limit = 0
+        upper_limit = np.percentile(intensity_values, 99.5)
+        self.ax_threshold_hist.clear()
+        unique_vals = np.unique(intensity_values)
+        desired_bins = 60
+        bins_to_use = desired_bins if unique_vals.size >= desired_bins else unique_vals.size
+        self.ax_threshold_hist.hist(
+            intensity_values,
+            bins=bins_to_use,
+            range=(lower_limit, upper_limit),
+            color='aliceblue',
+            edgecolor='black'
         )
-        slider_min = 0
-        slider_max = max(slider_min + 1, int(np.ceil(upper_limit * 1.1)))
+        self.ax_threshold_hist.set_xlim(lower_limit, upper_limit)
+        self.ax_threshold_hist.set_yticks([])
+        self.ax_threshold_hist.grid(False)
+        self.ax_threshold_hist.tick_params(axis='both', which='major', labelsize=6)
+        slider_min = int(lower_limit)
+        slider_max = int(upper_limit * 1.1)
         self.threshold_slider.setMinimum(slider_min)
         self.threshold_slider.setMaximum(slider_max)
         if not hasattr(self, 'user_selected_threshold') or self.user_selected_threshold is None:
@@ -8599,6 +8868,9 @@ class MicroLiveGUI(QMainWindow):
             self.threshold_slider.blockSignals(True)
             self.threshold_slider.setValue(slider_min)
             self.threshold_slider.blockSignals(False)
+        else:
+            self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=3)
+        self.canvas_threshold_hist.draw_idle()
 
     def update_threshold_value(self, value):
         # Update the threshold value label
@@ -8615,11 +8887,6 @@ class MicroLiveGUI(QMainWindow):
         # Clear current channel's data when threshold changes
         # This discards previous tracking/detection for fresh analysis
         current_ch = self.current_channel
-        if (
-            current_ch in self.multi_channel_tracking_data
-            or current_ch in self.tracked_channels
-        ):
-            self._invalidate_msd_results(reset_fit_control=False)
         if current_ch in self.multi_channel_tracking_data:
             del self.multi_channel_tracking_data[current_ch]
         if current_ch in self.tracked_channels:
@@ -8642,6 +8909,7 @@ class MicroLiveGUI(QMainWindow):
         
         self.user_selected_threshold = value
         self.threshold_spot_detection = float(value)
+        self.ax_threshold_hist.clear()
         image_to_use = self.get_tracking_image_source()
         image_channel = image_to_use[self.current_frame, :, :, :, self.current_channel]
         mask_GUI = (self.active_mask > 0).astype(int) if self.active_mask is not None else np.ones(image_channel.shape[1:], dtype=image_channel.dtype)
@@ -8650,9 +8918,39 @@ class MicroLiveGUI(QMainWindow):
         intensity_values = intensity_values[intensity_values > 0]
         if len(intensity_values) == 0:
             return
-        self._render_threshold_histogram(
-            intensity_values, threshold=self.user_selected_threshold
+        unique_vals = np.unique(intensity_values)
+        desired_bins = 60
+        bins_to_use = desired_bins if unique_vals.size >= desired_bins else unique_vals.size
+        lower_limit = 0
+        upper_limit = np.percentile(intensity_values, 99.5)
+        
+        # Set figure background
+        self.figure_threshold_hist.patch.set_facecolor('#1a1a1a')
+        self.ax_threshold_hist.set_facecolor('#1a1a1a')
+        
+        self.ax_threshold_hist.hist(
+            intensity_values,
+            bins=bins_to_use,
+            range=(lower_limit, upper_limit),
+            color='aliceblue',
+            edgecolor='#333333'
         )
+        self.ax_threshold_hist.set_xlim(lower_limit, upper_limit)
+        self.ax_threshold_hist.set_yticks([])
+        self.ax_threshold_hist.grid(False)
+        
+        # Make x-axis ticks visible with white color
+        self.ax_threshold_hist.tick_params(axis='x', which='major', labelsize=8, colors='white', length=3)
+        self.ax_threshold_hist.spines['bottom'].set_color('white')
+        self.ax_threshold_hist.spines['top'].set_visible(False)
+        self.ax_threshold_hist.spines['left'].set_visible(False)
+        self.ax_threshold_hist.spines['right'].set_visible(False)
+        
+        self.ax_threshold_hist.axvline(self.user_selected_threshold, color='orangered', linestyle='-', lw=2)
+        
+        # Tight layout to ensure ticks are visible
+        self.figure_threshold_hist.tight_layout(pad=0.3)
+        self.canvas_threshold_hist.draw_idle()
         self.plot_tracking()  # Update display to clear old spots
         self.detect_spots_in_current_frame()
 
@@ -8872,9 +9170,14 @@ class MicroLiveGUI(QMainWindow):
     def update_max_spots_cluster(self, value):
         self.maximum_spots_cluster = value if value != 0 else None
 
-    def _on_tracking_mode_toggle_changed(self, state):
-        """Handle the compact mode switch: unchecked is 2D, checked is 3D."""
-        self._set_tracking_mode(is_2d=(state != Qt.Checked))
+    def update_use_maximum_projection(self, state):
+        self.use_maximum_projection = (state == Qt.Checked)
+        # Update legacy label
+        if hasattr(self, 'tracking_max_proj_status_label'):
+            self.tracking_max_proj_status_label.setText("2D Projection is ON" if self.use_maximum_projection else "2D Projection is OFF")
+        # Update new toggle buttons and status
+        self._update_tracking_mode_buttons()
+        self._update_tracking_mode_status()
 
     def update_max_range_search_pixels(self, value):
         self.maximum_range_search_pixels = value
@@ -8927,32 +9230,19 @@ class MicroLiveGUI(QMainWindow):
         self.use_fixed_threshold = checked
 
     def _set_tracking_mode(self, is_2d):
-        """Set the tracking mode and invalidate mode-dependent detection state."""
-        requested_is_2d = bool(is_2d)
-        z_dim = self.image_stack.shape[1] if self.image_stack is not None else 1
-        if not requested_is_2d and z_dim <= 1:
-            requested_is_2d = True
-
-        changed = self.use_maximum_projection != requested_is_2d
-        self.use_maximum_projection = requested_is_2d
-        self._sync_tracking_mode_toggle()
-        if not changed:
-            return
-
-        had_tracking_like_data = (
-            bool(getattr(self, 'multi_channel_tracking_data', {}))
-            or (
-                isinstance(getattr(self, 'df_tracking', None), pd.DataFrame)
-                and not self.df_tracking.empty
-            )
-            or getattr(self, 'msd_data', None) is not None
-        )
-        if had_tracking_like_data:
-            # A track generated in 2D is not valid after switching to 3D, and
-            # vice versa. Clear all dependent analyses while preserving the
-            # selected image source and the user's mode-independent settings.
-            self._clear_all_tracking_data()
-            self.reset_colocalization_tab()
+        """Set the tracking mode (2D projection or 3D volume) and update UI."""
+        self.use_maximum_projection = is_2d
+        # Sync with legacy checkbox
+        if hasattr(self, 'use_2d_projection_checkbox'):
+            self.use_2d_projection_checkbox.blockSignals(True)
+            self.use_2d_projection_checkbox.setChecked(is_2d)
+            self.use_2d_projection_checkbox.blockSignals(False)
+        # Update button styles and status
+        self._update_tracking_mode_buttons()
+        self._update_tracking_mode_status()
+        # Update legacy label if it exists
+        if hasattr(self, 'tracking_max_proj_status_label'):
+            self.tracking_max_proj_status_label.setText("2D Projection is ON" if is_2d else "2D Projection is OFF")
         
         # Reset threshold when switching modes (2D/3D use different algorithms)
         # The threshold calculated for 2D is not valid for 3D and vice versa
@@ -8977,25 +9267,145 @@ class MicroLiveGUI(QMainWindow):
         # Redraw tracking plot (will show no spots)
         self.plot_tracking()
 
-    def _sync_tracking_mode_toggle(self):
-        """Keep the compact mode switch synchronized with the tracking state."""
-        toggle = getattr(self, "tracking_mode_toggle", None)
-        if toggle is None:
-            return
-
+    def _update_tracking_mode_buttons(self):
+        """Update the visual state of 2D/3D toggle buttons."""
+        is_2d = self.use_maximum_projection
+        
+        # Check if 3D mode is even possible (need Z > 1)
         z_dim = self.image_stack.shape[1] if self.image_stack is not None else 1
-        if z_dim <= 1:
+        z_insufficient = (z_dim <= 1)
+        
+        # If Z=1 and user selected 3D, force back to 2D mode silently
+        if z_insufficient and not is_2d:
             self.use_maximum_projection = True
-
-        toggle.blockSignals(True)
-        toggle.setEnabled(z_dim > 1)
-        toggle.setText("2D" if self.use_maximum_projection else "3D")
-        toggle.setChecked(not self.use_maximum_projection)
-        toggle.blockSignals(False)
-        if z_dim <= 1:
-            toggle.setToolTip("Only 2D projection is available for single-plane images")
+            is_2d = True
+        
+        # Common styles
+        base_style = """
+            QPushButton {{
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 16px;
+                border: 2px solid {border_color};
+                {border_radius}
+                background-color: {bg_color};
+                color: {text_color};
+            }}
+            QPushButton:hover {{
+                background-color: {hover_color};
+            }}
+            QPushButton:disabled {{
+                background-color: #1a1a1a;
+                color: #444444;
+                border-color: #333333;
+            }}
+        """
+        
+        # 3D button (left side, rounded left corners)
+        if is_2d:
+            # 3D is inactive
+            style_3d = base_style.format(
+                border_color="#555555",
+                border_radius="border-top-left-radius: 6px; border-bottom-left-radius: 6px;",
+                bg_color="#2a2a2a",
+                text_color="#888888",
+                hover_color="#3a3a3a"
+            )
         else:
-            toggle.setToolTip("Off: 2D maximum projection\nOn: 3D volume processing")
+            # 3D is active
+            style_3d = base_style.format(
+                border_color="#9b59b6",
+                border_radius="border-top-left-radius: 6px; border-bottom-left-radius: 6px;",
+                bg_color="#9b59b6",
+                text_color="#ffffff",
+                hover_color="#a569bd"
+            )
+        
+        # 2D button (right side, rounded right corners)
+        if is_2d:
+            # 2D is active
+            style_2d = base_style.format(
+                border_color="#00d4aa",
+                border_radius="border-top-right-radius: 6px; border-bottom-right-radius: 6px;",
+                bg_color="#00d4aa",
+                text_color="#000000",
+                hover_color="#00e5b8"
+            )
+        else:
+            # 2D is inactive
+            style_2d = base_style.format(
+                border_color="#555555",
+                border_radius="border-top-right-radius: 6px; border-bottom-right-radius: 6px;",
+                bg_color="#2a2a2a",
+                text_color="#888888",
+                hover_color="#3a3a3a"
+            )
+        
+        if hasattr(self, 'btn_mode_3d'):
+            self.btn_mode_3d.setStyleSheet(style_3d)
+            self.btn_mode_3d.setChecked(not is_2d)
+            # Disable 3D button if Z=1 (3D tracking impossible)
+            self.btn_mode_3d.setEnabled(not z_insufficient)
+        if hasattr(self, 'btn_mode_2d'):
+            self.btn_mode_2d.setStyleSheet(style_2d)
+            self.btn_mode_2d.setChecked(is_2d)
+
+    def _update_tracking_mode_status(self):
+        """Update the status indicator showing current tracking mode details."""
+        is_2d = self.use_maximum_projection
+        
+        # Check if 3D mode is even possible (need Z > 1)
+        z_dim = self.image_stack.shape[1] if self.image_stack is not None else 1
+        z_insufficient = (z_dim <= 1)
+        
+        if z_insufficient:
+            # Single Z-plane: 3D is not available
+            status_html = """
+                <div style='text-align: center; padding: 6px;'>
+                    <span style='color: #f39c12; font-size: 14px; font-weight: bold;'>
+                        ⚠ 2D MODE (Single Z-plane)
+                    </span><br/>
+                    <span style='color: #aaaaaa; font-size: 11px;'>
+                        Image has only 1 Z-plane; 3D detection unavailable
+                    </span>
+                </div>
+            """
+            border_color = "#f39c12"
+        elif is_2d:
+            status_html = """
+                <div style='text-align: center; padding: 6px;'>
+                    <span style='color: #00d4aa; font-size: 14px; font-weight: bold;'>
+                        ✓ 2D PROJECTION MODE
+                    </span><br/>
+                    <span style='color: #aaaaaa; font-size: 11px;'>
+                        Fast detection using maximum Z-projection (Trackpy)
+                    </span>
+                </div>
+            """
+            border_color = "#00d4aa"
+        else:
+            status_html = """
+                <div style='text-align: center; padding: 6px;'>
+                    <span style='color: #9b59b6; font-size: 14px; font-weight: bold;'>
+                        ✓ 3D VOLUME MODE
+                    </span><br/>
+                    <span style='color: #aaaaaa; font-size: 11px;'>
+                        Full 3D detection across all Z-planes (Big-FISH)
+                    </span>
+                </div>
+            """
+            border_color = "#9b59b6"
+        
+        if hasattr(self, 'tracking_mode_status'):
+            self.tracking_mode_status.setText(status_html)
+            self.tracking_mode_status.setStyleSheet(f"""
+                QLabel {{
+                    background-color: rgba(40, 40, 40, 0.8);
+                    border: 2px solid {border_color};
+                    border-radius: 6px;
+                    padding: 4px;
+                }}
+            """)
 
     def detect_spots_all_frames(self):
         """Run spot detection across all frames for the active channel."""
@@ -9113,12 +9523,6 @@ class MicroLiveGUI(QMainWindow):
                     return
                 self._clear_all_tracking_data()
             
-            if (
-                self.current_channel in self.tracked_channels
-                and self.tracking_msd_channel == self.current_channel
-            ):
-                self._invalidate_msd_results(reset_fit_control=False)
-
             # Store in multi-channel tracking data (replaces any previous for this channel)
             self.multi_channel_tracking_data[self.current_channel] = df_detected.copy()
             
@@ -9553,6 +9957,11 @@ class MicroLiveGUI(QMainWindow):
         # Store ROI
         self.tracking_zoom_roi = (x_min, x_max, y_min, y_max)
         
+        # Update label
+        if hasattr(self, 'tracking_zoom_label'):
+            self.tracking_zoom_label.setText(f"🔍 ROI: X[{int(x_min)}:{int(x_max)}] Y[{int(y_min)}:{int(y_max)}]")
+            self.tracking_zoom_label.setStyleSheet("color: #00d4aa; font-size: 10px; font-weight: bold;")
+        
         # Redraw with zoom
         self.plot_tracking()
 
@@ -9564,6 +9973,11 @@ class MicroLiveGUI(QMainWindow):
     def _reset_tracking_zoom(self):
         """Reset zoom to show full image."""
         self.tracking_zoom_roi = None
+        
+        # Update label
+        if hasattr(self, 'tracking_zoom_label'):
+            self.tracking_zoom_label.setText("🔍 Full View")
+            self.tracking_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
         
         # Redraw without zoom
         self.plot_tracking()
@@ -10087,17 +10501,6 @@ class MicroLiveGUI(QMainWindow):
                 f"Photobleaching-corrected image is unavailable; using {tracking_source_actual.replace('_', ' ')} image for spot preview.",
                 6000,
             )
-        if (
-            not self.multi_channel_tracking_data
-            and (
-                (
-                    isinstance(getattr(self, 'df_tracking', None), pd.DataFrame)
-                    and not self.df_tracking.empty
-                )
-                or getattr(self, 'msd_data', None) is not None
-            )
-        ):
-            self._invalidate_msd_results(reset_fit_control=False)
         image_channel = np.expand_dims(image_to_use[self.current_frame, :, :, :, self.current_channel], axis=3)
         list_voxels = self._get_validated_voxels()
         threshold = self.user_selected_threshold if hasattr(self, 'user_selected_threshold') and self.user_selected_threshold is not None else np.percentile(image_channel, 99)
@@ -10374,11 +10777,10 @@ class MicroLiveGUI(QMainWindow):
                     cb.setChecked(idx == 0)
             
             # MSD calculation is now performed only in the dedicated MSD tab
-            # Clear all result and provenance fields after tracking changes.
-            self._invalidate_msd_results(
-                reset_fit_control=False,
-                clear_channel_selection=False,
-            )
+            # Clear any previously stored MSD values from tracking
+            self.tracking_D_um2_s = None
+            self.tracking_D_px2_s = None
+            self.tracking_msd_mode = None
 
         except Exception as e:
             QMessageBox.critical(
@@ -10491,7 +10893,6 @@ class MicroLiveGUI(QMainWindow):
                     channel = sorted(self.tracked_channels)[current_item]
         
         if channel is not None and channel in self.tracked_channels:
-            msd_channel = getattr(self, 'tracking_msd_channel', None)
             # Remove from all data structures
             self.tracked_channels.remove(channel)
             if channel in self.multi_channel_tracking_data:
@@ -10516,18 +10917,11 @@ class MicroLiveGUI(QMainWindow):
                     self._last_tracking_run_source_info = {}
                 if hasattr(self, '_last_tracking_run_channel'):
                     self._last_tracking_run_channel = None
-            if msd_channel == channel or (
-                msd_channel is not None and msd_channel not in self.tracked_channels
-            ):
-                self._invalidate_msd_results(reset_fit_control=False)
-            else:
-                self._sync_msd_tracking_channel_combo()
             self._update_tracked_channels_list()
             self.plot_tracking()
 
     def clear_all_tracking(self):
         """Clear all tracking data for all channels."""
-        self._invalidate_msd_results(reset_fit_control=False)
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
@@ -10551,7 +10945,6 @@ class MicroLiveGUI(QMainWindow):
 
     def _clear_all_tracking_data(self):
         """Internal method to clear all tracking data without refreshing the plot."""
-        self._invalidate_msd_results(reset_fit_control=False)
         self.multi_channel_tracking_data = {}
         self.tracked_channels = []
         self.tracking_thresholds = {}
@@ -10584,6 +10977,7 @@ class MicroLiveGUI(QMainWindow):
             • Display options checkboxes for trajectories, cluster size, particle IDs, timestamp, and background removal.  
         - Right panel (scrollable):
             • “Tracking Parameters” header.  
+            • 2D projection toggle with status label.  
             • Source selection combo (Original vs. Photobleaching Corrected) with styled text.  
             • Threshold histogram canvas and slider for interactive thresholding.  
             • Spot detection & tracking action buttons: “Single Frame,” “All Frames,” and “Tracking.” 
@@ -10690,33 +11084,23 @@ class MicroLiveGUI(QMainWindow):
         )
         spin_layout.addWidget(QLabel("Max Int", self))
         spin_layout.addWidget(self.max_percentile_spinbox_tracking)
-
-        # Compact 2D/3D mode switch. Off means 2D maximum projection (the
-        # default); on means full 3D volume processing. Keep it beside the
-        # intensity controls so it does not consume parameter-panel space.
-        spin_layout.addStretch(1)
-        mode_label = QLabel("Mode", self)
-        mode_label.setObjectName("trackingModeLabel")
-        self.tracking_mode_toggle = QCheckBox(
-            "2D" if self.use_maximum_projection else "3D", self
-        )
-        self.tracking_mode_toggle.setObjectName("trackingModeToggle")
-        self.tracking_mode_toggle.setMinimumSize(84, 26)
-        self.tracking_mode_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.tracking_mode_toggle.setChecked(not self.use_maximum_projection)
-        self.tracking_mode_toggle.setToolTip(
-            "Off: 2D maximum projection\nOn: 3D volume processing"
-        )
-        self.tracking_mode_toggle.setAccessibleName(
-            "Tracking mode toggle: off is 2D projection and on is 3D volume"
-        )
-        self.tracking_mode_toggle.stateChanged.connect(
-            self._on_tracking_mode_toggle_changed
-        )
-        spin_layout.addWidget(mode_label)
-        spin_layout.addWidget(self.tracking_mode_toggle)
         tracking_left_layout.addLayout(spin_layout)
-
+        
+        # Zoom ROI status label and instructions
+        zoom_info_layout = QHBoxLayout()
+        zoom_info_layout.setContentsMargins(0, 2, 0, 2)
+        
+        self.tracking_zoom_label = QLabel("🔍 Full View")
+        self.tracking_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
+        zoom_info_layout.addWidget(self.tracking_zoom_label)
+        
+        zoom_info_layout.addStretch()
+        
+        zoom_hint_label = QLabel("Click-drag to zoom, Double-click to reset")
+        zoom_hint_label.setStyleSheet("color: #555555; font-size: 9px; font-style: italic;")
+        zoom_info_layout.addWidget(zoom_hint_label)
+        
+        tracking_left_layout.addLayout(zoom_info_layout)
         # Channel buttons horizontally
         self.channel_buttons_tracking = []
         self.channel_buttons_layout_tracking = QHBoxLayout()
@@ -10803,13 +11187,65 @@ class MicroLiveGUI(QMainWindow):
         scroll.setWidget(right_container)
         tracking_right_main_layout = QVBoxLayout(right_container)
         tracking_right_layout.addWidget(scroll)
-        # Group 1: Source & Threshold. The panel itself provides the context;
-        # omit the large group title to preserve vertical space for controls.
-        source_threshold_group = QGroupBox()
-        source_threshold_group.setObjectName("trackingSourceGroup")
+        # Title
+        parameters_label = QLabel("Tracking Parameters")
+        tracking_right_main_layout.addWidget(parameters_label)
+        
+        # ========== Enhanced 2D/3D Mode Toggle Section ==========
+        mode_group = QGroupBox("Tracking Mode")
+        mode_main_layout = QVBoxLayout(mode_group)
+        mode_main_layout.setSpacing(8)
+        
+        # Segmented toggle button container
+        toggle_container = QWidget()
+        toggle_layout = QHBoxLayout(toggle_container)
+        toggle_layout.setContentsMargins(0, 0, 0, 0)
+        toggle_layout.setSpacing(0)
+        
+        # Create 3D button (left side)
+        self.btn_mode_3d = QPushButton("📦 3D Volume")
+        self.btn_mode_3d.setCheckable(True)
+        self.btn_mode_3d.setMinimumHeight(36)
+        self.btn_mode_3d.setCursor(Qt.PointingHandCursor)
+        
+        # Create 2D button (right side)
+        self.btn_mode_2d = QPushButton("🔲 2D Projection")
+        self.btn_mode_2d.setCheckable(True)
+        self.btn_mode_2d.setMinimumHeight(36)
+        self.btn_mode_2d.setCursor(Qt.PointingHandCursor)
+        
+        toggle_layout.addWidget(self.btn_mode_3d)
+        toggle_layout.addWidget(self.btn_mode_2d)
+        
+        # Style for the toggle buttons
+        self._update_tracking_mode_buttons()
+        
+        # Connect buttons (exclusive selection)
+        self.btn_mode_2d.clicked.connect(lambda: self._set_tracking_mode(is_2d=True))
+        self.btn_mode_3d.clicked.connect(lambda: self._set_tracking_mode(is_2d=False))
+        
+        mode_main_layout.addWidget(toggle_container)
+        
+        # Keep legacy checkbox hidden but functional for compatibility
+        self.use_2d_projection_checkbox = QCheckBox("Use 2D Projection for Tracking")
+        self.use_2d_projection_checkbox.setChecked(self.use_maximum_projection)
+        self.use_2d_projection_checkbox.stateChanged.connect(self.update_use_maximum_projection)
+        self.use_2d_projection_checkbox.setVisible(False)  # Hidden, new UI handles this
+        mode_main_layout.addWidget(self.use_2d_projection_checkbox)
+        
+        # Hidden legacy label (kept for compatibility)
+        self.tracking_max_proj_status_label = QLabel()
+        self.tracking_max_proj_status_label.setVisible(False)
+        mode_main_layout.addWidget(self.tracking_max_proj_status_label)
+        
+        # Create hidden status label for compatibility (not displayed)
+        self.tracking_mode_status = QLabel()
+        self.tracking_mode_status.setVisible(False)
+        
+        tracking_right_main_layout.addWidget(mode_group)
+        # Group 1: Source & Threshold
+        source_threshold_group = QGroupBox("Source (Select Raw Image or Photobleaching Corrected)")
         source_threshold_layout = QVBoxLayout(source_threshold_group)
-        source_threshold_layout.setContentsMargins(8, 5, 8, 6)
-        source_threshold_layout.setSpacing(4)
         tracking_right_main_layout.addWidget(source_threshold_group)
         # Image Source
         source_threshold_layout.addWidget(QLabel("Image Source:"))
@@ -10820,20 +11256,19 @@ class MicroLiveGUI(QMainWindow):
         self.image_source_combo.setCurrentIndex(0)
         self.image_source_combo.currentIndexChanged.connect(self.on_image_source_changed)
         source_threshold_layout.addWidget(self.image_source_combo)
-        # Threshold histogram without a redundant nested title.
-        threshold_group = QGroupBox()
-        threshold_group.setObjectName("trackingThresholdGroup")
+        # Threshold Selection & Histogram
+        threshold_group = QGroupBox("Threshold Selection")
         threshold_layout = QVBoxLayout(threshold_group)
         threshold_layout.setSpacing(4)
-        threshold_layout.setContentsMargins(6, 4, 6, 4)
+        threshold_layout.setContentsMargins(6, 6, 6, 6)
         source_threshold_layout.addWidget(threshold_group)
         
         # Histogram - reduced height for compact UI
         self.figure_threshold_hist, self.ax_threshold_hist = plt.subplots(figsize=(6, 0.8))
         self.canvas_threshold_hist = FigureCanvas(self.figure_threshold_hist)
         self.canvas_threshold_hist.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.canvas_threshold_hist.setMaximumHeight(160)
-        self.canvas_threshold_hist.setMinimumHeight(116)
+        self.canvas_threshold_hist.setMaximumHeight(140)
+        self.canvas_threshold_hist.setMinimumHeight(100)
         # Initialize threshold histogram as blank black panel
         self.figure_threshold_hist.clear()
         self.ax_threshold_hist = self.figure_threshold_hist.add_subplot(111)
@@ -10845,24 +11280,21 @@ class MicroLiveGUI(QMainWindow):
         # Instructional label with threshold value
         slider_instruction_container = QWidget()
         slider_instruction_layout = QHBoxLayout(slider_instruction_container)
-        slider_instruction_layout.setContentsMargins(0, 4, 0, 2)
-        slider_instruction_layout.setSpacing(6)
+        slider_instruction_layout.setContentsMargins(0, 2, 0, 0)
+        slider_instruction_layout.setSpacing(4)
         
         instruction_label = QLabel("◀ Drag to set threshold ▶")
         instruction_label.setStyleSheet("color: #888888; font-size: 10px;")
-        instruction_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        instruction_label.setMinimumWidth(0)
-        # Use the same stretch-based sizing pattern as the main workspace tab bar:
-        # the hint can yield space while the action buttons remain readable.
-        slider_instruction_layout.addWidget(instruction_label, 2)
+        slider_instruction_layout.addWidget(instruction_label)
+        
+        slider_instruction_layout.addStretch()
         
         # Fixed-threshold toggle button (light gray, before Auto)
         self.fixed_threshold_btn = QPushButton("Fixed")
         self.fixed_threshold_btn.setCheckable(True)
         self.fixed_threshold_btn.setChecked(False)
-        self.fixed_threshold_btn.setMinimumSize(72, 30)
-        self.fixed_threshold_btn.setMaximumHeight(30)
-        self.fixed_threshold_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.fixed_threshold_btn.setFixedWidth(45)
+        self.fixed_threshold_btn.setFixedHeight(20)
         self.fixed_threshold_btn.setToolTip(
             "Use threshold from first frame for all frames.\n"
             "Recommended for experiments where signal decreases\n"
@@ -10876,7 +11308,7 @@ class MicroLiveGUI(QMainWindow):
                 border-radius: 3px;
                 font-size: 10px;
                 font-weight: bold;
-                padding: 2px 8px;
+                padding: 2px 6px;
             }
             QPushButton:hover {
                 background-color: #999999;
@@ -10890,13 +11322,12 @@ class MicroLiveGUI(QMainWindow):
             }
         """)
         self.fixed_threshold_btn.toggled.connect(self.update_use_fixed_threshold)
-        slider_instruction_layout.addWidget(self.fixed_threshold_btn, 1)
+        slider_instruction_layout.addWidget(self.fixed_threshold_btn)
 
         # Auto-threshold button (compact, matching slider color)
         self.auto_threshold_btn = QPushButton("Auto")
-        self.auto_threshold_btn.setMinimumSize(72, 30)
-        self.auto_threshold_btn.setMaximumHeight(30)
-        self.auto_threshold_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.auto_threshold_btn.setFixedWidth(45)
+        self.auto_threshold_btn.setFixedHeight(20)
         self.auto_threshold_btn.setToolTip(
             "Auto-detect optimal threshold\\n"
             "(averages across beginning, middle, and end frames)"
@@ -10909,7 +11340,7 @@ class MicroLiveGUI(QMainWindow):
                 border-radius: 3px;
                 font-size: 10px;
                 font-weight: bold;
-                padding: 2px 8px;
+                padding: 2px 6px;
             }
             QPushButton:hover {
                 background-color: #00e5bb;
@@ -10919,13 +11350,11 @@ class MicroLiveGUI(QMainWindow):
             }
         """)
         self.auto_threshold_btn.clicked.connect(self.on_auto_threshold_clicked)
-        slider_instruction_layout.addWidget(self.auto_threshold_btn, 1)
+        slider_instruction_layout.addWidget(self.auto_threshold_btn)
         
         self.threshold_value_label = QLabel("Value: --")
-        self.threshold_value_label.setMinimumWidth(76)
-        self.threshold_value_label.setAlignment(Qt.AlignCenter)
         self.threshold_value_label.setStyleSheet("color: #00d4aa; font-size: 11px; font-weight: bold;")
-        slider_instruction_layout.addWidget(self.threshold_value_label, 1)
+        slider_instruction_layout.addWidget(self.threshold_value_label)
         
         threshold_layout.addWidget(slider_instruction_container)
         
@@ -10961,12 +11390,9 @@ class MicroLiveGUI(QMainWindow):
         """)
         self.threshold_slider.valueChanged.connect(self.update_threshold_value)
         threshold_layout.addWidget(self.threshold_slider)
-        # Compact action group; the three buttons describe their own actions.
-        spot_det_track_group = QGroupBox()
-        spot_det_track_group.setObjectName("trackingActionGroup")
+        # Create a new group box for Spot Detection and Tracking
+        spot_det_track_group = QGroupBox("Spot Detection and Tracking")
         spot_det_track_layout = QHBoxLayout(spot_det_track_group)
-        spot_det_track_layout.setContentsMargins(8, 5, 8, 5)
-        spot_det_track_layout.setSpacing(6)
         # Button for detecting spots in current frame, renamed "Frame"
         self.detect_spots_button = QPushButton("Single Frame", self)
         self.detect_spots_button.clicked.connect(self.detect_spots_in_current_frame)
@@ -10981,13 +11407,9 @@ class MicroLiveGUI(QMainWindow):
         spot_det_track_layout.addWidget(self.tracking_button)
         source_threshold_layout.addWidget(spot_det_track_group)
         
-        # Group 2: Detection & Linking Parameters (combined). The form follows
-        # directly after the action row, so a title is unnecessary here.
-        params_group = QGroupBox()
-        params_group.setObjectName("trackingParametersGroup")
+        # Group 2: Detection & Linking Parameters (combined)
+        params_group = QGroupBox("Detection & Linking Parameters")
         params_layout = QFormLayout(params_group)
-        params_layout.setContentsMargins(8, 5, 8, 6)
-        params_layout.setVerticalSpacing(5)
         tracking_right_main_layout.addWidget(params_group)
         
         # Min length
@@ -11049,6 +11471,11 @@ class MicroLiveGUI(QMainWindow):
         multi_channel_layout.setSpacing(4)
         multi_channel_layout.setContentsMargins(6, 6, 6, 6)
         tracking_right_main_layout.addWidget(multi_channel_group)
+        
+        # Info label
+        tracked_info_label = QLabel("Run tracking in each channel to add:")
+        tracked_info_label.setStyleSheet("color: #888888; font-size: 10px;")
+        multi_channel_layout.addWidget(tracked_info_label)
         
         # List widget to show tracked channels
         self.tracked_channels_list = QListWidget()
@@ -15875,7 +16302,7 @@ class MicroLiveGUI(QMainWindow):
         
         Layout:
         - Left panel: MSD plot canvas with log-log toggle and export buttons
-        - Right panel: Parameters (fit-lag-point slider) and results display
+        - Right panel: Parameters (max_fit_points, 3D checkbox) and results display
         """
         msd_main_layout = QHBoxLayout(self.msd_tab)
         
@@ -15937,32 +16364,11 @@ class MicroLiveGUI(QMainWindow):
         params_group = QGroupBox("MSD Parameters")
         params_layout = QFormLayout()
         
-        # Number of MSD lag points used for the linear fit.  A three-frame
-        # trajectory yields two valid lag points, so the minimum is two.
-        fit_frames_layout = QHBoxLayout()
-        fit_frames_layout.setContentsMargins(0, 0, 0, 0)
-        self.msd_fit_points_slider = QSlider(Qt.Horizontal)
-        self.msd_fit_points_slider.setObjectName("msdFitPointsSlider")
-        self.msd_fit_points_slider.setRange(2, 2)
-        self.msd_fit_points_slider.setValue(2)
-        self.msd_fit_points_slider.setPageStep(1)
-        self.msd_fit_points_slider.setToolTip(
-            "Number of MSD lag points used for the linear fit."
-        )
-        self.msd_fit_points_slider.valueChanged.connect(self._on_msd_fit_points_changed)
-        fit_frames_layout.addWidget(self.msd_fit_points_slider, 1)
-
-        self.msd_fit_points_value_label = QLabel("2 lag points")
-        self.msd_fit_points_value_label.setObjectName("msdFitPointsValue")
-        self.msd_fit_points_value_label.setMinimumWidth(62)
-        self.msd_fit_points_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        fit_frames_layout.addWidget(self.msd_fit_points_value_label)
-        params_layout.addRow("Fit lag points:", fit_frames_layout)
-
-        self.msd_fit_points_range_label = QLabel("Requires at least 3 tracked frames")
-        self.msd_fit_points_range_label.setObjectName("msdFitPointsRange")
-        self.msd_fit_points_range_label.setStyleSheet("color: gray; font-style: italic;")
-        params_layout.addRow(self.msd_fit_points_range_label)
+        # Number of points to fit (defaults to half of lag points)
+        self.msd_fit_points_spinbox = QSpinBox()
+        self.msd_fit_points_spinbox.setRange(2, 1000)
+        self.msd_fit_points_spinbox.setValue(20)
+        params_layout.addRow("Fit Points:", self.msd_fit_points_spinbox)
         
         # Mode indicator (auto-detected)
         self.msd_mode_label = QLabel("Mode: Auto-detect")
@@ -16005,76 +16411,6 @@ class MicroLiveGUI(QMainWindow):
         # Initialize MSD data storage
         self.msd_data = None
         self.msd_per_trajectory = None
-
-        self._sync_msd_fit_points_slider(0, reset_value=True)
-
-    def _msd_has_usable_tracking_data(self):
-        """Return whether a slider-triggered MSD refresh can run without warnings."""
-        df_tracking = getattr(self, 'df_tracking', None)
-        if df_tracking is None or df_tracking.empty:
-            return False
-
-        combo = getattr(self, 'msd_tracking_channel_combo', None)
-        if combo is None:
-            return True
-        tracking_channel = combo.currentData()
-        if tracking_channel == -1:
-            return False
-        if tracking_channel is not None and 'spot_type' in df_tracking.columns:
-            return not df_tracking[df_tracking['spot_type'] == tracking_channel].empty
-        return True
-
-    def _sync_msd_tracking_channel_combo(self):
-        """Rebuild the MSD channel selector from the current tracking data."""
-        combo = getattr(self, 'msd_tracking_channel_combo', None)
-        if combo is None:
-            return
-
-        selected_channel = getattr(self, 'tracking_msd_channel', None)
-        combo.blockSignals(True)
-        combo.clear()
-        if self.tracked_channels:
-            channels = sorted(self.tracked_channels)
-        elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
-            channels = sorted(self.df_tracking['spot_type'].unique())
-        else:
-            channels = []
-
-        if channels:
-            for channel in channels:
-                combo.addItem(f"Ch {channel}", channel)
-            if selected_channel in channels:
-                combo.setCurrentIndex(channels.index(selected_channel))
-        else:
-            combo.addItem("No tracked channels", -1)
-        combo.blockSignals(False)
-
-    def _on_msd_fit_points_changed(self, value):
-        """Update the fit setting and recalculate MSD while the user moves the slider."""
-        value = int(value)
-        if hasattr(self, 'msd_fit_points_value_label'):
-            self.msd_fit_points_value_label.setText(f"{value} lag points")
-
-        # Programmatic range synchronization blocks slider signals, so this
-        # path is reserved for user interaction. Recalculate immediately when
-        # the selected channel has usable tracking data.
-        if (
-            getattr(self, 'total_frames', 0) < 3
-            or not self._msd_has_usable_tracking_data()
-            or getattr(self, '_msd_auto_refresh_in_progress', False)
-        ):
-            return
-
-        self._msd_auto_refresh_in_progress = True
-        try:
-            if getattr(self, 'msd_data', None) is not None:
-                self.reset_msd_tab(
-                    reset_fit_control=False,
-                    clear_channel_selection=False,
-                )
-            self.calculate_msd_from_gui()
-        finally:
-            self._msd_auto_refresh_in_progress = False
 
     
     def setup_tracking_visualization_tab(self):
@@ -16365,15 +16701,6 @@ class MicroLiveGUI(QMainWindow):
             self.user_comment_textedit.setText(preset)
             self.user_comment_textedit.setEnabled(False)
 
-    @staticmethod
-    def _export_checkbox_from_cell(cell_widget):
-        """Return the selected checkbox from a direct or wrapped table cell widget."""
-        if isinstance(cell_widget, QCheckBox):
-            return cell_widget
-        if cell_widget is None:
-            return None
-        return cell_widget.findChild(QCheckBox)
-
     def export_selected_items(self):
         """Export user-selected data items (images, masks, tracks, plots) to disk."""
         options = QFileDialog.Options()
@@ -16394,10 +16721,8 @@ class MicroLiveGUI(QMainWindow):
             if label_item is None:
                 continue
             label_text = label_item.text()
-            checkbox_widget = self._export_checkbox_from_cell(
-                self.export_table.cellWidget(row, 1)
-            )
-            if checkbox_widget is None:
+            checkbox_widget = self.export_table.cellWidget(row, 1)
+            if not checkbox_widget or not isinstance(checkbox_widget, QCheckBox):
                 continue
             if checkbox_widget.isChecked():
                 # The user wants to export this item
@@ -17129,15 +17454,6 @@ class MicroLiveGUI(QMainWindow):
             tracking_D_px2_s=getattr(self, 'tracking_D_px2_s', None),
             tracking_msd_mode=getattr(self, 'tracking_msd_mode', None),
             tracking_msd_channel=getattr(self, 'tracking_msd_channel', None),
-            tracking_msd_fit_points_requested=getattr(self, 'tracking_msd_fit_points_requested', None),
-            tracking_msd_fit_points_used=getattr(self, 'tracking_msd_fit_points_used', None),
-            tracking_msd_fit_lag_start_s=getattr(self, 'tracking_msd_fit_lag_start_s', None),
-            tracking_msd_fit_lag_end_s=getattr(self, 'tracking_msd_fit_lag_end_s', None),
-            tracking_msd_display_D_um2_s=getattr(self, 'tracking_msd_display_D_um2_s', None),
-            tracking_msd_display_D_px2_s=getattr(self, 'tracking_msd_display_D_px2_s', None),
-            tracking_msd_display_D_std_um2_s=getattr(self, 'tracking_msd_display_D_std_um2_s', None),
-            tracking_msd_display_D_std_px2_s=getattr(self, 'tracking_msd_display_D_std_px2_s', None),
-            tracking_msd_summary_method=getattr(self, 'tracking_msd_summary_method', None),
             
             file_path=file_path,
             
@@ -18048,20 +18364,18 @@ class MicroLiveGUI(QMainWindow):
         if hasattr(self, 'fixed_threshold_btn'):
             self.use_fixed_threshold = False
             self.fixed_threshold_btn.setChecked(False)
-        # Keep the compact 2D/3D mode switch synchronized with the image Z-depth.
-        self._sync_tracking_mode_toggle()
+        # Update 2D/3D mode toggle buttons to reflect current state
+        if hasattr(self, 'btn_mode_2d') and hasattr(self, 'btn_mode_3d'):
+            self._update_tracking_mode_buttons()
+            self._update_tracking_mode_status()
         
         # Reset zoom ROI
         self.tracking_zoom_roi = None
+        if hasattr(self, 'tracking_zoom_label'):
+            self.tracking_zoom_label.setText("🔍 Full View")
+            self.tracking_zoom_label.setStyleSheet("color: #888888; font-size: 10px;")
 
-    def _invalidate_msd_results(self, reset_fit_control=False, clear_channel_selection=True):
-        """Clear MSD results after their tracking input has changed."""
-        self.reset_msd_tab(
-            reset_fit_control=reset_fit_control,
-            clear_channel_selection=clear_channel_selection,
-        )
-
-    def reset_msd_tab(self, reset_fit_control=True, clear_channel_selection=True):
+    def reset_msd_tab(self):
         """Reset the MSD tab to its initial state."""
         if hasattr(self, 'figure_msd'):
             self.figure_msd.clear()
@@ -18089,52 +18403,29 @@ class MicroLiveGUI(QMainWindow):
             self.msd_mode_label.setText("Mode: Auto-detect")
             self.msd_mode_label.setStyleSheet("color: gray; font-style: italic;")
         
-        # Reset the fit-point slider when the image or tracking dataset is
-        # replaced. Crop invalidation passes False so the current selection is
-        # retained and only clamped by _sync_active_frame_dimensions.
-        if reset_fit_control and hasattr(self, 'msd_fit_points_slider'):
-            frame_count = (
-                getattr(self, 'total_frames', 0)
-                if getattr(self, 'image_stack', None) is not None
-                else 0
-            )
-            self._sync_msd_fit_points_slider(frame_count, reset_value=True)
-
-        if clear_channel_selection and hasattr(self, 'msd_tracking_channel_combo'):
-            self.msd_tracking_channel_combo.clear()
-            self.msd_tracking_channel_combo.addItem("No tracked channels", -1)
+        # Reset fit points spinbox to default
+        if hasattr(self, 'msd_fit_points_spinbox'):
+            self.msd_fit_points_spinbox.setValue(20)
         
         self.msd_data = None
         self.msd_per_trajectory = None
-        self.msd_per_cell = None
         
         # Also reset tracking D values for metadata consistency
         self.tracking_D_um2_s = None
         self.tracking_D_px2_s = None
         self.tracking_msd_mode = None
         self.tracking_msd_channel = None
-        self.tracking_msd_fit_points_requested = None
-        self.tracking_msd_fit_points_used = None
-        self.tracking_msd_fit_lag_start_s = None
-        self.tracking_msd_fit_lag_end_s = None
-        self.tracking_msd_display_D_um2_s = None
-        self.tracking_msd_display_D_px2_s = None
-        self.tracking_msd_display_D_std_um2_s = None
-        self.tracking_msd_display_D_std_px2_s = None
-        self.tracking_msd_summary_method = None
 
 
     def calculate_msd_from_gui(self):
         """Calculate MSD using tracked particle data from the Tracking tab."""
         
-        # Keep the calculation path guarded as well as the UI control. The
-        # calculation requires three frames, and the button can also be triggered
-        # programmatically or by a queued Qt click.
-        if getattr(self, 'total_frames', 0) < 3:
+        # Check for single-frame images (MSD requires at least 2 time points)
+        if getattr(self, 'total_frames', 0) < 2:
             QMessageBox.warning(self, "Insufficient Data", 
-                "MSD analysis requires at least 3 frames.\n\n"
-                "The current image does not contain enough frames to measure "
-                "particle movement over time.")
+                "MSD analysis requires at least 2 time points.\n\n"
+                "Current image has only 1 frame. MSD measures how particles "
+                "move over time, which requires multiple frames.")
             return
         
         # Check if tracking data exists
@@ -18180,7 +18471,7 @@ class MicroLiveGUI(QMainWindow):
             self.msd_mode_label.setText(f"Mode: {mode_text}")
             self.msd_mode_label.setStyleSheet("color: lime; font-weight: bold;" if is_3d else "color: cyan; font-weight: bold;")
             
-            max_fit_points = self.msd_fit_points_slider.value()
+            max_fit_points = self.msd_fit_points_spinbox.value()
             
             # Get metadata - convert voxel_yx_nm (nanometers) to microns
             if hasattr(self, 'voxel_yx_nm') and self.voxel_yx_nm is not None:
@@ -18242,11 +18533,7 @@ class MicroLiveGUI(QMainWindow):
                 'fit_line_msd': fit_line_msd,
                 'trackpy_df': trackpy_df,
                 'is_3d': is_3d,
-                'tracking_channel': selected_tracking_ch,
-                'fit_points_requested': max_fit_points,
-                'fit_points_used': len(fit_times),
-                'fit_lag_start_s': float(fit_times[0]),
-                'fit_lag_end_s': float(fit_times[-1]),
+                'tracking_channel': selected_tracking_ch
             }
             
             # Also update tracking values for metadata export
@@ -18255,15 +18542,6 @@ class MicroLiveGUI(QMainWindow):
             self.tracking_D_px2_s = D_px2_s
             self.tracking_msd_mode = "3D" if is_3d else "2D"
             self.tracking_msd_channel = selected_tracking_ch  # Store which channel MSD was calculated for
-            self.tracking_msd_fit_points_requested = max_fit_points
-            self.tracking_msd_fit_points_used = len(fit_times)
-            self.tracking_msd_fit_lag_start_s = float(fit_times[0])
-            self.tracking_msd_fit_lag_end_s = float(fit_times[-1])
-            self.tracking_msd_display_D_um2_s = D_um2_s
-            self.tracking_msd_display_D_px2_s = D_px2_s
-            self.tracking_msd_display_D_std_um2_s = None
-            self.tracking_msd_display_D_std_px2_s = None
-            self.tracking_msd_summary_method = "Ensemble MSD linear fit"
             
             # Calculate per-trajectory MSD for export (use filtered df_to_analyze to preserve cell_id)
             self._calculate_per_trajectory_msd(df_to_analyze, microns_per_pixel, step_size_in_sec)
@@ -18292,14 +18570,6 @@ class MicroLiveGUI(QMainWindow):
                     # Convert to px²/s: D_px2 = D_um2 / (microns_per_pixel)^2
                     D_mean_px = D_mean / (microns_per_pixel ** 2)
                     D_std_px = D_std / (microns_per_pixel ** 2)
-                    self.tracking_msd_display_D_um2_s = D_mean
-                    self.tracking_msd_display_D_px2_s = D_mean_px
-                    self.tracking_msd_display_D_std_um2_s = D_std
-                    self.tracking_msd_display_D_std_px2_s = D_std_px
-                    self.tracking_msd_summary_method = (
-                        "Mean of per-trajectory diffusion coefficients from cells "
-                        "with at least 10 fitted particles"
-                    )
                     self.msd_diffusion_px_label.setText(f"D = {D_mean_px:.2e} ± {D_std_px:.2e} px²/s")
                     self.msd_n_particles_label.setText(f"N = {n_particles_valid} (from {n_cells} cells)")
                 else:
@@ -18359,7 +18629,7 @@ class MicroLiveGUI(QMainWindow):
                     cell_msd_values.append(em)
                     
                     # Calculate D for this trajectory
-                    max_fit = min(self.msd_fit_points_slider.value(), len(em))
+                    max_fit = min(self.msd_fit_points_spinbox.value(), len(em))
                     if max_fit >= 2:
                         is_3d = self.msd_data.get('is_3d', False) if hasattr(self, 'msd_data') and self.msd_data else False
                         divisor = 6 if is_3d else 4
@@ -18517,7 +18787,7 @@ class MicroLiveGUI(QMainWindow):
             # Plot overall fit line
             fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
             self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd,
-                            linewidth=2, color='white', linestyle='--', label=f'Overall D={D_um2_s:.2e}')
+                            '-', linewidth=2, color='white', linestyle='--', label=f'Overall D={D_um2_s:.2e}')
             
             # Add stats text box
             if stats_lines:
@@ -19447,6 +19717,8 @@ class MicroLiveGUI(QMainWindow):
         elif index == 3:  # Photobleaching
             self.plot_photobleaching()
         elif index == 4:  # Tracking
+            # Reset MSD results when returning to tracking tab (user may add new channels)
+            self.reset_msd_tab()
             # Sync current_frame with tracking slider to fix stale-frame display
             slider_val = self.time_slider_tracking.value()
             if self.current_frame != slider_val:
@@ -19471,7 +19743,22 @@ class MicroLiveGUI(QMainWindow):
             self.plot_tracking()
             self.update_threshold_histogram()
         elif index == 5:  # MSD
-            self._sync_msd_tracking_channel_combo()
+            # Update tracking channel combo with tracked channels (single channel only)
+            if hasattr(self, 'msd_tracking_channel_combo'):
+                self.msd_tracking_channel_combo.clear()
+                
+                if self.tracked_channels:
+                    # Multi-channel tracking: show each tracked channel
+                    for ch in sorted(self.tracked_channels):
+                        self.msd_tracking_channel_combo.addItem(f"Ch {ch}", ch)
+                elif hasattr(self, 'df_tracking') and not self.df_tracking.empty and 'spot_type' in self.df_tracking.columns:
+                    # Get unique spot_type values from data
+                    unique_channels = sorted(self.df_tracking['spot_type'].unique())
+                    for ch in unique_channels:
+                        self.msd_tracking_channel_combo.addItem(f"Ch {ch}", ch)
+                else:
+                    # No tracking data at all
+                    self.msd_tracking_channel_combo.addItem("No tracked channels", -1)
         elif index == 6:  # Distribution
             self.plot_distribution()
         elif index == 7:  # Time Course
@@ -19572,1450 +19859,42 @@ class MicroLiveGUI(QMainWindow):
             if has_verify_data:
                 self.extract_manual_colocalization_data(save_df=False)
 
-    # =========================================================================
-    # Aurora Import workspace redesign
-    # =========================================================================
-    @staticmethod
-    def _clear_import_sidebar_layout(layout, preserved_widgets):
-        """Remove old sidebar layout items while retaining functional widgets."""
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                if any(widget is preserved for preserved in preserved_widgets):
-                    widget.setParent(None)
-                else:
-                    widget.deleteLater()
-                continue
-            child_layout = item.layout()
-            if child_layout is not None:
-                MicroLiveGUI._clear_import_sidebar_layout(child_layout, preserved_widgets)
-
-    def _find_image_info_scroll(self):
-        """Return the existing scrollable metadata panel built by the base GUI."""
-        for scroll_area in self.display_tab.findChildren(QScrollArea):
-            content = scroll_area.widget()
-            if content is not None and hasattr(content, "title") and content.title() == "Image Information":
-                return scroll_area
-        return None
-
-    def _redesign_import_workspace(self):
-        """Recompose Import's sidebar without replacing any analysis controls."""
-        sidebar = self.image_tree.parentWidget()
-        sidebar_layout = sidebar.layout()
-        image_info_scroll = self._find_image_info_scroll()
-        if image_info_scroll is None:
-            return
-
-        preserved_widgets = (
-            self.image_tree,
-            self.close_file_button,
-            self.close_all_files_button,
-            self.channelControlsTabs,
-            self.frame_range_group,
-            image_info_scroll,
-            self.export_displayed_image_button,
-            self.export_tif_button,
-            self.export_video_button,
-            self.display_time_text_checkbox,
-            self.display_remove_background_checkbox,
-        )
-        self._clear_import_sidebar_layout(sidebar_layout, preserved_widgets)
-        sidebar_layout.setContentsMargins(0, 0, 0, 0)
-        sidebar_layout.setSpacing(0)
-        sidebar.setMinimumWidth(420)
-        sidebar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-
-        self.import_sidebar_scroll = QScrollArea(sidebar)
-        self.import_sidebar_scroll.setObjectName("importSidebarScroll")
-        self.import_sidebar_scroll.setWidgetResizable(True)
-        self.import_sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sidebar_content = QWidget(self.import_sidebar_scroll)
-        sidebar_content.setObjectName("importSidebarContent")
-        cards_layout = QVBoxLayout(sidebar_content)
-        cards_layout.setContentsMargins(0, 0, 3, 0)
-        cards_layout.setSpacing(8)
-        self.import_sidebar_scroll.setWidget(sidebar_content)
-        sidebar_layout.addWidget(self.import_sidebar_scroll)
-        self.import_sidebar_content = sidebar_content
-        self.import_sidebar_layout = cards_layout
-
-        main_layout = self.display_tab.layout()
-        main_layout.setStretch(0, 4)
-        main_layout.setStretch(1, 2)
-
-        source_card = QFrame(sidebar_content)
-        source_card.setObjectName("importSourceCard")
-        source_card.setMinimumHeight(144)
-        source_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        source_layout = QVBoxLayout(source_card)
-        source_layout.setContentsMargins(11, 10, 11, 10)
-        source_layout.setSpacing(5)
-        source_header = QHBoxLayout()
-        source_title = QLabel("Image library", source_card)
-        source_title.setObjectName("importCardTitle")
-        self.import_file_status = QLabel(source_card)
-        self.import_file_status.setObjectName("importFileStatus")
-        source_header.addWidget(source_title)
-        source_header.addStretch(1)
-        source_header.addWidget(self.import_file_status)
-        source_layout.addLayout(source_header)
-        source_hint = QLabel("Open a dataset, then select the image to inspect.", source_card)
-        source_hint.setObjectName("importCardHint")
-        source_layout.addWidget(source_hint)
-        self.image_tree.setParent(source_card)
-        self.image_tree.setObjectName("importImageTree")
-        self.image_tree.setMinimumHeight(76)
-        self.image_tree.setMaximumHeight(16777215)
-        self.image_tree.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        source_layout.addWidget(self.image_tree, 1)
-        source_actions = QHBoxLayout()
-        source_actions.setSpacing(6)
-        self.close_file_button.setParent(source_card)
-        self.close_all_files_button.setParent(source_card)
-        self.close_file_button.setFixedHeight(26)
-        self.close_all_files_button.setFixedHeight(26)
-        source_actions.addWidget(self.close_file_button)
-        source_actions.addWidget(self.close_all_files_button)
-        source_layout.addLayout(source_actions)
-        cards_layout.addWidget(source_card, 1)
-
-        controls_card = QFrame(sidebar_content)
-        controls_card.setObjectName("importControlsCard")
-        controls_card.setMinimumHeight(184)
-        controls_layout = QVBoxLayout(controls_card)
-        controls_layout.setContentsMargins(11, 10, 11, 9)
-        controls_layout.setSpacing(5)
-        controls_header = QHBoxLayout()
-        controls_title = QLabel("Channel appearance", controls_card)
-        controls_title.setObjectName("importCardTitle")
-        controls_detail = QLabel("Contrast and smoothing", controls_card)
-        controls_detail.setObjectName("importCardHint")
-        controls_header.addWidget(controls_title)
-        controls_header.addStretch(1)
-        controls_header.addWidget(controls_detail)
-        controls_layout.addLayout(controls_header)
-        self.channelControlsTabs.setParent(controls_card)
-        self.channelControlsTabs.setObjectName("importChannelControls")
-        self.channelControlsTabs.setMinimumHeight(140)
-        controls_layout.addWidget(self.channelControlsTabs)
-        cards_layout.addWidget(controls_card)
-
-        details_card = QFrame(sidebar_content)
-        details_card.setObjectName("importDetailsCard")
-        details_card.setMinimumHeight(198)
-        details_card.setMaximumHeight(16777215)
-        details_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        details_layout = QVBoxLayout(details_card)
-        details_layout.setContentsMargins(11, 10, 11, 10)
-        details_layout.setSpacing(5)
-        details_header = QHBoxLayout()
-        details_title = QLabel("Dataset details", details_card)
-        details_title.setObjectName("importCardTitle")
-        details_note = QLabel("Metadata", details_card)
-        details_note.setObjectName("importCardHint")
-        details_header.addWidget(details_title)
-        details_header.addStretch(1)
-        details_header.addWidget(details_note)
-        details_layout.addLayout(details_header)
-        image_info_scroll.setParent(details_card)
-        image_info_scroll.setObjectName("importMetadataScroll")
-        image_info_scroll.setMinimumHeight(164)
-        image_info_scroll.setMaximumHeight(16777215)
-        image_info_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        image_info_group = image_info_scroll.widget()
-        if image_info_group is not None:
-            image_info_group.setTitle("")
-        details_layout.addWidget(image_info_scroll, 1)
-        cards_layout.addWidget(details_card, 2)
-
-        self.frame_range_group.setParent(sidebar_content)
-        self.frame_range_group.setMinimumHeight(132)
-        self.frame_range_group.setMaximumHeight(160)
-        cards_layout.addWidget(self.frame_range_group)
-
-        export_card = QFrame(sidebar_content)
-        export_card.setObjectName("importExportCard")
-        export_card.setFixedHeight(74)
-        export_layout = QVBoxLayout(export_card)
-        export_layout.setContentsMargins(9, 8, 9, 8)
-        export_layout.setSpacing(5)
-        export_header = QHBoxLayout()
-        export_title = QLabel("Quick export", export_card)
-        export_title.setObjectName("importCardTitle")
-        export_header.addWidget(export_title)
-        export_header.addStretch(1)
-        self.display_time_text_checkbox.setParent(export_card)
-        self.display_remove_background_checkbox.setParent(export_card)
-        export_header.addWidget(self.display_time_text_checkbox)
-        export_header.addWidget(self.display_remove_background_checkbox)
-        export_layout.addLayout(export_header)
-        export_actions = QHBoxLayout()
-        export_actions.setSpacing(6)
-        for button in (
-            self.export_displayed_image_button,
-            self.export_tif_button,
-            self.export_video_button,
-        ):
-            button.setParent(export_card)
-            button.setFixedHeight(26)
-            export_actions.addWidget(button)
-        export_layout.addLayout(export_actions)
-        self.import_export_card = export_card
-        cards_layout.addWidget(export_card)
-
-        self.image_tree.currentItemChanged.connect(self._update_import_file_status)
-        model = self.image_tree.model()
-        model.rowsInserted.connect(self._update_import_file_status)
-        model.rowsRemoved.connect(self._update_import_file_status)
-        model.modelReset.connect(self._update_import_file_status)
-        self._update_import_file_status()
-
-    @staticmethod
-    def _layout_contains_widget(layout, target):
-        """Return whether a nested layout owns the specified widget."""
-        for index in range(layout.count()):
-            item = layout.itemAt(index)
-            if item.widget() is target:
-                return True
-            child_layout = item.layout()
-            if child_layout is not None and MicroLiveGUI._layout_contains_widget(child_layout, target):
-                return True
-        return False
-
-    def _sync_frame_range_widget_to_state(self):
-        """Mirror the base range state to the compact footer controls."""
-        self._sync_frame_range_widget_to_state_base()
-        if not hasattr(self, "import_range_bar"):
-            return
-        self.import_range_bar.setEnabled(self.frame_range_group.isEnabled())
-        availability = self.frame_range_available_label.text()
-        availability = availability.replace("Frames available (0-based):", "Frames:")
-        availability = availability.replace("Frames available:", "Frames:")
-        self.frame_range_available_label.setText(availability)
-        self.import_range_bar.setToolTip(self.frame_range_summary_label.text())
-
-    def _update_import_file_status(self, *args):
-        """Keep the source-card status descriptive as files are added or removed."""
-        if not hasattr(self, "import_file_status"):
-            return
-        count = self.image_tree.topLevelItemCount()
-        if count == 0:
-            self.import_file_status.setText("No image loaded")
-        elif count == 1:
-            self.import_file_status.setText("1 dataset")
-        else:
-            self.import_file_status.setText(f"{count} datasets")
-
-from PyQt5.QtWidgets import QButtonGroup, QHeaderView, QMenu, QToolButton
-
-def get_aurora_app_icon_path():
-    """Return Aurora's native Dock/window icon, with a safe fallback."""
-    icon_dir = Path(__file__).resolve().parents[1] / "data" / "icons"
-    if sys.platform == "darwin":
-        native_icon_path = icon_dir / "icon_aurora_app.icns"
-        if native_icon_path.exists():
-            return native_icon_path
-    if sys.platform == "win32":
-        native_icon_path = icon_dir / "icon_aurora_app.ico"
-        if native_icon_path.exists():
-            return native_icon_path
-    icon_path = icon_dir / "icon_aurora_app.png"
-    return icon_path if icon_path.exists() else get_icon_path()
-
-
-class CompactCanvasToolbar(QFrame):
-    """Modern controls for a Matplotlib toolbar, with infrequent actions in a menu."""
-
-    def __init__(self, native_toolbar, parent=None):
-        super().__init__(parent)
-        self.native_toolbar = native_toolbar
-        self.setObjectName("compactCanvasToolbar")
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 3, 4, 3)
-        layout.setSpacing(2)
-
-        visible_actions = []
-        for action_name, label, tooltip in (
-            ("Home", "Reset", "Reset the plot view"),
-            ("Pan", "Pan", "Pan the plot"),
-            ("Zoom", "Zoom", "Zoom to a selected region"),
-            ("Save", "Save", "Save the current figure"),
-        ):
-            action = self._find_action(action_name)
-            if action is None:
-                continue
-            visible_actions.append(action)
-            button = QToolButton(self)
-            button.setObjectName("compactCanvasTool")
-            button.setText(label)
-            button.setIcon(action.icon())
-            button.setToolTip(tooltip)
-            button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-            button.setAutoRaise(True)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setCheckable(action.isCheckable())
-            button.setChecked(action.isChecked())
-            button.clicked.connect(action.trigger)
-            if action.isCheckable():
-                action.toggled.connect(button.setChecked)
-            layout.addWidget(button)
-
-        overflow_actions = [
-            action for action in native_toolbar.actions()
-            if not action.isSeparator() and action not in visible_actions and action.text().strip()
-        ]
-        if overflow_actions:
-            more_button = QToolButton(self)
-            more_button.setObjectName("compactCanvasMore")
-            more_button.setText("⋯")
-            more_button.setToolTip("More plot tools")
-            more_button.setPopupMode(QToolButton.InstantPopup)
-            more_button.setCursor(Qt.PointingHandCursor)
-            menu = QMenu(more_button)
-            for action in overflow_actions:
-                menu.addAction(action)
-            more_button.setMenu(menu)
-            layout.addWidget(more_button)
-
-        # Preserve Matplotlib's live cursor-coordinate readout, which is stored
-        # as a label rather than a toolbar action.
-        coordinate_label = getattr(native_toolbar, "locLabel", None)
-        if coordinate_label is not None:
-            coordinate_label.setParent(self)
-            coordinate_label.setObjectName("compactCanvasCoordinates")
-            coordinate_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
-            coordinate_label.setMinimumWidth(92)
-            coordinate_label.show()
-            layout.addWidget(coordinate_label, 1)
-            self.coordinate_label = coordinate_label
-
-    def _find_action(self, action_name):
-        """Return a native toolbar action by its stable Matplotlib text label."""
-        target = action_name.lower()
-        for action in self.native_toolbar.actions():
-            text = action.text().replace("&", "").strip().lower()
-            if text == target:
-                return action
-        return None
-
-
-class AuroraGUI(MicroLiveGUI):
-    """The complete MicroLive workflow presented in a compact Aurora theme."""
-
-    def __init__(self, icon_path=None):
-        MicroLiveGUI.__init__(self, icon_path)
-        self.setWindowTitle("MicroLive")
-        self._add_workspace_header(icon_path)
-        self._add_workspace_navigation()
-        self._polish_responsive_layouts()
-        self._classify_buttons()
-        self.applyTheme(self.themeToggle.isChecked())
-
-        # The legacy MSD widget is created during the base constructor.  Wire
-        # the modern channel selector after construction so changing channels
-        # also recomputes the valid fit range.
-        msd_channel_combo = getattr(self, "msd_tracking_channel_combo", None)
-        if msd_channel_combo is not None:
-            msd_channel_combo.currentIndexChanged.connect(
-                self._on_modern_msd_channel_changed
-            )
-        self._sync_msd_fit_points_slider()
-
-    def _redesign_import_workspace(self):
-        """Keep the modern Import cards compact without changing legacy wiring."""
-        super()._redesign_import_workspace()
-
-        # These labels were part of an intermediate card mock-up.  The controls
-        # are clearer and leave more room when the cards contain only their
-        # functional content and the file-status pill.
-        for label in self.findChildren(QLabel):
-            if label.objectName() not in {"importCardTitle", "importCardHint"}:
-                continue
-            parent = label.parentWidget()
-            if parent is not None and parent.layout() is not None:
-                parent.layout().removeWidget(label)
-            label.hide()
-            label.setParent(None)
-            label.deleteLater()
-
-        # The title-only header layouts would otherwise retain a small empty
-        # vertical gap above the channel and metadata controls.
-        for object_name in ("importControlsCard", "importDetailsCard"):
-            card = self.findChild(QFrame, object_name)
-            if card is None or card.layout() is None:
-                continue
-            first_item = card.layout().itemAt(0)
-            if first_item is not None and first_item.layout() is not None:
-                header = card.layout().takeAt(0).layout()
-                if header is not None:
-                    header.deleteLater()
-
-    def _move_import_actions_to_canvas_footer(self):
-        """Align range and export actions in one compact Import footer row."""
-        main_layout = self.display_tab.layout()
-        left_layout_item = main_layout.itemAt(0)
-        left_layout = left_layout_item.layout() if left_layout_item is not None else None
-        if left_layout is None:
-            return
-
-        for index in range(left_layout.count()):
-            item = left_layout.itemAt(index)
-            child_layout = item.layout()
-            if child_layout is None or not self._layout_contains_widget(
-                child_layout, self.display_zoom_label
-            ):
-                continue
-            left_layout.takeAt(index)
-            self.display_zoom_label.setParent(self.display_tab)
-            self.display_zoom_label.hide()
-            break
-
-        self.import_sidebar_layout.removeWidget(self.frame_range_group)
-        self.import_sidebar_layout.removeWidget(self.import_export_card)
-
-        footer = QFrame(self.display_tab)
-        footer.setObjectName("importCanvasFooter")
-        footer.setFixedHeight(72)
-        footer_layout = QVBoxLayout(footer)
-        footer_layout.setContentsMargins(0, 0, 0, 0)
-        footer_layout.setSpacing(2)
-
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(0, 0, 0, 0)
-        action_row.setSpacing(6)
-        checkbox_row = QHBoxLayout()
-        checkbox_row.setContentsMargins(0, 0, 0, 0)
-        checkbox_row.setSpacing(8)
-
-        self.frame_range_group.setParent(footer)
-        self.frame_range_group.setVisible(False)
-        range_bar = self._build_compact_range_bar(footer)
-        action_row.addWidget(range_bar, 6)
-
-        for button in (self.apply_frame_range_button, self.use_full_movie_button):
-            button.setParent(footer)
-            button.setFixedHeight(23)
-            action_row.addWidget(button)
-
-        export_layout = self.import_export_card.layout()
-        export_header = export_layout.itemAt(0).layout()
-        export_layout.takeAt(0)
-        export_layout.setContentsMargins(0, 0, 0, 0)
-        export_layout.setSpacing(0)
-
-        for checkbox in (
-            self.display_time_text_checkbox,
-            self.display_remove_background_checkbox,
-        ):
-            export_header.removeWidget(checkbox)
-            checkbox.setParent(footer)
-
-        for button in (
-            self.export_displayed_image_button,
-            self.export_tif_button,
-            self.export_video_button,
-        ):
-            button.setFixedHeight(23)
-
-        self.import_export_card.setFixedHeight(32)
-        self.import_export_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        action_row.addWidget(self.import_export_card, 3)
-
-        checkbox_row.addStretch(1)
-        checkbox_row.addWidget(self.display_time_text_checkbox)
-        checkbox_row.addWidget(self.display_remove_background_checkbox)
-        footer_layout.addLayout(action_row)
-        footer_layout.addLayout(checkbox_row)
-        left_layout.addWidget(footer)
-        self.import_canvas_footer = footer
-
-    def _build_compact_range_bar(self, parent):
-        """Build the range portion of the shared Import footer action row."""
-        group = self.frame_range_group
-        bar = QFrame(parent)
-        bar.setObjectName("importCompactRange")
-        bar.setFixedHeight(32)
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 2, 8, 2)
-        layout.setSpacing(5)
-
-        title = QLabel("Range", bar)
-        title.setObjectName("importRangeTitle")
-        self.frame_range_available_label.setParent(bar)
-        self.frame_range_available_label.setObjectName("importRangeAvailability")
-        self.frame_range_available_label.setFixedHeight(22)
-        self.frame_range_summary_label.setParent(group)
-        self.frame_range_summary_label.setVisible(False)
-        self.frame_range_status_label.setParent(group)
-        self.frame_range_status_label.setVisible(False)
-
-        self.frame_crop_start_spin.setParent(bar)
-        self.frame_crop_end_spin.setParent(bar)
-        self.frame_crop_start_spin.setPrefix("Start ")
-        self.frame_crop_end_spin.setPrefix("End ")
-        for spinbox in (self.frame_crop_start_spin, self.frame_crop_end_spin):
-            spinbox.setFixedHeight(23)
-            spinbox.setMinimumWidth(82)
-            spinbox.setMaximumWidth(102)
-
-        self.apply_frame_range_button.setText("Apply")
-        self.use_full_movie_button.setText("Full movie")
-        self.apply_frame_range_button.setFixedHeight(23)
-        self.use_full_movie_button.setFixedHeight(23)
-        self.apply_frame_range_button.setMinimumWidth(62)
-        self.use_full_movie_button.setMinimumWidth(82)
-
-        layout.addWidget(title)
-        layout.addWidget(self.frame_range_available_label)
-        layout.addWidget(self.frame_crop_start_spin)
-        layout.addWidget(self.frame_crop_end_spin)
-        layout.addStretch(1)
-        bar.setEnabled(group.isEnabled())
-        self.frame_range_available_label.setText(
-            self.frame_range_available_label.text().replace("Frames available:", "Frames:")
-        )
-        self.import_range_bar = bar
-        return bar
-
-    def _msd_dataframe_for_selected_channel(self):
-        """Return current tracking data filtered to the active MSD channel."""
-        dataframe = getattr(self, "df_tracking", None)
-        if dataframe is None or getattr(dataframe, "empty", True):
-            return None
-
-        combo = getattr(self, "msd_tracking_channel_combo", None)
-        selected_channel = combo.currentData() if combo is not None else None
-        if (
-            selected_channel not in (None, -1)
-            and "spot_type" in dataframe.columns
-        ):
-            dataframe = dataframe[dataframe["spot_type"] == selected_channel]
-        return dataframe if not dataframe.empty else None
-
-    def _get_valid_msd_lag_limit(self, frame_count=None):
-        """Find the largest MSD lag supported by the selected tracked data.
-
-        Trackpy can produce a shorter MSD curve than the movie because particle
-        tracks end at different times.  We calculate per-particle MSD support
-        with the same Trackpy routine used by the legacy MSD calculation.  A
-        lag is considered reliable when at least five trajectories contribute;
-        if fewer than five trajectories exist, the longest available lag is
-        retained so small datasets remain usable.
-        """
-        dataframe = self._msd_dataframe_for_selected_channel()
-        if dataframe is None or "frame" not in dataframe.columns:
-            return 0
-
-        particle_column = (
-            "unique_particle" if "unique_particle" in dataframe.columns else "particle"
-        )
-        if particle_column not in dataframe.columns:
-            return 0
-
-        lag_support = {}
-        for _, trajectory in dataframe.groupby(particle_column, sort=False):
-            if len(trajectory) < 2:
-                continue
-            try:
-                # Only the lag index is needed here, so physical scaling is
-                # intentionally neutral and does not affect the result.
-                emsd = tp.emsd(trajectory, mpp=1.0, fps=1.0)
-            except Exception:
-                continue
-            for lag in emsd.index:
-                try:
-                    lag_frames = int(round(float(lag)))
-                except (TypeError, ValueError):
-                    continue
-                if lag_frames >= 1:
-                    lag_support[lag_frames] = lag_support.get(lag_frames, 0) + 1
-
-        if not lag_support:
-            return 0
-
-        longest_available = max(lag_support)
-        reliable_lags = [lag for lag, count in lag_support.items() if count >= 5]
-        lag_limit = max(reliable_lags) if reliable_lags else longest_available
-
-        if frame_count is not None:
-            try:
-                lag_limit = min(lag_limit, max(0, int(frame_count) - 1))
-            except (TypeError, ValueError):
-                pass
-        return max(0, int(lag_limit))
-
-    def _sync_msd_fit_points_slider(self, frame_count=None, reset_value=False):
-        """Keep the modern MSD slider bounded by actual tracked lag support."""
-        slider = getattr(self, "msd_fit_points_slider", None)
-        if slider is None:
-            return
-
-        if frame_count is None:
-            frame_count = getattr(self, "total_frames", 0)
-        try:
-            frame_count = max(0, int(frame_count))
-        except (TypeError, ValueError):
-            frame_count = 0
-
-        minimum = 2
-        lag_limit = self._get_valid_msd_lag_limit(frame_count)
-        has_usable_range = lag_limit >= minimum
-        maximum = max(minimum, lag_limit)
-        current_value = slider.value()
-        if reset_value:
-            target_value = min(20, maximum)
-        elif has_usable_range:
-            target_value = min(maximum, max(minimum, current_value))
-        else:
-            target_value = minimum
-
-        slider.blockSignals(True)
-        slider.setRange(minimum, maximum)
-        slider.setValue(target_value)
-        slider.setEnabled(has_usable_range)
-        slider.blockSignals(False)
-
-        calculate_button = getattr(self, "calculate_msd_button", None)
-        if calculate_button is not None:
-            calculate_button.setEnabled(has_usable_range)
-
-        value_label = getattr(self, "msd_fit_points_value_label", None)
-        if value_label is not None:
-            value_label.setText(f"{target_value} lag points")
-            value_label.setEnabled(has_usable_range)
-
-        range_label = getattr(self, "msd_fit_points_range_label", None)
-        if range_label is not None:
-            if has_usable_range:
-                range_label.setText(f"Available: {minimum}–{maximum} lag points")
-                range_label.setToolTip(
-                    "Maximum is based on the current tracked channel's valid MSD lag support."
-                )
-            else:
-                range_label.setText("Run tracking with at least 3 tracked frames")
-                range_label.setToolTip("")
-            range_label.setEnabled(has_usable_range)
-
-    def _on_modern_msd_channel_changed(self, _index):
-        """Refresh MSD state when the user switches tracked channels."""
-        if getattr(self, "msd_data", None) is not None:
-            self.reset_msd_tab(reset_fit_control=False, clear_channel_selection=False)
-        self._sync_msd_fit_points_slider()
-
-    def _sync_msd_tracking_channel_combo(self):
-        """Refresh the channel list and its channel-specific fit limit."""
-        super()._sync_msd_tracking_channel_combo()
-        self._sync_msd_fit_points_slider()
-
-    def _rebuild_combined_tracking_dataframe(self):
-        """Refresh the MSD fit range whenever tracking data is rebuilt."""
-        super()._rebuild_combined_tracking_dataframe()
-        self._sync_msd_tracking_channel_combo()
-        self._sync_msd_fit_points_slider(reset_value=True)
-
-    def clear_all_tracking(self):
-        """Clear tracking and remove the old MSD lag limit immediately."""
-        super().clear_all_tracking()
-        self._sync_msd_fit_points_slider(reset_value=True)
-
-    def _clear_all_tracking_data(self):
-        """Clear mode-dependent tracking and refresh the MSD lag limit."""
-        super()._clear_all_tracking_data()
-        self._sync_msd_fit_points_slider(reset_value=True)
-
-    def open_image(self):
-        """Open files and focus the first newly added image in the library.
-
-        The legacy loader always reselected tree row zero after adding files.
-        That meant a second import was added but not displayed. Keep the original
-        reader and callbacks, then select the first item added by this invocation.
-        """
-        existing_paths = set()
-        for index in range(self.image_tree.topLevelItemCount()):
-            info = self.image_tree.topLevelItem(index).data(0, Qt.UserRole) or {}
-            if info.get("file"):
-                existing_paths.add(str(info["file"]))
-
-        super().open_image()
-
-        new_items = []
-        for index in range(self.image_tree.topLevelItemCount()):
-            item = self.image_tree.topLevelItem(index)
-            info = item.data(0, Qt.UserRole) or {}
-            if info.get("file") and str(info["file"]) not in existing_paths:
-                new_items.append(item)
-        if not new_items:
-            return
-
-        target = new_items[0]
-        if target.childCount() > 0:
-            target = target.child(0)
-
-        info = target.data(0, Qt.UserRole) or {}
-        target_path = str(info.get("file", ""))
-        loaded_path = str(getattr(self, "data_folder_path", "") or "")
-        already_loaded = bool(
-            target_path and self.image_stack is not None and loaded_path == target_path
-        )
-        if already_loaded:
-            signals_were_blocked = self.image_tree.blockSignals(True)
-            self.image_tree.setCurrentItem(target)
-            self.image_tree.blockSignals(signals_were_blocked)
-        else:
-            self.image_tree.setCurrentItem(target)
-
-        loaded_path = str(getattr(self, "data_folder_path", "") or "")
-        if target_path and (self.image_stack is None or loaded_path != target_path):
-            self.on_tree_item_clicked(target, 0)
-
-    def _add_workspace_header(self, icon_path):
-        """Create one compact header that contains branding, navigation, and theme."""
-        central_layout = self.centralWidget().layout()
-        header = QFrame(self)
-        header.setObjectName("auroraHeader")
-        header.setFixedHeight(48)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(10, 4, 11, 4)
-        header_layout.setSpacing(8)
-
-        logo = QLabel(header)
-        logo.setObjectName("auroraLogo")
-        logo.setFixedSize(28, 28)
-        if icon_path:
-            pixmap = QPixmap(str(icon_path))
-            if not pixmap.isNull():
-                logo.setPixmap(pixmap.scaled(25, 25, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        header_layout.addWidget(logo)
-
-        divider = QFrame(header)
-        divider.setObjectName("auroraDivider")
-        divider.setFrameShape(QFrame.VLine)
-        divider.setFixedHeight(20)
-        header_layout.addWidget(divider)
-
-        self.aurora_navigation = QWidget(header)
-        self.aurora_navigation.setObjectName("auroraNavigation")
-        self.aurora_navigation.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.aurora_navigation_layout = QHBoxLayout(self.aurora_navigation)
-        self.aurora_navigation_layout.setContentsMargins(0, 0, 0, 0)
-        self.aurora_navigation_layout.setSpacing(1)
-        header_layout.addWidget(self.aurora_navigation, 1)
-
-        self.themeToggle.setParent(header)
-        self.themeToggle.setText("Dark")
-        self.themeToggle.setToolTip("Switch between dark and light themes")
-        self.themeToggle.setStyleSheet("")
-        header_layout.addWidget(self.themeToggle)
-        central_layout.insertWidget(0, header)
-
-    def _add_workspace_navigation(self):
-        """Use stable top buttons instead of macOS's overpainting QTabBar controls."""
-        self.workspace_tab_buttons = []
-        self.workspace_tab_group = QButtonGroup(self)
-        self.workspace_tab_group.setExclusive(True)
-        for index in range(self.tabs.count()):
-            label = self.tabs.tabText(index)
-            button = QToolButton(self.aurora_navigation)
-            button.setObjectName("auroraTab")
-            button.setText(label)
-            button.setToolTip(label)
-            button.setAccessibleName(f"{label} tab")
-            button.setCheckable(True)
-            button.setToolButtonStyle(Qt.ToolButtonTextOnly)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setMinimumSize(0, 36)
-            button.setMaximumHeight(36)
-            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            button.clicked.connect(
-                lambda checked=False, tab_index=index: self.tabs.setCurrentIndex(tab_index)
-            )
-            self.workspace_tab_group.addButton(button, index)
-            self.workspace_tab_buttons.append(button)
-            self.aurora_navigation_layout.addWidget(button, 1)
-
-        self.tabs.tabBar().hide()
-        self.tabs.currentChanged.connect(self._sync_workspace_navigation)
-        self._sync_workspace_navigation(self.tabs.currentIndex())
-
-    def _sync_workspace_navigation(self, index):
-        """Keep the top navigation synchronized with programmatic tab changes."""
-        if 0 <= index < len(self.workspace_tab_buttons):
-            self.workspace_tab_buttons[index].setChecked(True)
-
-    def _classify_buttons(self):
-        """Give existing actions a concise, predictable visual hierarchy."""
-        primary_terms = (
-            "open file", "run", "compute", "calculate", "perform", "apply",
-            "track", "detect", "finish polygon", "populate",
-        )
-        danger_terms = ("close", "clear", "remove", "delete")
-        export_terms = ("export", "save")
-        for button in self.findChildren(QPushButton):
-            text = button.text().strip().lower()
-            if any(term in text for term in danger_terms):
-                role = "danger"
-            elif any(term in text for term in export_terms):
-                role = "export"
-            elif any(term in text for term in primary_terms):
-                role = "primary"
-            else:
-                role = "secondary"
-            button.setProperty("buttonRole", role)
-            button.setCursor(Qt.PointingHandCursor)
-            button.setStyleSheet("")
-
-        for group in self.findChildren(QGroupBox):
-            group.setStyleSheet("")
-
-    def _apply_colocalization_run_button_style(self):
-        """Keep Colocalization's action button within Aurora's color system."""
-        button = getattr(self, "compute_colocalization_button", None)
-        if button is not None:
-            button.setProperty("buttonRole", "primary")
-            button.setStyleSheet("")
-            button.style().unpolish(button)
-            button.style().polish(button)
-
-
-    def _polish_responsive_layouts(self):
-        """Prevent navigation and Import-tab controls from competing for space."""
-        # The original Import sidebar contains several fixed-height regions.  Let
-        # its image-information area shrink and scroll before the export controls
-        # can be pushed over it on shorter displays.
-        for scroll_area in self.display_tab.findChildren(QScrollArea):
-            content = scroll_area.widget()
-            if not content or not hasattr(content, "title") or content.title() != "Image Information":
-                continue
-            scroll_area.setMinimumHeight(120)
-            scroll_area.setMaximumHeight(280)
-            scroll_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-            sidebar_layout = scroll_area.parentWidget().layout()
-            if sidebar_layout is not None:
-                sidebar_layout.setStretch(sidebar_layout.indexOf(scroll_area), 1)
-
-        self.image_tree.setMaximumHeight(170)
-        for button in (
-            self.export_displayed_image_button,
-            self.export_tif_button,
-            self.export_video_button,
-        ):
-            button.setMinimumHeight(32)
-            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-    def applyTheme(self, useDarkTheme: bool):
-        """Apply Aurora's neutral graphite and violet visual system."""
-        app = QApplication.instance()
-        if app is not None:
-            app.setStyleSheet(self._stylesheet(useDarkTheme))
-        if hasattr(self, "themeToggle"):
-            self.themeToggle.setStyleSheet("")
-        if hasattr(self, "channelControlsTabs"):
-            self.channelControlsTabs.setStyleSheet("")
-
-    @staticmethod
-    def _stylesheet(dark: bool) -> str:
-        if dark:
-            c = {
-                "base": "#15161b", "surface": "#1c1d24", "raised": "#24262f",
-                "field": "#191b21", "border": "#343741", "border_hi": "#505461",
-                "text": "#f3f4f7", "muted": "#a9adb8", "faint": "#777c89",
-                "accent": "#9b8cff", "accent_hover": "#b3a8ff", "accent_soft": "#302c50",
-                "blue": "#7188ff", "blue_hover": "#8fa1ff", "selection": "#2b3040",
-                "danger": "#aeb9d8", "danger_soft": "#292d3b", "disabled": "#686d78",
-            }
-        else:
-            c = {
-                "base": "#f2f2f5", "surface": "#fbfbfd", "raised": "#ffffff",
-                "field": "#ffffff", "border": "#d8d9e0", "border_hi": "#b8bac6",
-                "text": "#22242b", "muted": "#626775", "faint": "#9296a3",
-                "accent": "#7162db", "accent_hover": "#5e50c7", "accent_soft": "#ebe9ff",
-                "blue": "#4c69df", "blue_hover": "#3d58c1", "selection": "#edeef6",
-                "danger": "#6478a7", "danger_soft": "#edf0f7", "disabled": "#a7aab5",
-            }
-        return f"""
-            QMainWindow, QWidget {{ background: {c['base']}; color: {c['text']}; font-size: 11px; }}
-            QFrame#auroraHeader {{ background: {c['surface']}; border-bottom: 1px solid {c['border']}; }}
-            QLabel#auroraLogo {{ background: {c['raised']}; border: 1px solid {c['border']}; border-radius: 6px; }}
-            QFrame#auroraDivider {{ color: {c['border_hi']}; }}
-            QWidget#auroraNavigation {{ background: transparent; }}
-            QToolButton#auroraTab {{ background: transparent; color: {c['muted']}; border: none; border-bottom: 3px solid transparent; border-radius: 5px; padding: 8px 5px 6px; font-size: 10px; font-weight: 600; }}
-            QToolButton#auroraTab:hover:!checked {{ background: {c['raised']}; color: {c['text']}; }}
-            QToolButton#auroraTab:checked {{ color: {c['accent']}; border-bottom-color: {c['accent']}; background: {c['accent_soft']}; }}
-            QCheckBox#themeToggle {{ color: {c['muted']}; spacing: 5px; font-size: 10px; font-weight: 600; }}
-            QCheckBox#themeToggle::indicator {{ width: 28px; height: 16px; border: 1px solid {c['border_hi']}; border-radius: 8px; background: {c['raised']}; }}
-            QCheckBox#themeToggle::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
-            QLabel#trackingModeLabel {{ color: {c['muted']}; font-size: 10px; font-weight: 600; }}
-            QCheckBox#trackingModeToggle {{ color: {c['text']}; spacing: 6px; min-width: 84px; font-size: 10px; font-weight: 700; }}
-            QCheckBox#trackingModeToggle::indicator {{ width: 44px; height: 22px; border: 1px solid {c['border_hi']}; border-radius: 11px; background: {c['raised']}; }}
-            QCheckBox#trackingModeToggle::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
-            QGroupBox#trackingSourceGroup,
-            QGroupBox#trackingThresholdGroup,
-            QGroupBox#trackingActionGroup,
-            QGroupBox#trackingParametersGroup {{ margin-top: 4px; padding: 4px 8px 6px; }}
-
-            QTabWidget::pane {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 8px; top: -1px; }}
-            QTabBar::tab {{ background: transparent; color: {c['muted']}; border: none; border-bottom: 2px solid transparent; padding: 8px 11px 7px; font-weight: 600; }}
-            QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; }}
-            QTabBar::tab:hover:!selected {{ color: {c['text']}; background: {c['raised']}; }}
-
-            QGroupBox {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 8px; margin-top: 12px; padding: 10px 8px 8px; font-weight: 700; }}
-            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: {c['muted']}; }}
-            QGroupBox#frameRangeGroup {{ margin-top: 8px; padding: 5px 6px 4px; }}
-            QGroupBox#frameRangeGroup::title {{ left: 8px; color: {c['faint']}; }}
-            QLabel#frameRangeMeta, QLabel#frameRangeSummary {{ color: {c['muted']}; font-size: 10px; }}
-            QLabel#frameRangeStatus {{ color: {c['faint']}; font-size: 9px; }}
-
-            QPushButton {{ background: {c['raised']}; color: {c['text']}; border: 1px solid {c['border_hi']}; border-radius: 6px; padding: 6px 11px; min-height: 18px; font-weight: 600; }}
-            QPushButton:hover {{ background: {c['selection']}; border-color: {c['accent']}; }}
-            QPushButton:pressed {{ padding-top: 7px; padding-bottom: 5px; }}
-            QPushButton:checked {{ background: {c['accent_soft']}; color: {c['accent']}; border-color: {c['accent']}; }}
-            QPushButton[buttonRole="primary"] {{ background: {c['accent']}; color: #ffffff; border-color: {c['accent']}; }}
-            QPushButton[buttonRole="primary"]:hover {{ background: {c['accent_hover']}; border-color: {c['accent_hover']}; }}
-            QPushButton[buttonRole="export"] {{ background: transparent; color: {c['blue']}; border-color: {c['blue']}; }}
-            QPushButton[buttonRole="export"]:hover {{ color: {c['blue_hover']}; border-color: {c['blue_hover']}; background: {c['selection']}; }}
-            QPushButton[buttonRole="danger"] {{ background: {c['danger_soft']}; color: {c['danger']}; border-color: {c['danger']}; }}
-            QPushButton:disabled {{ background: {c['raised']}; color: {c['disabled']}; border-color: {c['border']}; }}
-
-            QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QAbstractSpinBox {{ background: {c['field']}; color: {c['text']}; border: 1px solid {c['border']}; border-radius: 5px; padding: 5px 7px; selection-background-color: {c['selection']}; }}
-            QLineEdit:hover, QComboBox:hover, QAbstractSpinBox:hover {{ border-color: {c['border_hi']}; }}
-            QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus, QAbstractSpinBox:focus {{ border-color: {c['accent']}; }}
-            QComboBox::drop-down {{ border: none; width: 23px; }}
-
-            QTreeWidget, QListWidget, QTableWidget {{ background: {c['field']}; alternate-background-color: {c['surface']}; border: 1px solid {c['border']}; border-radius: 6px; gridline-color: {c['border']}; outline: none; }}
-            QTreeWidget::item, QListWidget::item, QTableWidget::item {{ padding: 5px; }}
-            QTreeWidget::item:hover, QListWidget::item:hover {{ background: {c['raised']}; }}
-            QTreeWidget::item:selected, QListWidget::item:selected, QTableWidget::item:selected {{ background: {c['selection']}; color: {c['text']}; }}
-            QHeaderView::section {{ background: {c['raised']}; color: {c['muted']}; border: none; border-bottom: 1px solid {c['border']}; padding: 6px; font-weight: 700; }}
-
-            QSlider::groove:horizontal {{ height: 4px; background: {c['border']}; border-radius: 2px; }}
-            QSlider::sub-page:horizontal {{ background: {c['accent']}; border-radius: 2px; }}
-            QSlider::handle:horizontal {{ background: {c['raised']}; border: 2px solid {c['accent']}; width: 13px; margin: -6px 0; border-radius: 7px; }}
-            QSlider::groove:vertical {{ width: 4px; background: {c['border']}; border-radius: 2px; }}
-            QSlider::handle:vertical {{ background: {c['raised']}; border: 2px solid {c['accent']}; height: 13px; margin: 0 -6px; border-radius: 7px; }}
-
-            QCheckBox, QRadioButton {{ color: {c['muted']}; spacing: 6px; }}
-            QCheckBox::indicator, QRadioButton::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border_hi']}; background: {c['field']}; }}
-            QCheckBox::indicator {{ border-radius: 4px; }}
-            QRadioButton::indicator {{ border-radius: 8px; }}
-            QCheckBox::indicator:checked, QRadioButton::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
-
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{ background: transparent; width: 9px; margin: 1px; }}
-            QScrollBar::handle:vertical {{ background: {c['border_hi']}; min-height: 28px; border-radius: 4px; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-            QScrollBar:horizontal {{ background: transparent; height: 9px; margin: 1px; }}
-            QScrollBar::handle:horizontal {{ background: {c['border_hi']}; min-width: 28px; border-radius: 4px; }}
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-            QToolTip {{ background: {c['raised']}; color: {c['text']}; border: 1px solid {c['border_hi']}; border-radius: 5px; padding: 6px; }}
-            QStatusBar {{ background: {c['surface']}; color: {c['muted']}; border-top: 1px solid {c['border']}; }}
-        """
-
-
-class AuroraV4GUI(AuroraGUI):
-    """Aurora v3 with visually consistent Registration image placeholders."""
-
-    def __init__(self, icon_path=None):
-        super().__init__(icon_path)
-        self.setWindowTitle("MicroLive")
-        self._normalize_registration_viewports()
-        self._polish_analysis_subtabs()
-        self._compact_action_buttons()
-        self.applyTheme(self.themeToggle.isChecked())
-
-    def _normalize_registration_viewports(self):
-        """Use the same black viewport surface in both Registration image panels."""
-        registration_views = (
-            ("figure_reg_original", "canvas_reg_original", "ax_reg_original"),
-            ("figure_reg_result", "canvas_reg_result", "ax_reg_result"),
-        )
-        for figure_name, canvas_name, axes_name in registration_views:
-            figure = getattr(self, figure_name, None)
-            canvas = getattr(self, canvas_name, None)
-            axes = getattr(self, axes_name, None)
-            if figure is not None:
-                figure.patch.set_facecolor("#000000")
-            if axes is not None:
-                axes.set_facecolor("#000000")
-            if canvas is not None:
-                canvas.setStyleSheet("background-color: #000000;")
-                panel = canvas.parentWidget()
-                if panel is not None:
-                    panel.setObjectName("registrationViewport")
-                    # Remove the inherited #1a1a1a panel stylesheet so the
-                    # targeted Aurora style below controls the entire viewport.
-                    panel.setStyleSheet("")
-                canvas.draw_idle()
-
-    def reset_registration_tab(self):
-        """Preserve the black viewport after the inherited reset recreates axes."""
-        super().reset_registration_tab()
-        self._normalize_registration_viewports()
-
-    def plot_registration_panels(self):
-        """Preserve the black viewport after the inherited renderer clears axes."""
-        super().plot_registration_panels()
-        self._normalize_registration_viewports()
-
-    def _polish_analysis_subtabs(self):
-        """Give Segmentation and Colocalization clear, non-overlapping subnavigation."""
-        for tabs in (
-            getattr(self, "segmentation_method_tabs", None),
-            getattr(self, "coloc_subtabs", None),
-        ):
-            if tabs is None:
-                continue
-            tabs.setProperty("designRole", "analysisSubtabs")
-            tabs.setUsesScrollButtons(False)
-            tabs.setElideMode(Qt.ElideNone)
-            tabs.setDocumentMode(True)
-            tab_bar = tabs.tabBar()
-            tab_bar.setProperty("designRole", "analysisSubtabs")
-            tab_bar.setDrawBase(False)
-            tab_bar.setExpanding(False)
-            tab_bar.setMinimumHeight(38)
-            tab_bar.setStyleSheet("")
-
-    def _compact_action_buttons(self):
-        """Reduce regular action-button height while retaining comfortable targets."""
-        for button in self.findChildren(QPushButton):
-            minimum_height = button.minimumHeight()
-            maximum_height = button.maximumHeight()
-            if 30 <= minimum_height <= 44:
-                button.setMinimumHeight(28)
-            # Leave purposefully small controls (for example, 20-pixel threshold
-            # toggles) unchanged, but prevent normal action buttons from growing.
-            if maximum_height > 40 and minimum_height <= 44:
-                button.setMaximumHeight(30)
-
-    @staticmethod
-    def _stylesheet(dark: bool) -> str:
-        """Extend Aurora styling with a pure-black Registration viewport surface."""
-        base = AuroraGUI._stylesheet(dark)
-        if dark:
-            surface, border, text, muted, accent, accent_soft = (
-                "#1c1d24", "#343741", "#f3f4f7", "#a9adb8", "#9b8cff", "#302c50"
-            )
-        else:
-            surface, border, text, muted, accent, accent_soft = (
-                "#fbfbfd", "#d8d9e0", "#22242b", "#626775", "#7162db", "#ebe9ff"
-            )
-        return base + """
-            QFrame#registrationViewport {
-                background-color: #000000;
-                border: 1px solid #343741;
-                border-radius: 6px;
-            }
-        """ + f"""
-            QGroupBox::title {{
-                background-color: {surface};
-                color: {muted};
-                border-radius: 2px;
-                padding: 0 6px;
-            }}
-            QTabWidget[designRole="analysisSubtabs"]::pane {{
-                background-color: {surface};
-                border: 1px solid {border};
-                border-radius: 7px;
-                top: -1px;
-            }}
-            QTabBar[designRole="analysisSubtabs"]::tab {{
-                background-color: {surface};
-                color: {muted};
-                border: 1px solid {border};
-                border-bottom: 3px solid {border};
-                border-radius: 6px 6px 0 0;
-                margin-right: 5px;
-                min-width: 74px;
-                padding: 8px 12px 7px;
-                font-weight: 700;
-            }}
-            QTabBar[designRole="analysisSubtabs"]::tab:hover:!selected {{
-                color: {text};
-                border-color: {accent};
-            }}
-            QTabBar[designRole="analysisSubtabs"]::tab:selected {{
-                background-color: {accent_soft};
-                color: {accent};
-                border-color: {accent};
-                border-bottom-color: {accent};
-            }}
-            QPushButton {{
-                min-height: 16px;
-                padding: 4px 10px;
-            }}
-        """
-
-
-class GUI(AuroraV4GUI):
-    """Aurora v4 with an output-focused Export workspace."""
-
-    def __init__(self, icon_path=None):
-        super().__init__(icon_path)
-        self.setWindowTitle("MicroLive")
-        self._apply_gui_header_icon()
-        self._replace_navigation_toolbars()
-        self._redesign_export_workspace()
-        self.applyTheme(self.themeToggle.isChecked())
-
-    def _apply_gui_header_icon(self):
-        """Use Aurora's compact microscope mark in v5's dark header only."""
-        icon_gui_path = Path(__file__).resolve().parents[1] / "data" / "icons" / "icon_gui.png"
-        logo = self.findChild(QLabel, "auroraLogo")
-        if logo is None or not icon_gui_path.exists():
-            return
-        pixmap = QPixmap(str(icon_gui_path))
-        if not pixmap.isNull():
-            logo.setPixmap(pixmap.scaled(25, 25, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            logo.setToolTip("MicroLive")
-
-    @staticmethod
-    def _clear_layout(layout):
-        """Detach all widgets and nested layouts so a layout can be rebuilt safely."""
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-            child_layout = item.layout()
-            if child_layout is not None:
-                GUI._clear_layout(child_layout)
-
-    def _redesign_export_workspace(self):
-        """Rearrange existing export controls without changing their functionality."""
-        layout = self.export_tab.layout()
-        comments_combo = self.comments_combo
-        user_comments = self.user_comment_textedit
-        export_table = self.export_table
-
-        # The original page-local buttons are replaced by an always-visible action
-        # bar below. Their connected methods are reused exactly as before.
-        for button in self.export_tab.findChildren(QPushButton):
-            button.setParent(None)
-            button.deleteLater()
-        self._clear_layout(layout)
-        layout.setContentsMargins(14, 14, 14, 12)
-        layout.setSpacing(10)
-
-        header = QFrame(self.export_tab)
-        header.setObjectName("exportHeader")
-        header.setFixedHeight(52)
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(12, 7, 12, 7)
-        header_layout.setSpacing(1)
-        title = QLabel("Export workspace", header)
-        title.setObjectName("exportTitle")
-        subtitle = QLabel(
-            "Choose the results to include, add an optional note, then select a destination folder.",
-            header,
-        )
-        subtitle.setObjectName("exportSubtitle")
-        header_layout.addWidget(title)
-        header_layout.addWidget(subtitle)
-        layout.addWidget(header)
-
-        content_layout = QHBoxLayout()
-        content_layout.setSpacing(10)
-
-        notes_card = QFrame(self.export_tab)
-        notes_card.setObjectName("exportNotesCard")
-        notes_card.setFixedWidth(360)
-        notes_card.setFixedHeight(250)
-        notes_layout = QVBoxLayout(notes_card)
-        notes_layout.setContentsMargins(12, 12, 12, 12)
-        notes_layout.setSpacing(7)
-        notes_title = QLabel("Export note", notes_card)
-        notes_title.setObjectName("exportCardTitle")
-        preset_label = QLabel("Preset", notes_card)
-        preset_label.setObjectName("exportFieldLabel")
-        comments_combo.setParent(notes_card)
-        comments_combo.setMinimumHeight(28)
-        notes_label = QLabel("Optional comments", notes_card)
-        notes_label.setObjectName("exportFieldLabel")
-        user_comments.setParent(notes_card)
-        user_comments.setMinimumHeight(82)
-        user_comments.setMaximumHeight(104)
-        user_comments.setPlaceholderText("Add a short note for this export…")
-        notes_hint = QLabel("The note can be included as a text file in the results folder.", notes_card)
-        notes_hint.setObjectName("exportHint")
-        notes_hint.setWordWrap(True)
-        notes_layout.addWidget(notes_title)
-        notes_layout.addWidget(preset_label)
-        notes_layout.addWidget(comments_combo)
-        notes_layout.addWidget(notes_label)
-        notes_layout.addWidget(user_comments)
-        notes_layout.addWidget(notes_hint)
-        content_layout.addWidget(notes_card, 0, Qt.AlignTop)
-
-        selection_card = QFrame(self.export_tab)
-        selection_card.setObjectName("exportSelectionCard")
-        selection_layout = QVBoxLayout(selection_card)
-        selection_layout.setContentsMargins(12, 12, 12, 12)
-        selection_layout.setSpacing(7)
-        selection_header = QHBoxLayout()
-        selection_title = QLabel("Output selection", selection_card)
-        selection_title.setObjectName("exportCardTitle")
-        self.export_selection_summary = QLabel(selection_card)
-        self.export_selection_summary.setObjectName("exportSelectionSummary")
-        selection_header.addWidget(selection_title)
-        selection_header.addStretch(1)
-        selection_header.addWidget(self.export_selection_summary)
-        selection_layout.addLayout(selection_header)
-
-        export_table.setParent(selection_card)
-        export_table.setObjectName("exportTable")
-        export_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        export_table.verticalHeader().setVisible(False)
-        export_table.verticalHeader().setDefaultSectionSize(26)
-        export_table.horizontalHeader().setStretchLastSection(False)
-        export_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        export_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        export_table.horizontalHeader().resizeSection(1, 96)
-        export_table.setHorizontalHeaderLabels(["Output", "Include"])
-        export_table.setMinimumHeight(430)
-        export_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # QTableWidget owns its cell widgets. Replacing an existing checkbox with
-        # a holder schedules the old checkbox for deletion, so build fresh widgets
-        # and update export_items_map to the live replacements.
-        for row, (key, old_checkbox) in enumerate(list(self.export_items_map.items())):
-            checkbox_holder = QWidget(export_table)
-            checkbox_layout = QHBoxLayout(checkbox_holder)
-            checkbox_layout.setContentsMargins(0, 0, 0, 0)
-            checkbox_layout.setAlignment(Qt.AlignCenter)
-            checkbox = QCheckBox(checkbox_holder)
-            checkbox.setChecked(old_checkbox.isChecked())
-            checkbox.stateChanged.connect(self._update_export_selection_summary)
-            checkbox_layout.addWidget(checkbox)
-            export_table.setCellWidget(row, 1, checkbox_holder)
-            self.export_items_map[key] = checkbox
-        selection_layout.addWidget(export_table, 1)
-        content_layout.addWidget(selection_card, 1)
-        layout.addLayout(content_layout, 1)
-
-        action_bar = QFrame(self.export_tab)
-        action_bar.setObjectName("exportActionBar")
-        action_bar.setFixedHeight(42)
-        action_layout = QHBoxLayout(action_bar)
-        action_layout.setContentsMargins(9, 6, 9, 6)
-        action_layout.setSpacing(7)
-        self.export_action_summary = QLabel(action_bar)
-        self.export_action_summary.setObjectName("exportActionSummary")
-        action_layout.addWidget(self.export_action_summary)
-        action_layout.addStretch(1)
-
-        select_all_button = QPushButton("Select all", action_bar)
-        select_all_button.setProperty("buttonRole", "secondary")
-        select_all_button.clicked.connect(self.select_all_exports)
-        clear_selection_button = QPushButton("Clear selection", action_bar)
-        clear_selection_button.setProperty("buttonRole", "secondary")
-        clear_selection_button.clicked.connect(self.deselect_all_exports)
-        export_button = QPushButton("Export selected items", action_bar)
-        export_button.setObjectName("exportPrimaryButton")
-        export_button.setProperty("buttonRole", "primary")
-        export_button.clicked.connect(self.export_selected_items)
-        action_layout.addWidget(select_all_button)
-        action_layout.addWidget(clear_selection_button)
-        action_layout.addWidget(export_button)
-        layout.addWidget(action_bar)
-
-        self._update_export_selection_summary()
-
-    def _replace_widget_in_layout(self, layout, old_widget, new_widget):
-        """Recursively replace one widget while retaining the surrounding layout."""
-        for index in range(layout.count()):
-            item = layout.itemAt(index)
-            if item.widget() is old_widget:
-                layout.replaceWidget(old_widget, new_widget)
-                return True
-            child_layout = item.layout()
-            if child_layout is not None and self._replace_widget_in_layout(
-                child_layout, old_widget, new_widget
-            ):
-                return True
-            widget = item.widget()
-            if widget is not None:
-                widget_layout = widget.layout()
-                if widget_layout is not None and self._replace_widget_in_layout(
-                    widget_layout, old_widget, new_widget
-                ):
-                    return True
-                if isinstance(widget, QTabWidget):
-                    for tab_index in range(widget.count()):
-                        tab_page_layout = widget.widget(tab_index).layout()
-                        if tab_page_layout is not None and self._replace_widget_in_layout(
-                            tab_page_layout, old_widget, new_widget
-                        ):
-                            return True
-        return False
-
-    def _replace_navigation_toolbars(self):
-        """Replace legacy Matplotlib icon strips with compact shared toolbars."""
-        toolbar_names = (
-            "toolbar_segmentation",
-            "toolbar_photobleaching",
-            "toolbar_intensity",
-            "toolbar_time_course",
-            "toolbar_correlation",
-            "toolbar_colocalization",
-            "toolbar_msd",
-        )
-        root_layout = self.centralWidget().layout()
-        self.compact_canvas_toolbars = {}
-        for name in toolbar_names:
-            native_toolbar = getattr(self, name, None)
-            if native_toolbar is None:
-                continue
-            compact_toolbar = CompactCanvasToolbar(native_toolbar, self)
-            if self._replace_widget_in_layout(root_layout, native_toolbar, compact_toolbar):
-                native_toolbar.hide()
-                self.compact_canvas_toolbars[name] = compact_toolbar
-
-    def _update_export_selection_summary(self):
-        """Display the current number of selected export outputs."""
-        selected = sum(checkbox.isChecked() for checkbox in self.export_items_map.values())
-        total = len(self.export_items_map)
-        summary = f"{selected} of {total} selected"
-        if hasattr(self, "export_selection_summary"):
-            self.export_selection_summary.setText(summary)
-        if hasattr(self, "export_action_summary"):
-            self.export_action_summary.setText(summary)
-
-    @staticmethod
-    def _stylesheet(dark: bool) -> str:
-        """Extend Aurora v4 with the Export workspace card system."""
-        base = AuroraV4GUI._stylesheet(dark)
-        if dark:
-            surface, raised, border, text, muted, accent, accent_soft = (
-                "#1c1d24", "#24262f", "#343741", "#f3f4f7", "#a9adb8", "#9b8cff", "#302c50"
-            )
-        else:
-            surface, raised, border, text, muted, accent, accent_soft = (
-                "#fbfbfd", "#ffffff", "#d8d9e0", "#22242b", "#626775", "#7162db", "#ebe9ff"
-            )
-        return base + f"""
-            QFrame#importSourceCard, QFrame#importControlsCard, QFrame#importDetailsCard {{
-                background-color: {surface}; border: 1px solid {border}; border-radius: 8px;
-            }}
-            QFrame#importCanvasFooter {{ background: transparent; border: none; }}
-            QFrame#importCompactRange, QFrame#importExportCard {{
-                background-color: {surface}; border: 1px solid {border}; border-radius: 7px;
-            }}
-            QLabel#importFileStatus {{
-                color: {accent}; background-color: {accent_soft}; border-radius: 8px;
-                padding: 3px 7px; font-size: 9px; font-weight: 700;
-            }}
-            QTreeWidget#importImageTree {{
-                background-color: {raised}; border: 1px solid {border}; border-radius: 5px;
-            }}
-            QTreeWidget#importImageTree::item {{ padding: 3px 6px; }}
-            QTreeWidget#importImageTree::item:selected {{
-                background-color: {accent_soft}; color: {text};
-            }}
-            QTabWidget#importChannelControls::pane {{
-                border: 1px solid {border}; border-radius: 5px; background-color: {raised};
-            }}
-            QTabWidget#importChannelControls QTabBar::tab {{ padding: 5px 9px 4px; min-width: 38px; }}
-            QScrollArea#importMetadataScroll {{
-                background-color: {raised}; border: 1px solid {border}; border-radius: 5px;
-            }}
-            QScrollArea#importSidebarScroll {{ background: transparent; border: none; }}
-            QWidget#importSidebarContent {{ background: transparent; }}
-            QFrame#exportHeader, QFrame#exportNotesCard, QFrame#exportSelectionCard,
-            QFrame#exportActionBar {{
-                background-color: {surface};
-                border: 1px solid {border};
-                border-radius: 8px;
-            }}
-            QLabel#exportTitle {{ color: {text}; font-size: 14px; font-weight: 750; }}
-            QLabel#exportSubtitle, QLabel#exportHint {{ color: {muted}; font-size: 10px; }}
-            QLabel#exportCardTitle {{ color: {text}; font-size: 12px; font-weight: 750; }}
-            QLabel#exportFieldLabel {{ color: {muted}; font-size: 10px; font-weight: 700; }}
-            QLabel#exportSelectionSummary {{
-                color: {accent}; background-color: {accent_soft}; border-radius: 9px;
-                padding: 3px 8px; font-size: 10px; font-weight: 700;
-            }}
-            QLabel#exportActionSummary {{ color: {muted}; font-size: 10px; font-weight: 700; }}
-            QTableWidget#exportTable {{
-                background-color: {raised}; border: 1px solid {border}; border-radius: 6px;
-                alternate-background-color: {surface};
-            }}
-            QTableWidget#exportTable::item {{ padding: 5px 8px; }}
-            QTableWidget#exportTable::item:selected {{ background-color: {accent_soft}; color: {text}; }}
-            QTableWidget#exportTable QCheckBox {{ padding: 0; spacing: 0; }}
-            QTableWidget#exportTable QCheckBox::indicator {{ width: 16px; height: 16px; }}
-            QPushButton#exportPrimaryButton {{
-                background-color: {accent}; color: white; border-color: {accent}; min-width: 158px;
-            }}
-            QFrame#compactCanvasToolbar {{
-                background-color: {surface}; border: 1px solid {border}; border-radius: 6px;
-            }}
-            QToolButton#compactCanvasTool {{
-                background: transparent; color: {muted}; border: 1px solid transparent;
-                border-radius: 4px; padding: 3px 6px; font-size: 10px; font-weight: 650;
-            }}
-            QToolButton#compactCanvasTool:hover {{
-                color: {text}; background-color: {accent_soft}; border-color: {accent};
-            }}
-            QToolButton#compactCanvasTool:checked {{
-                color: {accent}; background-color: {accent_soft}; border-color: {accent};
-            }}
-            QToolButton#compactCanvasMore {{
-                color: {muted}; background: transparent; border: 1px solid transparent;
-                border-radius: 4px; padding: 1px 7px 4px; font-size: 17px;
-            }}
-            QToolButton#compactCanvasMore:hover {{
-                color: {text}; background-color: {accent_soft}; border-color: {accent};
-            }}
-            QLabel#compactCanvasCoordinates {{
-                color: {muted}; background: transparent; padding: 2px 5px;
-                font-size: 9px; font-family: monospace;
-            }}
-            QMenu {{ background-color: {surface}; color: {text}; border: 1px solid {border}; padding: 4px; }}
-            QMenu::item {{ padding: 6px 22px 6px 10px; border-radius: 4px; }}
-            QMenu::item:selected {{ background-color: {accent_soft}; color: {accent}; }}
-        """
-
-
-def main():
-    """Launch MicroLive Aurora, the default modern interface."""
-    if sys.platform == "darwin":
-        os.environ.setdefault("QT_MAC_WANTS_LAYER", "1")
-
+# =============================================================================
+# =============================================================================
+# APPLICATION ENTRY POINT
+# =============================================================================
+# =============================================================================
+
+if __name__ == '__main__':
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    if sys.platform == "win32":
-        app.setFont(QFont("Segoe UI", 10))
-    elif sys.platform == "darwin":
-        app.setFont(QFont("SF Pro", 10))
+    app.setStyle('Fusion')
+    
+    # Set modern font based on platform
+    if sys.platform == 'win32':
+        app.setFont(QFont("Segoe UI", 11))
+    elif sys.platform == 'darwin':
+        app.setFont(QFont("SF Pro", 11))
     else:
-        app.setFont(QFont("Inter", 10))
-
-    plt.style.use("dark_background")
+        app.setFont(QFont("Inter", 11))
+    
+    plt.style.use('dark_background')
     palette = QPalette()
-    palette.setColor(QPalette.Window, QColor("#15161b"))
-    palette.setColor(QPalette.WindowText, QColor("#f3f4f7"))
-    palette.setColor(QPalette.Base, QColor("#191b21"))
-    palette.setColor(QPalette.AlternateBase, QColor("#1c1d24"))
-    palette.setColor(QPalette.Text, QColor("#f3f4f7"))
-    palette.setColor(QPalette.Button, QColor("#24262f"))
-    palette.setColor(QPalette.ButtonText, QColor("#f3f4f7"))
-    palette.setColor(QPalette.Highlight, QColor("#9b8cff"))
-    palette.setColor(QPalette.HighlightedText, Qt.white)
+    palette.setColor(QPalette.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.Base, QColor(35, 35, 35))
+    palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ToolTipBase, Qt.white)
+    palette.setColor(QPalette.ToolTipText, Qt.white)
+    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ButtonText, Qt.white)
+    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.Highlight, QColor(142, 45, 197).lighter())
+    palette.setColor(QPalette.HighlightedText, Qt.black)
     app.setPalette(palette)
     app.setApplicationName("MicroLive")
-    app.setApplicationDisplayName("MicroLive")
-    app.setOrganizationName("Zhao Lab")
-
-    # The Aurora launcher uses the dedicated dark Dock/window icon.
-    icon_path = get_aurora_app_icon_path()
-    if icon_path and icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
-    window = GUI(icon_path=icon_path)
-    window.show()
+    app.setApplicationDisplayName("micro")
+    app.setWindowIcon(QIcon(str(icon_file)))
+    main_window = GUI(icon_path=icon_file)
+    main_window.show()
     sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()

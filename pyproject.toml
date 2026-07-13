@@ -160,6 +160,10 @@ exclude = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "microlive/data/models/spot_detection_cnn.pth" = "microlive/data/models/spot_detection_cnn.pth"
+"microlive/data/icons/icon_gui.png" = "microlive/data/icons/icon_gui.png"
+"microlive/data/icons/icon_aurora_app.png" = "microlive/data/icons/icon_aurora_app.png"
+"microlive/data/icons/icon_aurora_app.icns" = "microlive/data/icons/icon_aurora_app.icns"
+"microlive/data/icons/icon_aurora_app.ico" = "microlive/data/icons/icon_aurora_app.ico"
 
 [tool.hatch.build.targets.sdist]
 include = [
