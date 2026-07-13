@@ -128,6 +128,37 @@ except ImportError:
 THRESHOLD_HISTOGRAM_MAX_PERCENTILE = 99.95
 
 
+def _configure_windows_high_dpi_scaling():
+    """Let Qt follow the Windows display scale, including fractional values.
+
+    PyQt5 does not enable the Qt 6 high-DPI defaults automatically.  These
+    attributes must be set before QApplication is constructed; otherwise a
+    125% or 150% Windows display can render the interface using unscaled pixel
+    metrics.  PassThrough preserves the display's actual fractional scale
+    instead of rounding it to an integer.
+    """
+    if sys.platform != "win32" or QApplication.instance() is not None:
+        return
+
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    if hasattr(QGuiApplication, "setHighDpiScaleFactorRoundingPolicy"):
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+
+
+def _aurora_font_size(size):
+    """Return a DPI-aware Aurora font size without changing other platforms."""
+    unit = "pt" if sys.platform == "win32" else "px"
+    return f"{size}{unit}"
+
+
+def _aurora_metric(default, windows):
+    """Use roomier logical geometry for Aurora's Windows-only compact UI."""
+    return windows if sys.platform == "win32" else default
+
+
 # =============================================================================
 # UI DIALOGS, WIDGET, PLOTTING CLASSES
 # =============================================================================
@@ -19665,8 +19696,9 @@ class MicroLiveGUI(QMainWindow):
         source_actions.setSpacing(6)
         self.close_file_button.setParent(source_card)
         self.close_all_files_button.setParent(source_card)
-        self.close_file_button.setFixedHeight(26)
-        self.close_all_files_button.setFixedHeight(26)
+        source_button_height = _aurora_metric(26, 34)
+        self.close_file_button.setFixedHeight(source_button_height)
+        self.close_all_files_button.setFixedHeight(source_button_height)
         source_actions.addWidget(self.close_file_button)
         source_actions.addWidget(self.close_all_files_button)
         source_layout.addLayout(source_actions)
@@ -19753,7 +19785,7 @@ class MicroLiveGUI(QMainWindow):
             self.export_video_button,
         ):
             button.setParent(export_card)
-            button.setFixedHeight(26)
+            button.setFixedHeight(source_button_height)
             export_actions.addWidget(button)
         export_layout.addLayout(export_actions)
         self.import_export_card = export_card
@@ -19972,7 +20004,7 @@ class AuroraGUI(MicroLiveGUI):
 
         footer = QFrame(self.display_tab)
         footer.setObjectName("importCanvasFooter")
-        footer.setFixedHeight(72)
+        footer.setFixedHeight(_aurora_metric(72, 82))
         footer_layout = QVBoxLayout(footer)
         footer_layout.setContentsMargins(0, 0, 0, 0)
         footer_layout.setSpacing(2)
@@ -19991,7 +20023,7 @@ class AuroraGUI(MicroLiveGUI):
 
         for button in (self.apply_frame_range_button, self.use_full_movie_button):
             button.setParent(footer)
-            button.setFixedHeight(23)
+            button.setFixedHeight(_aurora_metric(23, 32))
             action_row.addWidget(button)
 
         export_layout = self.import_export_card.layout()
@@ -20012,9 +20044,9 @@ class AuroraGUI(MicroLiveGUI):
             self.export_tif_button,
             self.export_video_button,
         ):
-            button.setFixedHeight(23)
+            button.setFixedHeight(_aurora_metric(23, 32))
 
-        self.import_export_card.setFixedHeight(32)
+        self.import_export_card.setFixedHeight(_aurora_metric(32, 40))
         self.import_export_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         action_row.addWidget(self.import_export_card, 3)
 
@@ -20031,7 +20063,7 @@ class AuroraGUI(MicroLiveGUI):
         group = self.frame_range_group
         bar = QFrame(parent)
         bar.setObjectName("importCompactRange")
-        bar.setFixedHeight(32)
+        bar.setFixedHeight(_aurora_metric(32, 40))
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(8, 2, 8, 2)
         layout.setSpacing(5)
@@ -20040,7 +20072,7 @@ class AuroraGUI(MicroLiveGUI):
         title.setObjectName("importRangeTitle")
         self.frame_range_available_label.setParent(bar)
         self.frame_range_available_label.setObjectName("importRangeAvailability")
-        self.frame_range_available_label.setFixedHeight(22)
+        self.frame_range_available_label.setFixedHeight(_aurora_metric(22, 28))
         self.frame_range_summary_label.setParent(group)
         self.frame_range_summary_label.setVisible(False)
         self.frame_range_status_label.setParent(group)
@@ -20051,14 +20083,15 @@ class AuroraGUI(MicroLiveGUI):
         self.frame_crop_start_spin.setPrefix("Start ")
         self.frame_crop_end_spin.setPrefix("End ")
         for spinbox in (self.frame_crop_start_spin, self.frame_crop_end_spin):
-            spinbox.setFixedHeight(23)
+            spinbox.setFixedHeight(_aurora_metric(23, 32))
             spinbox.setMinimumWidth(82)
             spinbox.setMaximumWidth(102)
 
         self.apply_frame_range_button.setText("Apply")
         self.use_full_movie_button.setText("Full movie")
-        self.apply_frame_range_button.setFixedHeight(23)
-        self.use_full_movie_button.setFixedHeight(23)
+        compact_button_height = _aurora_metric(23, 32)
+        self.apply_frame_range_button.setFixedHeight(compact_button_height)
+        self.use_full_movie_button.setFixedHeight(compact_button_height)
         self.apply_frame_range_button.setMinimumWidth(62)
         self.use_full_movie_button.setMinimumWidth(82)
 
@@ -20270,24 +20303,33 @@ class AuroraGUI(MicroLiveGUI):
         central_layout = self.centralWidget().layout()
         header = QFrame(self)
         header.setObjectName("auroraHeader")
-        header.setFixedHeight(48)
+        header.setFixedHeight(_aurora_metric(48, 54))
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(10, 4, 11, 4)
         header_layout.setSpacing(8)
 
         logo = QLabel(header)
         logo.setObjectName("auroraLogo")
-        logo.setFixedSize(28, 28)
+        logo_size = _aurora_metric(28, 32)
+        logo.setFixedSize(logo_size, logo_size)
         if icon_path:
             pixmap = QPixmap(str(icon_path))
             if not pixmap.isNull():
-                logo.setPixmap(pixmap.scaled(25, 25, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                pixmap_size = _aurora_metric(25, 29)
+                logo.setPixmap(
+                    pixmap.scaled(
+                        pixmap_size,
+                        pixmap_size,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation,
+                    )
+                )
         header_layout.addWidget(logo)
 
         divider = QFrame(header)
         divider.setObjectName("auroraDivider")
         divider.setFrameShape(QFrame.VLine)
-        divider.setFixedHeight(20)
+        divider.setFixedHeight(_aurora_metric(20, 24))
         header_layout.addWidget(divider)
 
         self.aurora_navigation = QWidget(header)
@@ -20320,8 +20362,9 @@ class AuroraGUI(MicroLiveGUI):
             button.setCheckable(True)
             button.setToolButtonStyle(Qt.ToolButtonTextOnly)
             button.setCursor(Qt.PointingHandCursor)
-            button.setMinimumSize(0, 36)
-            button.setMaximumHeight(36)
+            navigation_height = _aurora_metric(36, 40)
+            button.setMinimumSize(0, navigation_height)
+            button.setMaximumHeight(navigation_height)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             button.clicked.connect(
                 lambda checked=False, tab_index=index: self.tabs.setCurrentIndex(tab_index)
@@ -20417,6 +20460,9 @@ class AuroraGUI(MicroLiveGUI):
 
     @staticmethod
     def _stylesheet(dark: bool) -> str:
+        base_font = _aurora_font_size(11)
+        small_font = _aurora_font_size(10)
+        tiny_font = _aurora_font_size(9)
         if dark:
             c = {
                 "base": "#15161b", "surface": "#1c1d24", "raised": "#24262f",
@@ -20436,19 +20482,19 @@ class AuroraGUI(MicroLiveGUI):
                 "danger": "#6478a7", "danger_soft": "#edf0f7", "disabled": "#a7aab5",
             }
         return f"""
-            QMainWindow, QWidget {{ background: {c['base']}; color: {c['text']}; font-size: 11px; }}
+            QMainWindow, QWidget {{ background: {c['base']}; color: {c['text']}; font-size: {base_font}; }}
             QFrame#auroraHeader {{ background: {c['surface']}; border-bottom: 1px solid {c['border']}; }}
             QLabel#auroraLogo {{ background: {c['raised']}; border: 1px solid {c['border']}; border-radius: 6px; }}
             QFrame#auroraDivider {{ color: {c['border_hi']}; }}
             QWidget#auroraNavigation {{ background: transparent; }}
-            QToolButton#auroraTab {{ background: transparent; color: {c['muted']}; border: none; border-bottom: 3px solid transparent; border-radius: 5px; padding: 8px 5px 6px; font-size: 10px; font-weight: 600; }}
+            QToolButton#auroraTab {{ background: transparent; color: {c['muted']}; border: none; border-bottom: 3px solid transparent; border-radius: 5px; padding: 8px 5px 6px; font-size: {small_font}; font-weight: 600; }}
             QToolButton#auroraTab:hover:!checked {{ background: {c['raised']}; color: {c['text']}; }}
             QToolButton#auroraTab:checked {{ color: {c['accent']}; border-bottom-color: {c['accent']}; background: {c['accent_soft']}; }}
-            QCheckBox#themeToggle {{ color: {c['muted']}; spacing: 5px; font-size: 10px; font-weight: 600; }}
+            QCheckBox#themeToggle {{ color: {c['muted']}; spacing: 5px; font-size: {small_font}; font-weight: 600; }}
             QCheckBox#themeToggle::indicator {{ width: 28px; height: 16px; border: 1px solid {c['border_hi']}; border-radius: 8px; background: {c['raised']}; }}
             QCheckBox#themeToggle::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
-            QLabel#trackingModeLabel {{ color: {c['muted']}; font-size: 10px; font-weight: 600; }}
-            QCheckBox#trackingModeToggle {{ color: {c['text']}; spacing: 6px; min-width: 84px; font-size: 10px; font-weight: 700; }}
+            QLabel#trackingModeLabel {{ color: {c['muted']}; font-size: {small_font}; font-weight: 600; }}
+            QCheckBox#trackingModeToggle {{ color: {c['text']}; spacing: 6px; min-width: 84px; font-size: {small_font}; font-weight: 700; }}
             QCheckBox#trackingModeToggle::indicator {{ width: 44px; height: 22px; border: 1px solid {c['border_hi']}; border-radius: 11px; background: {c['raised']}; }}
             QCheckBox#trackingModeToggle::indicator:checked {{ background: {c['accent']}; border-color: {c['accent']}; }}
             QGroupBox#trackingSourceGroup,
@@ -20465,8 +20511,8 @@ class AuroraGUI(MicroLiveGUI):
             QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 5px; color: {c['muted']}; }}
             QGroupBox#frameRangeGroup {{ margin-top: 8px; padding: 5px 6px 4px; }}
             QGroupBox#frameRangeGroup::title {{ left: 8px; color: {c['faint']}; }}
-            QLabel#frameRangeMeta, QLabel#frameRangeSummary {{ color: {c['muted']}; font-size: 10px; }}
-            QLabel#frameRangeStatus {{ color: {c['faint']}; font-size: 9px; }}
+            QLabel#frameRangeMeta, QLabel#frameRangeSummary {{ color: {c['muted']}; font-size: {small_font}; }}
+            QLabel#frameRangeStatus {{ color: {c['faint']}; font-size: {tiny_font}; }}
 
             QPushButton {{ background: {c['raised']}; color: {c['text']}; border: 1px solid {c['border_hi']}; border-radius: 6px; padding: 6px 11px; min-height: 18px; font-weight: 600; }}
             QPushButton:hover {{ background: {c['selection']}; border-color: {c['accent']}; }}
@@ -20580,20 +20626,24 @@ class AuroraV4GUI(AuroraGUI):
 
     def _compact_action_buttons(self):
         """Reduce regular action-button height while retaining comfortable targets."""
+        compact_minimum = 32 if sys.platform == "win32" else 28
+        compact_maximum = 36 if sys.platform == "win32" else 30
         for button in self.findChildren(QPushButton):
             minimum_height = button.minimumHeight()
             maximum_height = button.maximumHeight()
             if 30 <= minimum_height <= 44:
-                button.setMinimumHeight(28)
+                button.setMinimumHeight(compact_minimum)
             # Leave purposefully small controls (for example, 20-pixel threshold
             # toggles) unchanged, but prevent normal action buttons from growing.
             if maximum_height > 40 and minimum_height <= 44:
-                button.setMaximumHeight(30)
+                button.setMaximumHeight(compact_maximum)
 
     @staticmethod
     def _stylesheet(dark: bool) -> str:
         """Extend Aurora styling with a pure-black Registration viewport surface."""
         base = AuroraGUI._stylesheet(dark)
+        button_minimum = 18 if sys.platform == "win32" else 16
+        button_padding = 5 if sys.platform == "win32" else 4
         if dark:
             surface, border, text, muted, accent, accent_soft = (
                 "#1c1d24", "#343741", "#f3f4f7", "#a9adb8", "#9b8cff", "#302c50"
@@ -20643,8 +20693,8 @@ class AuroraV4GUI(AuroraGUI):
                 border-bottom-color: {accent};
             }}
             QPushButton {{
-                min-height: 16px;
-                padding: 4px 10px;
+                min-height: {button_minimum}px;
+                padding: {button_padding}px 10px;
             }}
         """
 
@@ -20668,7 +20718,15 @@ class GUI(AuroraV4GUI):
             return
         pixmap = QPixmap(str(icon_gui_path))
         if not pixmap.isNull():
-            logo.setPixmap(pixmap.scaled(25, 25, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            pixmap_size = _aurora_metric(25, 29)
+            logo.setPixmap(
+                pixmap.scaled(
+                    pixmap_size,
+                    pixmap_size,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
             logo.setToolTip("MicroLive")
 
     @staticmethod
@@ -20701,7 +20759,7 @@ class GUI(AuroraV4GUI):
 
         header = QFrame(self.export_tab)
         header.setObjectName("exportHeader")
-        header.setFixedHeight(52)
+        header.setFixedHeight(_aurora_metric(52, 60))
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(12, 7, 12, 7)
         header_layout.setSpacing(1)
@@ -20721,8 +20779,8 @@ class GUI(AuroraV4GUI):
 
         notes_card = QFrame(self.export_tab)
         notes_card.setObjectName("exportNotesCard")
-        notes_card.setFixedWidth(360)
-        notes_card.setFixedHeight(250)
+        notes_card.setFixedWidth(_aurora_metric(360, 390))
+        notes_card.setFixedHeight(_aurora_metric(250, 290))
         notes_layout = QVBoxLayout(notes_card)
         notes_layout.setContentsMargins(12, 12, 12, 12)
         notes_layout.setSpacing(7)
@@ -20731,12 +20789,12 @@ class GUI(AuroraV4GUI):
         preset_label = QLabel("Preset", notes_card)
         preset_label.setObjectName("exportFieldLabel")
         comments_combo.setParent(notes_card)
-        comments_combo.setMinimumHeight(28)
+        comments_combo.setMinimumHeight(_aurora_metric(28, 32))
         notes_label = QLabel("Optional comments", notes_card)
         notes_label.setObjectName("exportFieldLabel")
         user_comments.setParent(notes_card)
-        user_comments.setMinimumHeight(82)
-        user_comments.setMaximumHeight(104)
+        user_comments.setMinimumHeight(_aurora_metric(82, 92))
+        user_comments.setMaximumHeight(_aurora_metric(104, 116))
         user_comments.setPlaceholderText("Add a short note for this export…")
         notes_hint = QLabel("The note can be included as a text file in the results folder.", notes_card)
         notes_hint.setObjectName("exportHint")
@@ -20768,11 +20826,11 @@ class GUI(AuroraV4GUI):
         export_table.setObjectName("exportTable")
         export_table.setEditTriggers(QTableWidget.NoEditTriggers)
         export_table.verticalHeader().setVisible(False)
-        export_table.verticalHeader().setDefaultSectionSize(26)
+        export_table.verticalHeader().setDefaultSectionSize(_aurora_metric(26, 30))
         export_table.horizontalHeader().setStretchLastSection(False)
         export_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         export_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        export_table.horizontalHeader().resizeSection(1, 96)
+        export_table.horizontalHeader().resizeSection(1, _aurora_metric(96, 106))
         export_table.setHorizontalHeaderLabels(["Output", "Include"])
         export_table.setMinimumHeight(430)
         export_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -20797,7 +20855,7 @@ class GUI(AuroraV4GUI):
 
         action_bar = QFrame(self.export_tab)
         action_bar.setObjectName("exportActionBar")
-        action_bar.setFixedHeight(42)
+        action_bar.setFixedHeight(_aurora_metric(42, 50))
         action_layout = QHBoxLayout(action_bar)
         action_layout.setContentsMargins(9, 6, 9, 6)
         action_layout.setSpacing(7)
@@ -20887,6 +20945,9 @@ class GUI(AuroraV4GUI):
     def _stylesheet(dark: bool) -> str:
         """Extend Aurora v4 with the Export workspace card system."""
         base = AuroraV4GUI._stylesheet(dark)
+        regular_font = _aurora_font_size(12)
+        small_font = _aurora_font_size(10)
+        tiny_font = _aurora_font_size(9)
         if dark:
             surface, raised, border, text, muted, accent, accent_soft = (
                 "#1c1d24", "#24262f", "#343741", "#f3f4f7", "#a9adb8", "#9b8cff", "#302c50"
@@ -20905,7 +20966,7 @@ class GUI(AuroraV4GUI):
             }}
             QLabel#importFileStatus {{
                 color: {accent}; background-color: {accent_soft}; border-radius: 8px;
-                padding: 3px 7px; font-size: 9px; font-weight: 700;
+                padding: 3px 7px; font-size: {tiny_font}; font-weight: 700;
             }}
             QTreeWidget#importImageTree {{
                 background-color: {raised}; border: 1px solid {border}; border-radius: 5px;
@@ -20929,15 +20990,15 @@ class GUI(AuroraV4GUI):
                 border: 1px solid {border};
                 border-radius: 8px;
             }}
-            QLabel#exportTitle {{ color: {text}; font-size: 14px; font-weight: 750; }}
-            QLabel#exportSubtitle, QLabel#exportHint {{ color: {muted}; font-size: 10px; }}
-            QLabel#exportCardTitle {{ color: {text}; font-size: 12px; font-weight: 750; }}
-            QLabel#exportFieldLabel {{ color: {muted}; font-size: 10px; font-weight: 700; }}
+            QLabel#exportTitle {{ color: {text}; font-size: {_aurora_font_size(14)}; font-weight: 750; }}
+            QLabel#exportSubtitle, QLabel#exportHint {{ color: {muted}; font-size: {small_font}; }}
+            QLabel#exportCardTitle {{ color: {text}; font-size: {regular_font}; font-weight: 750; }}
+            QLabel#exportFieldLabel {{ color: {muted}; font-size: {small_font}; font-weight: 700; }}
             QLabel#exportSelectionSummary {{
                 color: {accent}; background-color: {accent_soft}; border-radius: 9px;
-                padding: 3px 8px; font-size: 10px; font-weight: 700;
+                padding: 3px 8px; font-size: {small_font}; font-weight: 700;
             }}
-            QLabel#exportActionSummary {{ color: {muted}; font-size: 10px; font-weight: 700; }}
+            QLabel#exportActionSummary {{ color: {muted}; font-size: {small_font}; font-weight: 700; }}
             QTableWidget#exportTable {{
                 background-color: {raised}; border: 1px solid {border}; border-radius: 6px;
                 alternate-background-color: {surface};
@@ -20954,7 +21015,7 @@ class GUI(AuroraV4GUI):
             }}
             QToolButton#compactCanvasTool {{
                 background: transparent; color: {muted}; border: 1px solid transparent;
-                border-radius: 4px; padding: 3px 6px; font-size: 10px; font-weight: 650;
+                border-radius: 4px; padding: 3px 6px; font-size: {small_font}; font-weight: 650;
             }}
             QToolButton#compactCanvasTool:hover {{
                 color: {text}; background-color: {accent_soft}; border-color: {accent};
@@ -20971,7 +21032,7 @@ class GUI(AuroraV4GUI):
             }}
             QLabel#compactCanvasCoordinates {{
                 color: {muted}; background: transparent; padding: 2px 5px;
-                font-size: 9px; font-family: monospace;
+                font-size: {tiny_font}; font-family: monospace;
             }}
             QMenu {{ background-color: {surface}; color: {text}; border: 1px solid {border}; padding: 4px; }}
             QMenu::item {{ padding: 6px 22px 6px 10px; border-radius: 4px; }}
@@ -20984,10 +21045,13 @@ def main():
     if sys.platform == "darwin":
         os.environ.setdefault("QT_MAC_WANTS_LAYER", "1")
 
+    _configure_windows_high_dpi_scaling()
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     if sys.platform == "win32":
-        app.setFont(QFont("Segoe UI", 10))
+        # Match the legacy Windows typography.  Point sizing lets Qt combine
+        # the font with the active Windows display scale.
+        app.setFont(QFont("Segoe UI", 11))
     elif sys.platform == "darwin":
         app.setFont(QFont("SF Pro", 10))
     else:
