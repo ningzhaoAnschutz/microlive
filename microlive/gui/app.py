@@ -884,6 +884,8 @@ class Metadata:
                 write_attr('Min Data in Trajectory (%)', 'min_percentage_data_in_trajectory')
                 write_attr('Max Lag Index for Fit', 'index_max_lag_for_fit')
                 write_attr('Multi-Tau', 'multi_tau')
+                write_attr('Multi-Tau Raw Points', 'multi_tau_raw_points')
+                write_attr('Multi-Tau Bins per Stage', 'multi_tau_bins_per_stage')
                 
                 # Colocalization / ML
                 write_section('Colocalization Parameters')
@@ -1136,6 +1138,8 @@ class MicroLiveGUI(QMainWindow):
         
         self.plots = Plots(self)
         self.use_multi = False
+        self.multi_tau_raw_points = 20
+        self.multi_tau_bins_per_stage = 12
         mi.Banner().print_banner()
         self.initUI()
         self._redesign_import_workspace()
@@ -1299,17 +1303,6 @@ class MicroLiveGUI(QMainWindow):
     # =========================================================================
     # FRAME-RANGE CROP ("crop is the movie")
     # =========================================================================
-    def get_selected_frame_range(self):
-        """Return (start, end) inclusive original indices of the active movie."""
-        if self.active_frame_range is None:
-            T = int(self.total_frames or 1)
-            return (0, max(0, T - 1))
-        return (self.active_frame_range.start, self.active_frame_range.end)
-
-    def is_frame_range_cropped(self):
-        """True when a strict sub-range of the source movie is active."""
-        return self.active_frame_range is not None and not self.active_frame_range.is_full
-
     def coerce_mask_for_active_movie(self, mask):
         """Return a mask valid for the active movie.
 
@@ -4398,9 +4391,6 @@ class MicroLiveGUI(QMainWindow):
                 
                 # Check if optimization is requested
                 selection_metric = 'max_cells_and_area' if self.chk_optimize_nuc.isChecked() else None
-                if image_to_use.shape[0] > 1:
-                    diff = np.abs(image_to_use[0].astype(float) - image_to_use[1].astype(float)).sum()
-                
                 tyx_generator = mi.CellposeTimeSeries(
                     image=image_to_use,
                     channels_cytosol=None,
@@ -4601,7 +4591,7 @@ class MicroLiveGUI(QMainWindow):
             return
         
         # Get expected dimensions from current image
-        T, Z, Y, X, C = self.image_stack.shape
+        T, Z, Y, X, _ = self.image_stack.shape
         
         # Open file dialog
         filepath, _ = QFileDialog.getOpenFileName(
@@ -8049,7 +8039,7 @@ class MicroLiveGUI(QMainWindow):
         
         # Also compute corrected intensities from RAW intensities (not registered)
         # This avoids registration edge artifacts in the "Corrected" line
-        T, C = raw_mean_intensities.shape
+        _, C = raw_mean_intensities.shape
         time_array = self.photobleaching_data['time_array']
         params = decay_params
         
@@ -8059,7 +8049,6 @@ class MicroLiveGUI(QMainWindow):
         
         for ch in range(C):
             k_fit = params[2*ch]
-            I0_fit = params[2*ch + 1]
             
             if k_fit > 0:
                 # Compute correction factor: I0 / I_fit(t) = exp(k*t)
@@ -9367,11 +9356,11 @@ class MicroLiveGUI(QMainWindow):
                 x_coords,
                 y_coords,
                 color=color,
-                linewidth=2.0,
+                linewidth=1.4,
                 alpha=0.95,
                 solid_capstyle='round',
                 path_effects=[
-                    path_effects.Stroke(linewidth=3.8, foreground='black'),
+                    path_effects.Stroke(linewidth=2.6, foreground='black'),
                     path_effects.Normal(),
                 ],
             )
@@ -9482,7 +9471,6 @@ class MicroLiveGUI(QMainWindow):
         
         # Get the color-by setting
         color_by = self.trajectory_color_combo.currentData() if hasattr(self, 'trajectory_color_combo') else 'particle'
-        particle_col = 'unique_particle' if 'unique_particle' in self.df_tracking.columns else 'particle'
         
         # Determine unique values and labels
         if color_by == 'cell_id' and 'cell_id' in self.df_tracking.columns:
@@ -9949,7 +9937,7 @@ class MicroLiveGUI(QMainWindow):
                                 traj_color = channel_colors[int(grp['spot_type'].iloc[0]) % len(channel_colors)]
                             else:
                                 traj_color = 'white'
-                            traj_lw = max(1.5, 3.0 * zoom_scale)
+                            traj_lw = max(1.0, 2.0 * zoom_scale)
                             self.ax_tracking.plot(grp['x'], grp['y'], '-', linewidth=traj_lw, color=traj_color, alpha=0.7)
             # Only show legend when viewing full image (not zoomed)
             # because counts are for entire image, not just the zoomed region
@@ -11784,6 +11772,8 @@ class MicroLiveGUI(QMainWindow):
                             correct_baseline=self.correct_baseline,
                             remove_outliers=self.remove_outliers,
                             multi_tau=use_multi,
+                            multi_tau_raw_points=self.multi_tau_raw_points,
+                            multi_tau_bins_per_stage=self.multi_tau_bins_per_stage,
                         )
                         mean_corr, std_corr, lags, correlations_array, _ = corr.run()
                     except Exception as e:
@@ -12160,6 +12150,10 @@ class MicroLiveGUI(QMainWindow):
         # Multi-Tau
         self.multiTauCheck = QCheckBox("Multi-Tau")
         self.multiTauCheck.setChecked(False)
+        self.multiTauCheck.setToolTip(
+            "Use logarithmically spaced lag bins (20 raw points, 12 bins per stage) "
+            "for longer late-lag coverage."
+        )
         self.multiTauCheck.stateChanged.connect(self.update_multi_tau)
         quality_layout.addWidget(self.multiTauCheck)
         
@@ -14495,8 +14489,6 @@ class MicroLiveGUI(QMainWindow):
             df_eval = df_eval[df_eval['is_colocalized_distance'].notna()]
             
             coloc_mask = df_eval['is_colocalized_distance'].astype(bool)
-            total_ch0 = int((df_eval['spot_type'] == ch0).sum())
-            total_ch1 = int((df_eval['spot_type'] == ch1).sum())
             total_ch0_only = int(((df_eval['spot_type'] == ch0) & ~coloc_mask).sum())
             total_ch1_only = int(((df_eval['spot_type'] == ch1) & ~coloc_mask).sum())
             # Count colocalized pairs (not rows): a colocalized pair flags one ch0 + one ch1 row,
@@ -15072,7 +15064,6 @@ class MicroLiveGUI(QMainWindow):
         df_coloc = results.get('df_colocalized', pd.DataFrame())
         df_ch1_all = results.get('df_ch1_all', pd.DataFrame())
         threshold_px = results.get('threshold_distance_px', 2.0)
-        threshold_nm = results.get('threshold_distance_nm', 130.0)
         use_3d = results.get('use_3d', False)
         
         # We need to create crops from tracking data
@@ -17149,6 +17140,8 @@ class MicroLiveGUI(QMainWindow):
             colocalization_method=coloc_method,
             colocalization_threshold_value=coloc_thresh,
             multi_tau=self.use_multi,
+            multi_tau_raw_points=self.multi_tau_raw_points,
+            multi_tau_bins_per_stage=self.multi_tau_bins_per_stage,
             
             # Multi-Channel Tracking Data
             tracked_channels=getattr(self, 'tracked_channels', []),
@@ -17387,7 +17380,7 @@ class MicroLiveGUI(QMainWindow):
         default_filename = self.get_default_export_filename(prefix="tracking", extension="csv")
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
-        file_path, selected_filter = QFileDialog.getSaveFileName(
+        file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Tracking Data",
             default_filename,
@@ -18270,7 +18263,7 @@ class MicroLiveGUI(QMainWindow):
             
             # Calculate R² value
 
-            slope, intercept, r_value, p_value, std_err = linregress(fit_times, em_um2.values[:len(fit_times)])
+            _, _, r_value, _, _ = linregress(fit_times, em_um2.values[:len(fit_times)])
             
             # Update result labels - use scientific notation for D
             n_particles = trackpy_df['particle'].nunique()
@@ -18363,7 +18356,7 @@ class MicroLiveGUI(QMainWindow):
                     if max_fit >= 2:
                         is_3d = self.msd_data.get('is_3d', False) if hasattr(self, 'msd_data') and self.msd_data else False
                         divisor = 6 if is_3d else 4
-                        slope, intercept, r_val, _, _ = linregress(em.index[:max_fit], em.values[:max_fit])
+                        slope, _, _, _, _ = linregress(em.index[:max_fit], em.values[:max_fit])
                         # Ensure slope is a scalar (not a Series)
                         slope = float(slope)
                         D = slope / divisor if slope > 0 else 0.0
@@ -18432,7 +18425,6 @@ class MicroLiveGUI(QMainWindow):
         # Check if we have per-cell data
         if hasattr(self, 'msd_per_cell') and self.msd_per_cell:
             # Plot per-cell MSD curves (mean with error)
-            n_cells = len(self.msd_per_cell)
             stats_lines = []
             MIN_TRAJECTORIES_PER_LAG = 5  # Filter lags with fewer trajectories
             MIN_PARTICLES_PER_CELL = 10  # Minimum particles to display a cell
@@ -19678,7 +19670,10 @@ class MicroLiveGUI(QMainWindow):
         source_actions.addWidget(self.close_file_button)
         source_actions.addWidget(self.close_all_files_button)
         source_layout.addLayout(source_actions)
-        cards_layout.addWidget(source_card, 1)
+        # The image library is the sidebar's primary flexible region. Any
+        # vertical space left after the controls and metadata should enlarge
+        # the dataset tree rather than create an empty metadata card.
+        cards_layout.addWidget(source_card, 3)
 
         controls_card = QFrame(sidebar_content)
         controls_card.setObjectName("importControlsCard")
@@ -19705,7 +19700,7 @@ class MicroLiveGUI(QMainWindow):
         details_card.setObjectName("importDetailsCard")
         details_card.setMinimumHeight(198)
         details_card.setMaximumHeight(16777215)
-        details_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        details_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         details_layout = QVBoxLayout(details_card)
         details_layout.setContentsMargins(11, 10, 11, 10)
         details_layout.setSpacing(5)
@@ -19720,14 +19715,14 @@ class MicroLiveGUI(QMainWindow):
         details_layout.addLayout(details_header)
         image_info_scroll.setParent(details_card)
         image_info_scroll.setObjectName("importMetadataScroll")
-        image_info_scroll.setMinimumHeight(164)
-        image_info_scroll.setMaximumHeight(16777215)
-        image_info_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        image_info_scroll.setMinimumHeight(220)
+        image_info_scroll.setMaximumHeight(300)
+        image_info_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         image_info_group = image_info_scroll.widget()
         if image_info_group is not None:
             image_info_group.setTitle("")
         details_layout.addWidget(image_info_scroll, 1)
-        cards_layout.addWidget(details_card, 2)
+        cards_layout.addWidget(details_card)
 
         self.frame_range_group.setParent(sidebar_content)
         self.frame_range_group.setMinimumHeight(132)
@@ -20386,16 +20381,22 @@ class AuroraGUI(MicroLiveGUI):
         # can be pushed over it on shorter displays.
         for scroll_area in self.display_tab.findChildren(QScrollArea):
             content = scroll_area.widget()
-            if not content or not hasattr(content, "title") or content.title() != "Image Information":
+            is_metadata_scroll = scroll_area.objectName() == "importMetadataScroll"
+            is_legacy_info_scroll = (
+                content is not None
+                and hasattr(content, "title")
+                and content.title() == "Image Information"
+            )
+            if not is_metadata_scroll and not is_legacy_info_scroll:
                 continue
-            scroll_area.setMinimumHeight(120)
-            scroll_area.setMaximumHeight(280)
-            scroll_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+            scroll_area.setMinimumHeight(220)
+            scroll_area.setMaximumHeight(300)
+            scroll_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
             sidebar_layout = scroll_area.parentWidget().layout()
             if sidebar_layout is not None:
-                sidebar_layout.setStretch(sidebar_layout.indexOf(scroll_area), 1)
+                sidebar_layout.setStretch(sidebar_layout.indexOf(scroll_area), 0)
 
-        self.image_tree.setMaximumHeight(170)
+        self.image_tree.setMaximumHeight(16777215)
         for button in (
             self.export_displayed_image_button,
             self.export_tif_button,
