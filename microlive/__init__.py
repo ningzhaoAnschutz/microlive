@@ -22,7 +22,7 @@ Authors:
     Nathan L. Nowling, Brian Munsky, Ning Zhao
 """
 
-__version__ = "1.0.40"
+__version__ = "1.0.41"
 __author__ = "Luis U. Aguilera, William S. Raymond, Rhiannon M. Sears, Nathan L. Nowling, Brian Munsky, Ning Zhao"
 
 # Package name (for backward compatibility)
