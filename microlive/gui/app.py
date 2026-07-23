@@ -1077,6 +1077,8 @@ class MicroLiveGUI(QMainWindow):
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
         self.fast_gaussian_fit = True  # Use fast moment-based PSF estimation by default
+        # SNR calculation mode; peak is the default.
+        self.snr_method = 'peak'
         self.use_fixed_threshold = False  # Fixed threshold mode for decreasing-signal experiments
         # Frame-range crop state ("crop is the movie"): source_image_stack is the full
         # loaded movie; image_stack is the active (possibly cropped) view.
@@ -2174,6 +2176,8 @@ class MicroLiveGUI(QMainWindow):
         for ch in range(self.number_color_channels):
             self.intensity_channel_combo.addItem(str(ch), ch)
         self.intensity_channel_combo.setCurrentIndex(0)
+        if hasattr(self, 'distribution_tracking_channel_combo'):
+            self.distribution_tracking_channel_combo.clear()
         
         self.time_course_channel_combo.clear()
         for ch in range(self.number_color_channels):
@@ -2369,6 +2373,8 @@ class MicroLiveGUI(QMainWindow):
             self.max_lag_input.setMaximum(self.max_lag - 1)
             self.max_lag_input.setValue(self.max_lag - 1)
         self.number_color_channels = C
+        # A newly loaded image may have fewer channels than the previous image.
+        self.current_channel = 0
         if detected_channel_names and len(detected_channel_names) == self.number_color_channels:
             self.channel_names = detected_channel_names
         else:
@@ -2429,6 +2435,8 @@ class MicroLiveGUI(QMainWindow):
         self.voxel_z_nm  = z_um * 1000
         self.channel_names = channels
         self.number_color_channels = nch
+        # A newly loaded scene may have fewer channels than the previous scene.
+        self.current_channel = 0
         self.list_time_intervals = intervals
         self.time_interval_value = self.list_time_intervals[image_index]
         self.bit_depth = bd
@@ -2771,6 +2779,11 @@ class MicroLiveGUI(QMainWindow):
         self.ax_display.set_facecolor('black')
         self.ax_display.axis('off')
         if self.image_stack is not None:
+            # Guard against a stale channel index after loading a single-channel image.
+            channel_count = self.image_stack.shape[-1]
+            if channel_count <= 0:
+                return
+            self.current_channel = min(max(int(self.current_channel), 0), channel_count - 1)
             # Determine Z dimension size
             _, Z, _, _, _ = self.image_stack.shape  # shape is [T, Z, Y, X, C]
             z_val = self.z_slider_display.value() if hasattr(self, 'z_slider_display') else Z
@@ -8412,6 +8425,7 @@ class MicroLiveGUI(QMainWindow):
                 link_using_3d_coordinates=link_using_3d_coordinates,
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
                 fast_gaussian_fit=self.fast_gaussian_fit,
+                snr_method=self.snr_method,
                 use_fixed_threshold=self.use_fixed_threshold,
             ).run()
         except SubnetOversizeException as e:
@@ -8908,6 +8922,10 @@ class MicroLiveGUI(QMainWindow):
     def update_fast_gaussian_fit(self, state):
         self.fast_gaussian_fit = (state == Qt.Checked)
 
+    def update_snr_method(self, state):
+        """Select the SNR signal definition used during GUI intensity calculation."""
+        self.snr_method = 'peak' if state == Qt.Checked else 'disk_doughnut'
+
     def update_tracking_sliders(self):
         """
         Sync the Tracking-tab intensity controls to the current channel's display parameters.
@@ -9077,6 +9095,7 @@ class MicroLiveGUI(QMainWindow):
             link_particles=False,
             step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
             fast_gaussian_fit=self.fast_gaussian_fit,
+            snr_method=self.snr_method,
             use_fixed_threshold=self.use_fixed_threshold,
         ).run()
         progress.close()
@@ -9173,6 +9192,7 @@ class MicroLiveGUI(QMainWindow):
             
             # Rebuild combined df_tracking from all channels
             self._rebuild_combined_tracking_dataframe()
+            self._reset_distribution_channel_selection(self.current_channel)
             
             # Update tracked channels list widget
             self._update_tracked_channels_list()
@@ -9208,6 +9228,7 @@ class MicroLiveGUI(QMainWindow):
                 number_of_random_particles_trajectories=self.random_points_input.value(),
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
                 fast_gaussian_fit=self.fast_gaussian_fit,
+                snr_method=self.snr_method,
             )
             rand_list, _ = random_tracking.run()
             self.df_random_spots = rand_list[0] if rand_list else pd.DataFrame()
@@ -10268,6 +10289,7 @@ class MicroLiveGUI(QMainWindow):
                 number_of_random_particles_trajectories=self.random_points_input.value(),
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
                 fast_gaussian_fit=self.fast_gaussian_fit,
+                snr_method=self.snr_method,
             )
             random_df_list, _ = random_tracking.run()
             self.df_random_spots = random_df_list[0] if random_df_list else pd.DataFrame()
@@ -10368,6 +10390,7 @@ class MicroLiveGUI(QMainWindow):
                 
                 # Rebuild combined df_tracking from all channels
                 self._rebuild_combined_tracking_dataframe()
+                self._reset_distribution_channel_selection(tracking_channel)
                 
                 # Update tracked channels list widget if available
                 self._update_tracked_channels_list()
@@ -11106,8 +11129,8 @@ class MicroLiveGUI(QMainWindow):
         
         multi_channel_layout.addLayout(clear_buttons_layout)
         
-        # Group 5: Intensity Calculation
-        intensity_calc_group = QGroupBox("Intensity Calculation")
+        # Group 5: Intensity and SNR Calculation Mode
+        intensity_calc_group = QGroupBox("Intensity and SNR Calculation Mode")
         intensity_calc_layout = QHBoxLayout(intensity_calc_group)
         tracking_right_main_layout.addWidget(intensity_calc_group)
         
@@ -11121,6 +11144,15 @@ class MicroLiveGUI(QMainWindow):
         self.fast_gaussian_fit_checkbox.setToolTip("Use moment-based PSF estimation (faster but less accurate)")
         self.fast_gaussian_fit_checkbox.stateChanged.connect(self.update_fast_gaussian_fit)
         intensity_calc_layout.addWidget(self.fast_gaussian_fit_checkbox)
+
+        self.snr_peak_checkbox = QCheckBox("SNR Peak")
+        self.snr_peak_checkbox.setChecked(self.snr_method == 'peak')
+        self.snr_peak_checkbox.setToolTip(
+            "Use the maximum pixel in the spot disk for SNR. "
+            "Uncheck to use mean disk intensity (disk-doughnut SNR)."
+        )
+        self.snr_peak_checkbox.stateChanged.connect(self.update_snr_method)
+        intensity_calc_layout.addWidget(self.snr_peak_checkbox)
         
         # Group 6: Control - Random Point Generation
         random_points_group = QGroupBox("Control Spots: Random Locations")
@@ -11350,6 +11382,9 @@ class MicroLiveGUI(QMainWindow):
         tracking_group = QGroupBox("Tracking Channel")
         tracking_layout = QHBoxLayout()
         self.distribution_tracking_channel_combo = QComboBox()
+        self.distribution_tracking_channel_combo.currentIndexChanged.connect(
+            self._on_distribution_tracking_channel_changed
+        )
         # Will be populated on tab switch with tracked channels (no "All" option for multi-cell)
         tracking_layout.addWidget(self.distribution_tracking_channel_combo)
         tracking_group.setLayout(tracking_layout)
@@ -17917,6 +17952,17 @@ class MicroLiveGUI(QMainWindow):
     def reset_segmentation_tab(self):
         self.figure_segmentation.clear()
         self.use_max_proj_for_segmentation = False
+        self.segmentation_maxproj = None
+        if hasattr(self, 'use_max_proj_checkbox'):
+            self.use_max_proj_checkbox.blockSignals(True)
+            self.use_max_proj_checkbox.setChecked(False)
+            self.use_max_proj_checkbox.blockSignals(False)
+        if hasattr(self, 'max_proj_status_label'):
+            self.max_proj_status_label.setText("Max projection is OFF")
+        if hasattr(self, 'segmentation_time_slider'):
+            self.segmentation_time_slider.setEnabled(self.image_stack is not None)
+        if hasattr(self, 'play_button_segmentation'):
+            self.play_button_segmentation.setEnabled(self.image_stack is not None)
         self.ax_segmentation = self.figure_segmentation.add_subplot(111)
         self.ax_segmentation.set_facecolor('black')
         self.ax_segmentation.axis('off')
@@ -18068,6 +18114,9 @@ class MicroLiveGUI(QMainWindow):
         if hasattr(self, 'fast_gaussian_fit_checkbox'):
             self.fast_gaussian_fit = True
             self.fast_gaussian_fit_checkbox.setChecked(True)
+        if hasattr(self, 'snr_peak_checkbox'):
+            self.snr_method = 'peak'
+            self.snr_peak_checkbox.setChecked(True)
         # Reset fixed threshold button to default (off)
         if hasattr(self, 'fixed_threshold_btn'):
             self.use_fixed_threshold = False
@@ -18877,6 +18926,36 @@ class MicroLiveGUI(QMainWindow):
 # =============================================================================
 # =============================================================================
 
+    def _set_distribution_data_channel(self, channel):
+        """Set the Distribution data channel when a valid channel is available."""
+        if not hasattr(self, 'intensity_channel_combo') or channel is None or channel < 0:
+            return
+        index = self.intensity_channel_combo.findData(channel)
+        if index >= 0:
+            self.intensity_channel_combo.setCurrentIndex(index)
+
+    def _on_distribution_tracking_channel_changed(self, index):
+        """Synchronize Data Channel to Tracking Channel; users may override it afterward."""
+        if not hasattr(self, 'distribution_tracking_channel_combo'):
+            return
+        channel = self.distribution_tracking_channel_combo.itemData(index)
+        self._set_distribution_data_channel(channel)
+
+    def _reset_distribution_channel_selection(self, channel):
+        """Reset both Distribution channel selectors after a new tracking run."""
+        if hasattr(self, 'distribution_tracking_channel_combo'):
+            index = self.distribution_tracking_channel_combo.findData(channel)
+            if index < 0 and getattr(self, 'tracked_channels', None):
+                self.distribution_tracking_channel_combo.clear()
+                for tracked_channel in sorted(self.tracked_channels):
+                    self.distribution_tracking_channel_combo.addItem(
+                        f"Ch {tracked_channel}", tracked_channel
+                    )
+                index = self.distribution_tracking_channel_combo.findData(channel)
+            if index >= 0:
+                self.distribution_tracking_channel_combo.setCurrentIndex(index)
+        self._set_distribution_data_channel(channel)
+
     def plot_distribution(self):
         """Delegate to plot_intensity_histogram for per-cell overlay histograms."""
         # Update tracking channel combo with tracked channels (single channel only)
@@ -18895,6 +18974,11 @@ class MicroLiveGUI(QMainWindow):
             else:
                 # No tracking data at all
                 self.distribution_tracking_channel_combo.addItem("No tracked channels", -1)
+
+            # Start each distribution view synchronized to its tracking channel.
+            self._set_distribution_data_channel(
+                self.distribution_tracking_channel_combo.currentData()
+            )
         
         self.plot_intensity_histogram()
 

@@ -4656,7 +4656,7 @@ class SpotDetection():
     def __init__(self,image,  channels_spots ,channels_cytosol,channels_nucleus, cluster_radius_nm=500,masks_complete_cells = None, masks_nuclei  = None, masks_cytosol_no_nuclei = None,
                 dataframe=None, image_counter=0, list_voxels=None, show_plot=True,image_name=None,save_all_images=True,display_spots_on_multiple_z_planes=False,
                 use_log_filter_for_spot_detection=True,threshold_for_spot_detection=None,save_files=True,yx_spot_size_in_px=None, z_spot_size_in_px=None, 
-                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True, reference_threshold=None,
+                use_trackpy=False,use_maximum_projection=False,calculate_intensity=True,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True, reference_threshold=None, snr_method='peak',
                 decompose_dense_regions=False, decompose_alpha=0.3, decompose_beta=2, decompose_gamma=5, min_spots_per_cluster=2):
         if list_voxels is None:
             list_voxels = [500, 160]
@@ -4669,6 +4669,7 @@ class SpotDetection():
         self.number_color_channels = image.shape[-1]
         self.channels_cytosol=channels_cytosol
         self.channels_nucleus=channels_nucleus
+        self.snr_method = snr_method
         
         
         if not (masks_complete_cells is None):
@@ -4786,7 +4787,7 @@ class SpotDetection():
                 actual_channel = self.list_channels_spots[i]
                 df_detected_spots = DataProcessing(clusters_and_spots, self.image, self.list_masks_complete_cells, self.list_masks_nuclei, self.list_masks_cytosol_no_nuclei, self.channels_cytosol,self.channels_nucleus,
                                             yx_spot_size_in_px=spot_diameter_for_intensity_px, dataframe =df_detected_spots,reset_cell_counter=reset_cell_counter,image_counter = self.image_counter ,spot_type=actual_channel,use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
-                                            number_color_channels=self.number_color_channels, use_maximum_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit ).get_dataframe()
+                                            number_color_channels=self.number_color_channels, use_maximum_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit, snr_method=self.snr_method ).get_dataframe()
             else:
                 # If intensity calculation is skipped, only append spot locations
                 df_detected_spots = pd.DataFrame(clusters_and_spots, columns=['z', 'y', 'x', 'cluster_size'])
@@ -4863,7 +4864,8 @@ class ParticleTracking:
                  maximum_range_search_pixels=10, link_using_3d_coordinates=False,
                  neighbor_strategy='KDTree', generate_random_particles=False,
                  number_of_random_particles_trajectories=None, step_size_in_sec=1.0, 
-                 fast_gaussian_fit=True, verbose=False, use_fixed_threshold=False):
+                 fast_gaussian_fit=True, verbose=False, use_fixed_threshold=False,
+                 snr_method='peak'):
 
         self.verbose = verbose
         if len(image.shape) != 5:
@@ -4929,6 +4931,7 @@ class ParticleTracking:
         self.maximum_range_search_pixels = maximum_range_search_pixels
         self.use_maximum_projection = use_maximum_projection
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
+        self.snr_method = snr_method
         self.link_using_3d_coordinates = link_using_3d_coordinates
         self.neighbor_strategy = neighbor_strategy
         # Random control parameters.
@@ -5184,7 +5187,8 @@ class ParticleTracking:
                     number_color_channels=self.number_color_channels,
                     use_maximum_projection=self.use_maximum_projection,
                     use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
-                    fast_gaussian_fit=self.fast_gaussian_fit
+                    fast_gaussian_fit=self.fast_gaussian_fit,
+                    snr_method=self.snr_method
                 )
                 df_processed = dp.get_dataframe()
                 df_processed['frame'] = t
@@ -5245,6 +5249,7 @@ class ParticleTracking:
                     use_trackpy=self.use_trackpy,
                     use_maximum_projection=self.use_maximum_projection,
                     use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+                    snr_method=self.snr_method,
                     reference_threshold=reference_threshold,
                 ).get_dataframe()
                 dataframe['frame'] = i
@@ -5640,7 +5645,7 @@ class DataProcessing():
             - intensity, intensity_snr: Spot measurements
     """
     
-    def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei,  channels_cytosol, channels_nucleus, yx_spot_size_in_px,  spot_type=0, dataframe =None,reset_cell_counter=False,image_counter=0,number_color_channels=None,use_maximum_projection=False,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True):
+    def __init__(self, clusters_and_spots, image, masks_complete_cells, masks_nuclei, masks_cytosol_no_nuclei,  channels_cytosol, channels_nucleus, yx_spot_size_in_px,  spot_type=0, dataframe =None,reset_cell_counter=False,image_counter=0,number_color_channels=None,use_maximum_projection=False,use_fixed_size_for_intensity_calculation=True, fast_gaussian_fit=True, snr_method='peak'):
         self.clusters_and_spots=clusters_and_spots
         self.channels_cytosol=channels_cytosol
         self.channels_nucleus=channels_nucleus
@@ -5698,6 +5703,7 @@ class DataProcessing():
         self.use_maximum_projection = use_maximum_projection
         self.use_fixed_size_for_intensity_calculation = use_fixed_size_for_intensity_calculation
         self.fast_gaussian_fit = fast_gaussian_fit
+        self.snr_method = snr_method
         # This number represent the number of columns that doesnt change with the number of color channels in the image
         self.NUMBER_OF_CONSTANT_COLUMNS_IN_DATAFRAME = 18
         
@@ -5945,11 +5951,11 @@ class DataProcessing():
                     )
                 else:
                     cluster_spot_size = self.yx_spot_size_in_px
-                intensity_ts,_,snr_ts, _, _, psf_amplitude_ts, psf_sigma_ts,intensities_total_ts = Intensity(original_image=self.image, spot_size=cluster_spot_size, array_spot_location_z_y_x=ts[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
+                intensity_ts,_,snr_ts, _, _, psf_amplitude_ts, psf_sigma_ts,intensities_total_ts = Intensity(original_image=self.image, spot_size=cluster_spot_size, array_spot_location_z_y_x=ts[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit, snr_method=self.snr_method).calculate_intensity()
             if num_nuc >0:
-                intensity_spots_nuc, _ ,snr_spots_nuc, _, _, psf_amplitude_nuc, psf_sigma_nuc,intensities_total_spots_nuc = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_nuc[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
+                intensity_spots_nuc, _ ,snr_spots_nuc, _, _, psf_amplitude_nuc, psf_sigma_nuc,intensities_total_spots_nuc = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_nuc[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit, snr_method=self.snr_method).calculate_intensity()
             if num_cyto >0 :
-                intensity_spots_cyto, _ ,snr_spots_cyto, _, _,psf_amplitude_cyto, psf_sigma_cyto,intensities_total_spots_cyto = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_cytosol_only[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
+                intensity_spots_cyto, _ ,snr_spots_cyto, _, _,psf_amplitude_cyto, psf_sigma_cyto,intensities_total_spots_cyto = Intensity(original_image=self.image, spot_size=self.yx_spot_size_in_px, array_spot_location_z_y_x=spots_cytosol_only[:,0:3],  use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit, snr_method=self.snr_method).calculate_intensity()
             if num_cyto_clusters >0:
                 if self.use_fixed_size_for_intensity_calculation == False:
                     #cluster_cyto_spot_size = (clusters_cytosol_only[:,3]*self.yx_spot_size_in_px).astype('int')
@@ -5959,7 +5965,7 @@ class DataProcessing():
                     )
                 else:
                     cluster_cyto_spot_size = self.yx_spot_size_in_px
-                intensity_clusters_cytosol_only, _ ,snr_clusters_cytosol_only,_,_,psf_amplitude_clusters_cytosol_only, psf_sigma_clusters_cytosol_only, intensities_total_clusters_cyto_only= Intensity(original_image=self.image, spot_size=cluster_cyto_spot_size, array_spot_location_z_y_x=clusters_cytosol_only[:,0:3], use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit).calculate_intensity()
+                intensity_clusters_cytosol_only, _ ,snr_clusters_cytosol_only,_,_,psf_amplitude_clusters_cytosol_only, psf_sigma_clusters_cytosol_only, intensities_total_clusters_cyto_only= Intensity(original_image=self.image, spot_size=cluster_cyto_spot_size, array_spot_location_z_y_x=clusters_cytosol_only[:,0:3], use_max_projection=self.use_maximum_projection, fast_gaussian_fit=self.fast_gaussian_fit, snr_method=self.snr_method).calculate_intensity()
 
             # Check each condition and append the relevant arrays if detected
             intensity_arrays = []
