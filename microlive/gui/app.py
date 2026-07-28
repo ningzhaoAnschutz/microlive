@@ -1247,6 +1247,60 @@ class MicroLiveGUI(QMainWindow):
         except (TypeError, ValueError):
             return "N/A"
 
+    @staticmethod
+    def _physical_size_to_nm(value, unit="µm"):
+        """Convert OME/JSON physical-size metadata to nanometers."""
+        if value is None:
+            return None
+        normalized = str(unit or "µm").strip().lower().replace("μ", "µ")
+        factors = {
+            "m": 1e9,
+            "meter": 1e9,
+            "metre": 1e9,
+            "mm": 1e6,
+            "millimeter": 1e6,
+            "millimetre": 1e6,
+            "µm": 1e3,
+            "um": 1e3,
+            "micrometer": 1e3,
+            "micrometre": 1e3,
+            "nm": 1.0,
+            "nanometer": 1.0,
+            "nanometre": 1.0,
+            "pm": 1e-3,
+        }
+        if normalized not in factors:
+            raise ValueError(f"Unsupported physical-size unit: {unit!r}")
+        return float(value) * factors[normalized]
+
+    @staticmethod
+    def _time_to_seconds(value, unit="s"):
+        """Convert OME/JSON time metadata to seconds."""
+        if value is None:
+            return None
+        normalized = str(unit or "s").strip().lower().replace("μ", "µ")
+        factors = {
+            "s": 1.0,
+            "sec": 1.0,
+            "second": 1.0,
+            "ms": 1e-3,
+            "millisecond": 1e-3,
+            "µs": 1e-6,
+            "us": 1e-6,
+            "microsecond": 1e-6,
+            "ns": 1e-9,
+            "nanosecond": 1e-9,
+            "ps": 1e-12,
+            "min": 60.0,
+            "minute": 60.0,
+            "h": 3600.0,
+            "hr": 3600.0,
+            "hour": 3600.0,
+        }
+        if normalized not in factors:
+            raise ValueError(f"Unsupported time unit: {unit!r}")
+        return float(value) * factors[normalized]
+
     def _get_tracking_masks(self):
         """Return tracking masks coerced to the active (possibly cropped) movie.
 
@@ -2239,18 +2293,26 @@ class MicroLiveGUI(QMainWindow):
                     try:
                         md = json.loads(desc_text)
                         if md.get("PhysicalSizeX") is not None:
-                            voxel_x_nm = float(md["PhysicalSizeX"]) * 1000.0
+                            voxel_x_nm = self._physical_size_to_nm(
+                                md["PhysicalSizeX"], md.get("PhysicalSizeXUnit", "µm")
+                            )
                         if md.get("PhysicalSizeY") is not None:
-                            voxel_y_nm = float(md["PhysicalSizeY"]) * 1000.0
+                            voxel_y_nm = self._physical_size_to_nm(
+                                md["PhysicalSizeY"], md.get("PhysicalSizeYUnit", "µm")
+                            )
                         if md.get("PhysicalSizeZ") is not None:
-                            voxel_z_nm = float(md["PhysicalSizeZ"]) * 1000.0
+                            voxel_z_nm = self._physical_size_to_nm(
+                                md["PhysicalSizeZ"], md.get("PhysicalSizeZUnit", "µm")
+                            )
                         if md.get("TimeIncrement") is not None:
-                            dt_seconds = float(md["TimeIncrement"])
+                            dt_seconds = self._time_to_seconds(
+                                md["TimeIncrement"], md.get("TimeIncrementUnit", "s")
+                            )
                         ch_dict = md.get("Channel", {})
                         if isinstance(ch_dict, dict):
                             detected_channel_names = ch_dict.get("Name")
-                    except Exception:
-                        print(f"Error parsing JSON ImageDescription metadata: {desc_text}")
+                    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                        logging.warning(f"Could not parse JSON calibration metadata: {exc}")
                 else:
                     # Check if it's ImageJ format (starts with "ImageJ=")
                     if desc_stripped.startswith('ImageJ='):
@@ -2267,18 +2329,31 @@ class MicroLiveGUI(QMainWindow):
                             if pixels is not None:
                                 attrib = pixels.attrib
                                 if 'PhysicalSizeX' in attrib:
-                                    voxel_x_nm = float(attrib['PhysicalSizeX']) * 1000.0
+                                    voxel_x_nm = self._physical_size_to_nm(
+                                        attrib['PhysicalSizeX'],
+                                        attrib.get('PhysicalSizeXUnit', 'µm'),
+                                    )
                                 if 'PhysicalSizeY' in attrib:
-                                    voxel_y_nm = float(attrib['PhysicalSizeY']) * 1000.0
+                                    voxel_y_nm = self._physical_size_to_nm(
+                                        attrib['PhysicalSizeY'],
+                                        attrib.get('PhysicalSizeYUnit', 'µm'),
+                                    )
                                 if 'PhysicalSizeZ' in attrib:
-                                    voxel_z_nm = float(attrib['PhysicalSizeZ']) * 1000.0
+                                    voxel_z_nm = self._physical_size_to_nm(
+                                        attrib['PhysicalSizeZ'],
+                                        attrib.get('PhysicalSizeZUnit', 'µm'),
+                                    )
                                 if 'TimeIncrement' in attrib:
-                                    dt_seconds = float(attrib['TimeIncrement'])
+                                    dt_seconds = self._time_to_seconds(
+                                        attrib['TimeIncrement'],
+                                        attrib.get('TimeIncrementUnit', 's'),
+                                    )
                                 channel_elems = pixels.findall('ome:Channel', ns)
                                 detected_channel_names = [ch.attrib.get('Name') for ch in channel_elems if 'Name' in ch.attrib]
-                        except ET.ParseError:
-                            # Not valid XML - that's okay, will try XResolution tags
-                            pass
+                        except (ET.ParseError, TypeError, ValueError) as exc:
+                            # Invalid/unsupported metadata is treated as missing
+                            # so the user can supply an explicit calibration.
+                            logging.warning(f"Could not parse OME calibration metadata: {exc}")
             else:
                 print("No ImageDescription found in TIFF metadata.")
             # Try to get pixel size from XResolution tag if not found yet
@@ -2468,6 +2543,15 @@ class MicroLiveGUI(QMainWindow):
         self.time_interval_value = self.list_time_intervals[image_index]
         self.bit_depth = bd
         raw5d = reader.read_scene(image_index)
+        # Multi-scene LIF/CZI files can mix objectives or Z sampling. Refresh
+        # physical calibration from the newly active scene instead of retaining
+        # the first scene's pixel size returned by reader.read().
+        if hasattr(reader, 'get_scene_pixel_sizes_um'):
+            scene_yx_um, scene_z_um = reader.get_scene_pixel_sizes_um()
+            if np.isfinite(scene_yx_um) and scene_yx_um > 0:
+                self.voxel_yx_nm = scene_yx_um * 1000.0
+            if np.isfinite(scene_z_um) and scene_z_um > 0:
+                self.voxel_z_nm = scene_z_um * 1000.0
         # Validate the conversion before dereferencing (avoids a None .shape crash and a
         # source_image_stack/image_stack desync on a failed scene load).
         converted = self.convert_to_standard_format(raw5d)
@@ -7023,13 +7107,14 @@ class MicroLiveGUI(QMainWindow):
         self.btn_tool_eraser = QPushButton("🖌️ Eraser")
         self.btn_tool_eraser.setToolTip("Click and drag to erase mask regions")
         self.btn_tool_eraser.setCheckable(True)
-        self.btn_tool_eraser.setChecked(True)  # Default tool
+        self.btn_tool_eraser.setChecked(False)
         self.btn_tool_eraser.clicked.connect(lambda: self._set_edit_tool('eraser'))
         tool_btn_layout.addWidget(self.btn_tool_eraser)
         
         self.btn_tool_knife = QPushButton("🔪 Knife")
         self.btn_tool_knife.setToolTip("Click points to draw a cut path, then click Cut!")
         self.btn_tool_knife.setCheckable(True)
+        self.btn_tool_knife.setChecked(True)  # Default tool
         self.btn_tool_knife.clicked.connect(lambda: self._set_edit_tool('knife'))
         tool_btn_layout.addWidget(self.btn_tool_knife)
         
@@ -7045,14 +7130,14 @@ class MicroLiveGUI(QMainWindow):
         knife_info.setWordWrap(True)
         knife_options_layout.addWidget(knife_info)
         
-        self.knife_options_widget.setVisible(False)  # Hidden until knife selected
+        self.knife_options_widget.setVisible(True)  # Knife is the default tool
         tool_layout.addWidget(self.knife_options_widget)
         
         tool_group.setLayout(tool_layout)
         edit_scroll_layout.addWidget(tool_group)
         
         # Initialize edit tool state
-        self.edit_current_tool = 'eraser'
+        self.edit_current_tool = 'knife'
         self.knife_points = []  # List of (x, y) points for multipoint cut
         self.knife_preview_lines = []  # For visual preview
         
@@ -7152,7 +7237,7 @@ class MicroLiveGUI(QMainWindow):
         self.EDIT_MAX_UNDO_DEPTH = 10
         
         # Edit tool state (eraser and knife)
-        self.edit_current_tool = 'eraser'  # 'eraser' or 'knife'
+        self.edit_current_tool = 'knife'  # 'eraser' or 'knife'
         self.edit_brush_size = 10
         self.edit_brush_shape = 'circle'
         
@@ -7236,8 +7321,8 @@ class MicroLiveGUI(QMainWindow):
         """Initialize edit mode when Edit tab is selected."""
         self.edit_mode_active = True
         
-        # Reset to eraser tool (default)
-        self._set_edit_tool('eraser')
+        # Reset to knife tool (default) for every new edit session.
+        self._set_edit_tool('knife')
         
         # Connect mouse events for editing
         self._connect_edit_mouse_events()
@@ -7775,11 +7860,11 @@ class MicroLiveGUI(QMainWindow):
             return
         
         # Route to appropriate tool
-        current_tool = getattr(self, 'edit_current_tool', 'eraser')
+        current_tool = getattr(self, 'edit_current_tool', 'knife')
         
         if current_tool == 'knife':
             self._on_knife_click(event)  # Click to add point
-        else:  # eraser (default)
+        else:  # eraser
             x, y = int(event.xdata), int(event.ydata)
             self.edit_is_drawing = True
             self.edit_last_mouse_pos = (x, y)
@@ -7789,7 +7874,7 @@ class MicroLiveGUI(QMainWindow):
     
     def _on_edit_mouse_release(self, event):
         """Handle mouse button release in edit mode."""
-        current_tool = getattr(self, 'edit_current_tool', 'eraser')
+        current_tool = getattr(self, 'edit_current_tool', 'knife')
         
         # Knife uses click-based interaction, no release handling needed
         if current_tool == 'eraser':
@@ -7800,7 +7885,7 @@ class MicroLiveGUI(QMainWindow):
     
     def _on_edit_mouse_motion(self, event):
         """Handle mouse motion in edit mode - routes to current tool."""
-        current_tool = getattr(self, 'edit_current_tool', 'eraser')
+        current_tool = getattr(self, 'edit_current_tool', 'knife')
         
         # Knife uses click-based interaction, no motion handling needed
         if current_tool == 'eraser':
@@ -7854,25 +7939,31 @@ class MicroLiveGUI(QMainWindow):
     
     def _set_edit_tool(self, tool_name):
         """Switch between edit tools (eraser or knife)."""
+        if tool_name not in ('eraser', 'knife'):
+            tool_name = 'knife'
         self.edit_current_tool = tool_name
         
         # Update button states
-        self.btn_tool_eraser.setChecked(tool_name == 'eraser')
-        self.btn_tool_knife.setChecked(tool_name == 'knife')
+        if hasattr(self, 'btn_tool_eraser'):
+            self.btn_tool_eraser.setChecked(tool_name == 'eraser')
+        if hasattr(self, 'btn_tool_knife'):
+            self.btn_tool_knife.setChecked(tool_name == 'knife')
         
         # Show/hide knife options
-        self.knife_options_widget.setVisible(tool_name == 'knife')
+        if hasattr(self, 'knife_options_widget'):
+            self.knife_options_widget.setVisible(tool_name == 'knife')
         
         # Clear any existing knife points when switching tools
         self._clear_knife_points()
         
         # Update status
-        if tool_name == 'knife':
-            self.edit_status_label.setText("🔪 Knife: Click to add cut points, then Cut!")
-            self.edit_status_label.setStyleSheet("color: #ff9966;")
-        else:
-            self.edit_status_label.setText("🖌️ Eraser: Click and drag to erase")
-            self.edit_status_label.setStyleSheet("color: #88ff88;")
+        if hasattr(self, 'edit_status_label'):
+            if tool_name == 'knife':
+                self.edit_status_label.setText("🔪 Knife: Click to add cut points, then Cut!")
+                self.edit_status_label.setStyleSheet("color: #ff9966;")
+            else:
+                self.edit_status_label.setText("🖌️ Eraser: Click and drag to erase")
+                self.edit_status_label.setStyleSheet("color: #88ff88;")
     
     def _clear_knife_points(self):
         """Clear all knife cut points and preview lines."""
@@ -16067,7 +16158,8 @@ class MicroLiveGUI(QMainWindow):
         self.msd_fit_points_slider.setValue(2)
         self.msd_fit_points_slider.setPageStep(1)
         self.msd_fit_points_slider.setToolTip(
-            "Number of MSD lag points used for the linear fit."
+            "Number of initial MSD lag points used for the linear fit. "
+            "Use only the early linear regime; five points is the default."
         )
         self.msd_fit_points_slider.valueChanged.connect(self._on_msd_fit_points_changed)
         fit_frames_layout.addWidget(self.msd_fit_points_slider, 1)
@@ -16088,6 +16180,11 @@ class MicroLiveGUI(QMainWindow):
         self.msd_mode_label = QLabel("Mode: Auto-detect")
         self.msd_mode_label.setStyleSheet("color: gray; font-style: italic;")
         params_layout.addRow(self.msd_mode_label)
+
+        self.msd_calibration_label = QLabel("Calibration: --")
+        self.msd_calibration_label.setWordWrap(True)
+        self.msd_calibration_label.setStyleSheet("color: gray;")
+        params_layout.addRow(self.msd_calibration_label)
         
         params_group.setLayout(params_layout)
         msd_right_layout.addWidget(params_group)
@@ -16104,12 +16201,17 @@ class MicroLiveGUI(QMainWindow):
         
         self.msd_diffusion_label = QLabel("D = --")
         self.msd_diffusion_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-        results_layout.addRow("Diffusion Coefficient:", self.msd_diffusion_label)
+        results_layout.addRow("Ensemble D:", self.msd_diffusion_label)
         
         # Diffusion coefficient in px²/s
         self.msd_diffusion_px_label = QLabel("D = --")
         self.msd_diffusion_px_label.setStyleSheet("font-size: 12px;")
         results_layout.addRow("D (px²/s):", self.msd_diffusion_px_label)
+
+        self.msd_per_track_diffusion_label = QLabel("Mean ± SD = --")
+        self.msd_per_track_diffusion_label.setWordWrap(True)
+        self.msd_per_track_diffusion_label.setStyleSheet("font-size: 12px;")
+        results_layout.addRow("Per-track D:", self.msd_per_track_diffusion_label)
         
         self.msd_r_squared_label = QLabel("R² = --")
         results_layout.addRow("R² (Linear Fit):", self.msd_r_squared_label)
@@ -18068,6 +18170,8 @@ class MicroLiveGUI(QMainWindow):
         self.edit_original_mask = None
         self.edit_current_mask_key = None
         self.edit_undo_stack = []
+        # A fresh segmentation session always starts with Knife selected.
+        self._set_edit_tool('knife')
         if hasattr(self, '_disconnect_edit_mouse_events'):
             self._disconnect_edit_mouse_events()
         if hasattr(self, 'edit_mask_selector'):
@@ -18215,6 +18319,8 @@ class MicroLiveGUI(QMainWindow):
             self.msd_diffusion_label.setText("D = --")
         if hasattr(self, 'msd_diffusion_px_label'):
             self.msd_diffusion_px_label.setText("D = --")
+        if hasattr(self, 'msd_per_track_diffusion_label'):
+            self.msd_per_track_diffusion_label.setText("Mean ± SD = --")
         if hasattr(self, 'msd_r_squared_label'):
             self.msd_r_squared_label.setText("R² = --")
         if hasattr(self, 'msd_n_particles_label'):
@@ -18224,6 +18330,9 @@ class MicroLiveGUI(QMainWindow):
         if hasattr(self, 'msd_mode_label'):
             self.msd_mode_label.setText("Mode: Auto-detect")
             self.msd_mode_label.setStyleSheet("color: gray; font-style: italic;")
+        if hasattr(self, 'msd_calibration_label'):
+            self.msd_calibration_label.setText("Calibration: --")
+            self.msd_calibration_label.setStyleSheet("color: gray;")
         
         # Reset the fit-point slider when the image or tracking dataset is
         # replaced. Crop invalidation passes False so the current selection is
@@ -18318,34 +18427,40 @@ class MicroLiveGUI(QMainWindow):
             
             max_fit_points = self.msd_fit_points_slider.value()
             
-            # Get metadata - convert voxel_yx_nm (nanometers) to microns
-            if hasattr(self, 'voxel_yx_nm') and self.voxel_yx_nm is not None:
-                # Ensure scalar conversion (voxel_yx_nm might be a numpy array)
-                voxel_val = self.voxel_yx_nm
-                if hasattr(voxel_val, 'item'):  # numpy array with 1 element
-                    voxel_val = voxel_val.item()
-                microns_per_pixel = float(voxel_val) / 1000.0  # nm to µm
-            else:
-                microns_per_pixel = 1.0  # Fallback
-                logging.warning("voxel_yx_nm not set, using 1.0 µm/px for MSD")
-            
-            # Get time interval from metadata
-            if hasattr(self, 'time_interval_value') and self.time_interval_value is not None:
-                time_val = self.time_interval_value
-                if hasattr(time_val, 'item'):  # numpy array with 1 element
-                    time_val = time_val.item()
-                step_size_in_sec = float(time_val)
-            else:
-                step_size_in_sec = 1.0  # Fallback
-                logging.warning("time_interval_value not set, using 1.0 s for MSD")
-            # Get Z voxel size for 3D MSD - convert from nm to microns
-            if is_3d and hasattr(self, 'voxel_z_nm') and self.voxel_z_nm is not None:
-                z_val = self.voxel_z_nm
-                if hasattr(z_val, 'item'):  # numpy array with 1 element
+            # Use explicit physical calibration. Silent 1 px = 1 µm or
+            # 1 frame = 1 s fallbacks make a numerically valid but scientifically
+            # meaningless diffusion coefficient.
+            voxel_val = getattr(self, 'voxel_yx_nm', None)
+            if hasattr(voxel_val, 'item'):
+                voxel_val = voxel_val.item()
+            if voxel_val is None or not np.isfinite(float(voxel_val)) or float(voxel_val) <= 0:
+                raise ValueError(
+                    "A positive XY pixel size is required for MSD. "
+                    "Check the Import-tab voxel size metadata."
+                )
+            microns_per_pixel = float(voxel_val) / 1000.0
+
+            time_val = getattr(self, 'time_interval_value', None)
+            if hasattr(time_val, 'item'):
+                time_val = time_val.item()
+            if time_val is None or not np.isfinite(float(time_val)) or float(time_val) <= 0:
+                raise ValueError(
+                    "A positive movie frame interval is required for MSD. "
+                    "Check the Import-tab Time Interval value (seconds per frame)."
+                )
+            step_size_in_sec = float(time_val)
+
+            microns_per_pixel_z = None
+            if is_3d:
+                z_val = getattr(self, 'voxel_z_nm', None)
+                if hasattr(z_val, 'item'):
                     z_val = z_val.item()
-                microns_per_pixel_z = float(z_val) / 1000.0  # nm to µm
-            else:
-                microns_per_pixel_z = None  # Will use microns_per_pixel for Z (isotropic assumption)
+                if z_val is None or not np.isfinite(float(z_val)) or float(z_val) <= 0:
+                    raise ValueError(
+                        "3D MSD requires a positive Z pixel size. "
+                        "Check the Import-tab Z voxel metadata or use 2D projection tracking."
+                    )
+                microns_per_pixel_z = float(z_val) / 1000.0
             
             # Create ParticleMotion instance
             motion = mi.ParticleMotion(
@@ -18383,6 +18498,13 @@ class MicroLiveGUI(QMainWindow):
                 'fit_points_used': len(fit_times),
                 'fit_lag_start_s': float(fit_times[0]),
                 'fit_lag_end_s': float(fit_times[-1]),
+                'fit_intercept_um2': motion.fit_intercept_um2,
+                'fit_r_squared': motion.fit_r_squared,
+                'D_std_err_um2_s': motion.D_std_err_um2_s,
+                'D_std_err_px2_s': motion.D_std_err_px2_s,
+                'microns_per_pixel': microns_per_pixel,
+                'step_size_in_sec': step_size_in_sec,
+                'microns_per_pixel_z': microns_per_pixel_z,
             }
             
             # Also update tracking values for metadata export
@@ -18397,56 +18519,49 @@ class MicroLiveGUI(QMainWindow):
             self.tracking_msd_fit_lag_end_s = float(fit_times[-1])
             self.tracking_msd_display_D_um2_s = D_um2_s
             self.tracking_msd_display_D_px2_s = D_px2_s
-            self.tracking_msd_display_D_std_um2_s = None
-            self.tracking_msd_display_D_std_px2_s = None
+            self.tracking_msd_display_D_std_um2_s = motion.D_std_err_um2_s
+            self.tracking_msd_display_D_std_px2_s = motion.D_std_err_px2_s
             self.tracking_msd_summary_method = "Ensemble MSD linear fit"
             
             # Calculate per-trajectory MSD for export (use filtered df_to_analyze to preserve cell_id)
             self._calculate_per_trajectory_msd(df_to_analyze, microns_per_pixel, step_size_in_sec)
             
-            # Calculate R² value
-
-            _, _, r_value, _, _ = linregress(fit_times, em_um2.values[:len(fit_times)])
-            
-            # Update result labels - use scientific notation for D
+            # Report the same ensemble estimator used by the overall fit line.
+            # Per-track values remain visible as a separate distribution summary.
             n_particles = trackpy_df['particle'].nunique()
-            
-            # Check if we have per-cell data for summary
-            if hasattr(self, 'msd_per_cell') and self.msd_per_cell:
-                # Only count cells with enough particles (same threshold as plot_msd)
-                MIN_PARTICLES_PER_CELL = 10
-                valid_cells = {cid: data for cid, data in self.msd_per_cell.items() 
-                               if data['n_particles'] >= MIN_PARTICLES_PER_CELL}
-                n_cells = len(valid_cells)
-                all_D_values = [d for cell in valid_cells.values() for d in cell['D_values']]
-                # Also count only particles from valid cells
-                n_particles_valid = sum(cell['n_particles'] for cell in valid_cells.values())
-                if all_D_values:
-                    D_mean = np.mean(all_D_values)
-                    D_std = np.std(all_D_values)
-                    self.msd_diffusion_label.setText(f"D = {D_mean:.2e} ± {D_std:.2e} µm²/s")
-                    # Convert to px²/s: D_px2 = D_um2 / (microns_per_pixel)^2
-                    D_mean_px = D_mean / (microns_per_pixel ** 2)
-                    D_std_px = D_std / (microns_per_pixel ** 2)
-                    self.tracking_msd_display_D_um2_s = D_mean
-                    self.tracking_msd_display_D_px2_s = D_mean_px
-                    self.tracking_msd_display_D_std_um2_s = D_std
-                    self.tracking_msd_display_D_std_px2_s = D_std_px
-                    self.tracking_msd_summary_method = (
-                        "Mean of per-trajectory diffusion coefficients from cells "
-                        "with at least 10 fitted particles"
-                    )
-                    self.msd_diffusion_px_label.setText(f"D = {D_mean_px:.2e} ± {D_std_px:.2e} px²/s")
-                    self.msd_n_particles_label.setText(f"N = {n_particles_valid} (from {n_cells} cells)")
-                else:
-                    self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
-                    self.msd_diffusion_px_label.setText(f"D = {D_px2_s:.2e} px²/s")
-                    self.msd_n_particles_label.setText(f"N = {n_particles}")
+            self.msd_diffusion_label.setText(
+                f"D = {D_um2_s:.2e} µm²/s "
+                f"(fit SE {motion.D_std_err_um2_s:.1e})"
+            )
+            self.msd_diffusion_px_label.setText(f"D = {D_px2_s:.2e} px²/s")
+            self.msd_n_particles_label.setText(f"N = {n_particles}")
+            self.msd_r_squared_label.setText(f"R² = {motion.fit_r_squared:.4f}")
+            self.msd_calibration_label.setText(
+                f"XY = {microns_per_pixel:.4g} µm/px; "
+                f"Δt = {step_size_in_sec:.4g} s/frame; "
+                f"fit = {fit_times[0]:.4g}–{fit_times[-1]:.4g} s"
+            )
+            self.msd_calibration_label.setStyleSheet("color: cyan;")
+
+            valid_track_D = [
+                value
+                for cell in getattr(self, 'msd_per_cell', {}).values()
+                for value in cell['D_values']
+            ]
+            if valid_track_D:
+                track_mean = float(np.mean(valid_track_D))
+                track_std = float(np.std(valid_track_D))
+                rejected = sum(
+                    cell.get('n_rejected_D_fits', 0)
+                    for cell in self.msd_per_cell.values()
+                )
+                rejected_text = f"; {rejected} invalid excluded" if rejected else ""
+                self.msd_per_track_diffusion_label.setText(
+                    f"{track_mean:.2e} ± {track_std:.2e} µm²/s "
+                    f"(n={len(valid_track_D)}{rejected_text})"
+                )
             else:
-                self.msd_diffusion_label.setText(f"D = {D_um2_s:.2e} µm²/s")
-                self.msd_diffusion_px_label.setText(f"D = {D_px2_s:.2e} px²/s")
-                self.msd_n_particles_label.setText(f"N = {n_particles}")
-            self.msd_r_squared_label.setText(f"R² = {r_value**2:.4f}")
+                self.msd_per_track_diffusion_label.setText("Mean ± SD = --")
             
             # Plot results
             self.plot_msd()
@@ -18465,10 +18580,13 @@ class MicroLiveGUI(QMainWindow):
             cell_ids = [0]  # Default to single cell if no cell_id column
         
         msd_dict = {}  # {(cell_id, particle_id): em}
-        max_lag = 0
-        
         # Per-cell results for plotting
         self.msd_per_cell = {}
+        is_3d = bool(self.msd_data.get('is_3d', False))
+        microns_per_pixel_z = self.msd_data.get('microns_per_pixel_z')
+        particle_column = (
+            'unique_particle' if 'unique_particle' in trackpy_df.columns else 'particle'
+        )
         
         for cell_id in cell_ids:
             if 'cell_id' in trackpy_df.columns:
@@ -18480,43 +18598,97 @@ class MicroLiveGUI(QMainWindow):
             if len(cell_df) == 0:
                 continue
             
-            particles = cell_df['particle'].unique()
+            particles = cell_df[particle_column].unique()
             cell_msd_values = []
             cell_D_values = []
+            rejected_D_fits = 0
             
             for particle_id in particles:
-                traj = cell_df[cell_df['particle'] == particle_id]
+                traj = cell_df[cell_df[particle_column] == particle_id]
                 if len(traj) < 2:
                     continue
                 try:
-                    em = tp.emsd(traj, mpp=float(microns_per_pixel), fps=1.0/float(step_size_in_sec))
+                    position_columns = ['frame', 'x', 'y']
+                    if is_3d:
+                        position_columns.append('z')
+                    traj_for_msd = traj[position_columns].copy()
+                    traj_for_msd['particle'] = 0
+                    # Trackpy accepts one spatial scale. Match ParticleMotion's
+                    # anisotropic 3D conversion by expressing Z in XY-pixel units.
+                    if is_3d:
+                        traj_for_msd['z'] *= (
+                            float(microns_per_pixel_z) / float(microns_per_pixel)
+                        )
+                    em = tp.emsd(
+                        traj_for_msd,
+                        mpp=float(microns_per_pixel),
+                        fps=1.0 / float(step_size_in_sec),
+                        pos_columns=['x', 'y', 'z'] if is_3d else ['x', 'y'],
+                    )
                     msd_dict[(cell_id, particle_id)] = em
-                    max_lag = max(max_lag, len(em))
                     cell_msd_values.append(em)
                     
                     # Calculate D for this trajectory
                     max_fit = min(self.msd_fit_points_slider.value(), len(em))
                     if max_fit >= 2:
-                        is_3d = self.msd_data.get('is_3d', False) if hasattr(self, 'msd_data') and self.msd_data else False
                         divisor = 6 if is_3d else 4
                         slope, _, _, _, _ = linregress(em.index[:max_fit], em.values[:max_fit])
-                        # Ensure slope is a scalar (not a Series)
                         slope = float(slope)
-                        D = slope / divisor if slope > 0 else 0.0
-                        cell_D_values.append(D)
+                        # A non-positive single-track slope is not a valid
+                        # diffusion coefficient. Exclude it instead of silently
+                        # replacing it with zero in the displayed distribution.
+                        if np.isfinite(slope) and slope > 0:
+                            cell_D_values.append(slope / divisor)
+                        else:
+                            rejected_D_fits += 1
                 except Exception as e:
                     logging.debug(f"MSD: Failed for Cell {cell_id}, particle {particle_id}: {e}")
                     continue
             
-            # Store per-cell summary
-            if cell_D_values:
-                self.msd_per_cell[cell_id] = {
-                    'D_values': cell_D_values,
-                    'D_mean': np.mean(cell_D_values),
-                    'D_std': np.std(cell_D_values),
-                    'n_particles': len(cell_D_values),
-                    'msd_values': cell_msd_values
-                }
+            if not cell_msd_values:
+                continue
+
+            # Fit a pair-weighted ensemble MSD for the cell, using the same
+            # estimator and calibration as the overall result.
+            try:
+                cell_motion = mi.ParticleMotion(
+                    trackpy_dataframe=cell_df,
+                    microns_per_pixel=microns_per_pixel,
+                    step_size_in_sec=step_size_in_sec,
+                    max_lagtime=None,
+                    show_plot=False,
+                    remove_drift=False,
+                    max_fit_points=self.msd_fit_points_slider.value(),
+                    is_3d=is_3d,
+                    microns_per_pixel_z=microns_per_pixel_z,
+                )
+                (
+                    cell_D_ensemble,
+                    _,
+                    cell_ensemble_msd,
+                    _,
+                    cell_fit_times,
+                    _,
+                    _,
+                ) = cell_motion.calculate_msd()
+            except Exception as exc:
+                logging.debug(f"MSD: Failed ensemble fit for Cell {cell_id}: {exc}")
+                continue
+            self.msd_per_cell[cell_id] = {
+                'D_values': cell_D_values,
+                'D_mean': np.mean(cell_D_values) if cell_D_values else np.nan,
+                'D_std': np.std(cell_D_values) if cell_D_values else np.nan,
+                'D_ensemble': cell_D_ensemble,
+                'fit_slope': cell_motion.fit_slope_um2_s,
+                'fit_intercept': cell_motion.fit_intercept_um2,
+                'fit_r_squared': cell_motion.fit_r_squared,
+                'fit_times': cell_fit_times,
+                'ensemble_msd': cell_ensemble_msd,
+                'n_particles': len(cell_msd_values),
+                'n_valid_D_fits': len(cell_D_values),
+                'n_rejected_D_fits': rejected_D_fits,
+                'msd_values': cell_msd_values,
+            }
         
         # Create DataFrame with time as first column and MSD per trajectory_X_cell_Y
         if msd_dict:
@@ -18632,22 +18804,30 @@ class MicroLiveGUI(QMainWindow):
                                     fmt='o', color=color, markersize=4, 
                                     linewidth=1.5, alpha=0.8, capsize=2)
                 
-                # Add per-cell linear fit line
-                D_mean = cell_data['D_mean']
+                # Add the per-cell ensemble fit. This uses the same pair-weighted
+                # estimator and fitted intercept as the overall white line.
+                D_cell = cell_data['D_ensemble']
                 n_particles = cell_data['n_particles']
-                divisor = 6 if is_3d else 4  # 3D: D = slope/6, 2D: D = slope/4
-                slope = D_mean * divisor  # Reverse the calculation to get slope
-                # Use the global fit_times max (based on Fit Points spinbox) for consistent x-range
-                fit_max_time = float(fit_times[-1]) if len(fit_times) > 0 else valid_lags.max()
+                slope = cell_data['fit_slope']
+                intercept = cell_data['fit_intercept']
+                cell_fit_times = cell_data['fit_times']
+                fit_max_time = (
+                    float(cell_fit_times[-1])
+                    if len(cell_fit_times) > 0
+                    else valid_lags.max()
+                )
                 fit_x = np.linspace(0, fit_max_time, 50)
-                fit_y = slope * fit_x  # MSD = slope * t (assuming intercept = 0)
+                fit_y = slope * fit_x + intercept
                 self.ax_msd.plot(fit_x, fit_y, '--', color=color, linewidth=2, alpha=0.7)
                 
                 # Add to legend with D value
-                cell_label = f"Cell {cell_id}: D={D_mean:.2e} (n={n_particles})"
+                cell_label = f"Cell {cell_id}: ensemble D={D_cell:.2e} (n={n_particles})"
                 self.ax_msd.plot([], [], 'o--', color=color, label=cell_label)
                 
-                stats_lines.append(f"Cell {cell_id}: D={D_mean:.2e} ± {cell_data['D_std']:.2e} µm²/s")
+                stats_lines.append(
+                    f"Cell {cell_id}: ensemble D={D_cell:.2e} µm²/s "
+                    f"(R²={cell_data['fit_r_squared']:.3f})"
+                )
             
             # Plot overall fit line
             fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
@@ -20340,7 +20520,7 @@ class AuroraGUI(MicroLiveGUI):
         maximum = max(minimum, lag_limit)
         current_value = slider.value()
         if reset_value:
-            target_value = min(20, maximum)
+            target_value = min(5, maximum)
         elif has_usable_range:
             target_value = min(maximum, max(minimum, current_value))
         else:

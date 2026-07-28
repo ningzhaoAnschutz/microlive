@@ -1034,7 +1034,7 @@ The MSD tab provides tools for calculating diffusion coefficients from tracked p
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| **Fit Points** | 2-1000 | 20 | Number of initial lag points used for linear fitting |
+| **Fit Points** | 2 to available tracked lags | 5 | Number of initial lag points used for linear fitting |
 | **Mode** | 2D, 3D | Auto-detect | Dimensionality for diffusion calculation (D = slope/4 for 2D, slope/6 for 3D) |
 | **Max Lag Time** | 10-1000 frames | 100 | Maximum lag time for MSD calculation |
 | **Remove Drift** | Boolean | False | Subtract ensemble drift before MSD calculation |
@@ -1046,10 +1046,11 @@ The MSD tab provides tools for calculating diffusion coefficients from tracked p
 
 - Determines the number of lag points used for extracting diffusion coefficient
 - Only the initial linear regime should be used for fitting
-- For pure Brownian motion: use 10-30 points (captures linear regime)
-- For confined motion: use fewer points (5-15) before plateau appears
+- Start with the first 5 lag points and inspect whether that region is linear
+- For confined motion, never include the later MSD plateau in a free-diffusion fit
 - For directed motion: linear fitting may not be appropriate
-- **Rule of thumb**: Fit only the first 10-25% of the trajectory length
+- **Rule of thumb**: Fit approximately the first 10% of the movie/trajectory,
+  while retaining enough lag points to estimate a line
 
 **Mode Selection (Auto-detected):**
 
@@ -1059,6 +1060,15 @@ The MSD tab provides tools for calculating diffusion coefficients from tracked p
 - **3D Mode**: Used when Z-coordinates are available in tracking data
   - Formula: D = slope / 6
   - Appropriate for: Cytoplasmic proteins, thick samples
+  - Requires valid, scene-specific XY and Z voxel sizes
+
+**Calibration:**
+
+- Coordinates enter the MSD calculation in pixels
+- The Import-tab XY calibration is converted from nm/px to µm/px
+- The movie interval is interpreted as seconds per frame
+- The MSD panel displays XY, Δt, and the fitted lag-time range used for every result
+- Calculation stops if a required calibration is missing or non-positive
 
 **Remove Drift:**
 
@@ -1070,7 +1080,9 @@ The MSD tab provides tools for calculating diffusion coefficients from tracked p
 
 #### Diffusion Coefficient
 
-The primary output is the diffusion coefficient D:
+The primary output is the pair-weighted ensemble diffusion coefficient D. The
+separate per-track row reports the mean ± standard deviation of valid positive
+single-trajectory fits; it is not the uncertainty of the ensemble coefficient.
 
 | D (μm²/s) | Typical Interpretation |
 |-----------|----------------------|
@@ -1108,9 +1120,9 @@ The slope of MSD vs. τ on log-log scale indicates motion type:
 When segmentation is available, MSD is calculated separately for each cell:
 
 - Each cell's trajectories are pooled for ensemble averaging
-- Results show per-cell diffusion coefficients with error estimates
+- Results show per-cell ensemble diffusion coefficients and linear-fit R²
 - Color-coded curves differentiate cells in the plot
-- Minimum of 3 particles per cell required for reliable statistics
+- A minimum of 10 particles per cell is required for display
 
 ### Export Options
 

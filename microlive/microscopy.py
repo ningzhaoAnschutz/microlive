@@ -1278,6 +1278,22 @@ class ReadLif:
         self._aics.set_scene(image_index)
         return self._aics.get_image_data(self.format)
 
+    def get_scene_pixel_sizes_um(self, image_index=None):
+        """Return the active LIF scene's ``(XY, Z)`` pixel sizes in microns.
+
+        Leica files may contain scenes acquired with different objectives or
+        Z steps. Call this after selecting a scene so downstream measurements
+        use that scene's calibration rather than the first scene's values.
+        """
+        if image_index is not None:
+            if not (0 <= image_index < len(self._aics.scenes)):
+                raise IndexError("Scene index out of range")
+            self._aics.set_scene(image_index)
+        sizes = self._aics.physical_pixel_sizes
+        xy_um = abs(sizes.Y or sizes.X or 0)
+        z_um = abs(sizes.Z or 0)
+        return float(xy_um), float(z_um)
+
     def get_laser_info(self, image_index: int):
         """Extract laser and spectral info for a scene from LIF XML metadata.
         
@@ -1544,6 +1560,17 @@ class ReadCzi:
         arr = self._apply_apotome_filter(arr, self._aics.metadata)
 
         return arr
+
+    def get_scene_pixel_sizes_um(self, image_index=None):
+        """Return the active CZI scene's ``(XY, Z)`` pixel sizes in microns."""
+        if image_index is not None:
+            if not (0 <= image_index < len(self._aics.scenes)):
+                raise IndexError("Scene index out of range")
+            self._aics.set_scene(image_index)
+        sizes = self._aics.physical_pixel_sizes
+        xy_um = abs(sizes.Y or sizes.X or 0)
+        z_um = abs(sizes.Z or 0)
+        return float(xy_um), float(z_um)
 
     def get_laser_info(self, image_index: int):
         """Extract laser and spectral info from CZI XML metadata.
@@ -6254,21 +6281,17 @@ class ParticleMotion:
         remove_drift: Remove ensemble drift before MSD. Defaults to False.
         spot_type: Channel number to filter by (if DataFrame has multiple). Defaults to 0.
         plot_name: Filename for saving plot. Defaults to None.
-        max_fit_points: Points to use for linear fit. Defaults to 20.
+        max_fit_points: Initial lag points to use for the linear fit. Defaults to 5.
         is_3d: Use 3D MSD (D = slope/6) vs 2D (D = slope/4). Defaults to False.
         microns_per_pixel_z: Z pixel size in microns. Defaults to microns_per_pixel.
     
-    Returns:
-        tuple: (em_um2, D_um2_s, intercept, r_value, num_particles, num_trajectories)
-            - em_um2: MSD in µm² indexed by lag time in seconds
-            - D_um2_s: Diffusion coefficient in µm²/s
-            - intercept: Y-intercept of linear fit
-            - r_value: R² of linear fit
-            - num_particles: Number of unique particles
-            - num_trajectories: Number of trajectories analyzed
+    Notes:
+        Input coordinates are pixels and ``step_size_in_sec`` is seconds per
+        frame. Trackpy therefore returns lag times in seconds and MSD in µm².
+        The fitted slope has units µm²/s and is divided by 4 (2D) or 6 (3D).
     """
 
-    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=20, is_3d=False, microns_per_pixel_z=None):
+    def __init__(self, trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1, max_lagtime=100, show_plot=True, remove_drift=False, spot_type=0, plot_name=None, max_fit_points=5, is_3d=False, microns_per_pixel_z=None):
         # Ensure scalar conversion for all numeric parameters (handles numpy arrays with 1 element)
         def to_scalar(val):
             if val is None:
@@ -6284,8 +6307,11 @@ class ParticleMotion:
         self.show_plot = show_plot 
         self.remove_drift = remove_drift
         self.plot_name = plot_name
-        self.max_fit_points = int(to_scalar(max_fit_points)) if max_fit_points is not None else 20
+        self.max_fit_points = int(to_scalar(max_fit_points)) if max_fit_points is not None else 5
         self.is_3d = is_3d  # If True, use 3D MSD calculation (D = slope/6), else 2D (D = slope/4)
+        self._validate_calibration()
+        self._validate_tracking_dataframe(trackpy_dataframe)
+        self._validate_time_column(trackpy_dataframe)
         if 'spot_type' in trackpy_dataframe.columns:
             if len(trackpy_dataframe['spot_type'].unique()) > 1:
                 self.trackpy_dataframe = trackpy_dataframe[trackpy_dataframe['spot_type'] == spot_type]
@@ -6321,16 +6347,92 @@ class ParticleMotion:
         else:
             self.max_lagtime = min(max_lagtime, int(self.trackpy_dataframe['frame'].max()))
 
+    def _validate_calibration(self):
+        """Reject calibration values that would make the physical units invalid."""
+        calibrations = {
+            "XY pixel size (µm/px)": self.microns_per_pixel,
+            "frame interval (s/frame)": self.step_size_in_sec,
+        }
+        if self.is_3d:
+            calibrations["Z pixel size (µm/px)"] = self.microns_per_pixel_z
+        for label, value in calibrations.items():
+            if not np.isfinite(value) or value <= 0:
+                raise ValueError(f"{label} must be a finite value greater than zero; got {value!r}.")
+
+    def _validate_tracking_dataframe(self, dataframe):
+        """Validate the pixel/frame inputs before handing them to Trackpy."""
+        if not isinstance(dataframe, pd.DataFrame) or dataframe.empty:
+            raise ValueError("Tracking data must be a non-empty pandas DataFrame.")
+
+        particle_column = "unique_particle" if "unique_particle" in dataframe.columns else "particle"
+        required = {particle_column, "frame", "x", "y"}
+        if self.is_3d:
+            required.add("z")
+        missing = sorted(required.difference(dataframe.columns))
+        if missing:
+            raise ValueError(f"Tracking data is missing required columns: {', '.join(missing)}.")
+
+        numeric_columns = ["frame", "x", "y"] + (["z"] if self.is_3d else [])
+        numeric = dataframe[numeric_columns].apply(pd.to_numeric, errors="coerce")
+        if not np.isfinite(numeric.to_numpy(dtype=float)).all():
+            raise ValueError(
+                "Tracking frame and coordinate columns must contain only finite numeric values."
+            )
+        frames = numeric["frame"].to_numpy(dtype=float)
+        if not np.allclose(frames, np.round(frames), rtol=0.0, atol=1e-9):
+            raise ValueError("Tracking frame values must be integer frame indices.")
+
+    def _validate_time_column(self, dataframe):
+        """Ensure an exported tracking time column agrees with the selected movie Δt."""
+        if "time" not in dataframe.columns or len(dataframe) < 2:
+            return
+
+        frame_time = dataframe[["frame", "time"]].copy()
+        frame_time["frame"] = pd.to_numeric(frame_time["frame"], errors="coerce")
+        frame_time["time"] = pd.to_numeric(frame_time["time"], errors="coerce")
+        frame_time = frame_time.replace([np.inf, -np.inf], np.nan).dropna()
+        if frame_time.empty:
+            raise ValueError("Tracking time values must be finite numeric seconds.")
+
+        # Every detection in one movie frame should have the same acquisition
+        # time. Median aggregation tolerates insignificant CSV round-off.
+        per_frame = (
+            frame_time.groupby("frame", as_index=False)["time"]
+            .median()
+            .sort_values("frame")
+        )
+        frame_delta = np.diff(per_frame["frame"].to_numpy(dtype=float))
+        time_delta = np.diff(per_frame["time"].to_numpy(dtype=float))
+        usable = frame_delta > 0
+        if not np.any(usable):
+            return
+        observed_step = float(np.median(time_delta[usable] / frame_delta[usable]))
+        tolerance = max(1e-9, abs(self.step_size_in_sec) * 1e-6)
+        if not np.isclose(
+            observed_step,
+            self.step_size_in_sec,
+            rtol=1e-6,
+            atol=tolerance,
+        ):
+            raise ValueError(
+                "Movie frame interval does not match the tracking table: "
+                f"metadata gives {self.step_size_in_sec:g} s/frame, while the "
+                f"tracking 'time' column gives {observed_step:g} s/frame. "
+                "Reload/retrack the movie with the correct time calibration."
+            )
+
     def calculate_msd(self):
         """Calculate ensemble MSD and fit for diffusion coefficient.
         
         Returns:
-            tuple: (em_um2, D_um2_s, intercept, r_value, num_particles, num_trajectories)
+            tuple: ``(D_um2_s, D_px2_s, em_um2, em_px2, fit_times,
+            fit_line_msd, trackpy_df)``.
         """
         # Optional drift removal
         if self.remove_drift:
             temp = self.trackpy_dataframe.copy()
-            drift = tp.compute_drift(temp)
+            position_columns = ["x", "y", "z"] if self.is_3d else ["x", "y"]
+            drift = tp.compute_drift(temp, pos_columns=position_columns)
             trackpy_df = tp.subtract_drift(temp, drift)
             if self.show_plot:
                 drift.plot()
@@ -6347,7 +6449,14 @@ class ParticleMotion:
         max_lagtime = max_lags_allowed if self.max_lagtime is None else min(int(self.max_lagtime), max_lags_allowed)
         # --- MSD ---
         # µm² (preferred for fitting/plotting)
-        em_um2 = tp.emsd(trackpy_df, mpp=float(self.microns_per_pixel), fps=1.0/float(self.step_size_in_sec), max_lagtime=max_lagtime)
+        position_columns = ["x", "y", "z"] if self.is_3d else ["x", "y"]
+        em_um2 = tp.emsd(
+            trackpy_df,
+            mpp=float(self.microns_per_pixel),
+            fps=1.0 / float(self.step_size_in_sec),
+            max_lagtime=max_lagtime,
+            pos_columns=position_columns,
+        )
         # px² (if you also want it)
         em_px2 = em_um2 / (self.microns_per_pixel ** 2)
         # Guard: need at least 2 lags to fit
@@ -6365,11 +6474,17 @@ class ParticleMotion:
 
         slope, intercept, r_value, p_value, std_err = linregress(fit_times, fit_msd)
         # Diffusion coefficient: MSD = 2*n*D*t where n=2 for 2D, n=3 for 3D
-        if self.is_3d:
-            D_um2_s = slope / 6.0  # 3D diffusion: MSD = 6 D t
-        else:
-            D_um2_s = slope / 4.0  # 2D diffusion: MSD = 4 D t
+        divisor = 6.0 if self.is_3d else 4.0
+        D_um2_s = slope / divisor
         D_px2_s = D_um2_s / (self.microns_per_pixel ** 2)
+        # Retain fit provenance for GUI reporting without changing the public
+        # return tuple used by notebooks.
+        self.fit_slope_um2_s = float(slope)
+        self.fit_intercept_um2 = float(intercept)
+        self.fit_r_squared = float(r_value ** 2)
+        self.fit_slope_std_err_um2_s = float(std_err)
+        self.D_std_err_um2_s = float(std_err / divisor)
+        self.D_std_err_px2_s = float(self.D_std_err_um2_s / (self.microns_per_pixel ** 2))
         # Fit line for viz
         fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
         fit_line_msd = slope * fit_line_times + intercept
