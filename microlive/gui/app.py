@@ -1077,8 +1077,9 @@ class MicroLiveGUI(QMainWindow):
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
         self.fast_gaussian_fit = True  # Use fast moment-based PSF estimation by default
-        # SNR calculation mode; peak is the default.
-        self.snr_method = 'peak'
+        # SNR calculation mode; use mean disk vs. doughnut background unless
+        # the user explicitly enables the SNR Peak checkbox.
+        self.snr_method = 'disk_doughnut'
         self.use_fixed_threshold = False  # Fixed threshold mode for decreasing-signal experiments
         # Frame-range crop state ("crop is the movie"): source_image_stack is the full
         # loaded movie; image_stack is the active (possibly cropped) view.
@@ -1922,7 +1923,7 @@ class MicroLiveGUI(QMainWindow):
         for btn in self.channel_buttons_display:
             btn.setParent(None)
         self.channel_buttons_display = []
-        for idx, channel_name in enumerate(self.channel_names):
+        for idx in range(self.number_color_channels):
             button = QPushButton(f"Ch {idx}", self)
             button.clicked.connect(partial(self.update_channel, idx))
             self.channel_buttons_layout_display.addWidget(button)
@@ -1930,7 +1931,7 @@ class MicroLiveGUI(QMainWindow):
         for btn in self.channel_buttons_tracking:
             btn.setParent(None)
         self.channel_buttons_tracking = []
-        for idx, channel_name in enumerate(self.channel_names):
+        for idx in range(self.number_color_channels):
             button = QPushButton(f"Ch {idx}", self)
             button.clicked.connect(partial(self.update_channel, idx))
             self.channel_buttons_layout_tracking.addWidget(button)
@@ -1938,7 +1939,7 @@ class MicroLiveGUI(QMainWindow):
         for btn in getattr(self, 'channel_buttons_tracking_vis', []):
             btn.setParent(None)
         self.channel_buttons_tracking_vis = []
-        for idx, channel_name in enumerate(self.channel_names):
+        for idx in range(self.number_color_channels):
             btn = QPushButton(f"Ch {idx}", self)
             btn.clicked.connect(partial(self.select_tracking_vis_channel, idx))
             self.channel_buttons_layout_tracking_vis.addWidget(btn)
@@ -1949,7 +1950,7 @@ class MicroLiveGUI(QMainWindow):
             for btn in self.channel_buttons_reg:
                 btn.setParent(None)
         self.channel_buttons_reg = []
-        for idx, channel_name in enumerate(self.channel_names):
+        for idx in range(self.number_color_channels):
             button = QPushButton(f"Ch {idx}", self)
             button.clicked.connect(partial(self.update_registration_channel, idx))
             self.channel_buttons_layout_reg.addWidget(button)
@@ -2104,6 +2105,14 @@ class MicroLiveGUI(QMainWindow):
             T: Number of time frames
             C: Number of channels
         """
+        # Scene selection is also a channel-selection change. Clear merge mode and
+        # select channel 0 before any reset helper has a chance to render the new
+        # image using state inherited from the previous scene.
+        self.merged_mode = False
+        self.current_channel = 0
+        self.number_color_channels = int(C)
+        C = self.number_color_channels
+
         # Reset all tabs and state for new data
         self.reset_all_state()
         
@@ -2155,6 +2164,14 @@ class MicroLiveGUI(QMainWindow):
         self.create_segmentation_channel_buttons()
         self.create_correlation_channel_checkboxes()
         self.populate_colocalization_channels()
+        if hasattr(self, 'merge_color_channels_button'):
+            can_merge = C > 1
+            self.merge_color_channels_button.setEnabled(can_merge)
+            self.merge_color_channels_button.setToolTip(
+                "Combine the selected image's channels."
+                if can_merge
+                else "This image has only one channel."
+            )
         
         # Note: Cellpose channel spinboxes removed - channel is now determined by left panel selection
         # Note: Crops channel buttons removed - Crops tab has been deprecated
@@ -2170,6 +2187,8 @@ class MicroLiveGUI(QMainWindow):
             })
             widget = self.create_channel_visualization_controls(ch, init_params)
             self.channelControlsTabs.addTab(widget, f"Ch {ch}")
+        if C > 0:
+            self.channelControlsTabs.setCurrentIndex(0)
         
         # Populate channel combo boxes
         self.intensity_channel_combo.clear()
@@ -2428,15 +2447,23 @@ class MicroLiveGUI(QMainWindow):
 
     def load_lif_image(self, file_path, image_index):
         """Load a specific image from a LIF/CZI/TIFF file and initialize GUI state."""
-        reader, names, yx_um, z_um, channels, nch, intervals, bd, list_laser_lines, list_intensities, list_wave_ranges = self.loaded_lif_files[file_path]
+        (
+            reader,
+            names,
+            yx_um,
+            z_um,
+            channels,
+            _cached_channel_count,
+            intervals,
+            bd,
+            list_laser_lines,
+            list_intensities,
+            list_wave_ranges,
+        ) = self.loaded_lif_files[file_path]
         self.lif_reader = reader
         self.list_names = names
         self.voxel_yx_nm = yx_um * 1000
         self.voxel_z_nm  = z_um * 1000
-        self.channel_names = channels
-        self.number_color_channels = nch
-        # A newly loaded scene may have fewer channels than the previous scene.
-        self.current_channel = 0
         self.list_time_intervals = intervals
         self.time_interval_value = self.list_time_intervals[image_index]
         self.bit_depth = bd
@@ -2447,6 +2474,31 @@ class MicroLiveGUI(QMainWindow):
         if converted is None:
             return
         self.image_stack = converted
+        # LIF/CZI scenes can have different channel counts. The metadata returned
+        # by reader.read() describes only one scene, so the selected array shape is
+        # the source of truth and the reader's now-active scene supplies its names.
+        self.number_color_channels = int(self.image_stack.shape[-1])
+        active_reader = getattr(reader, '_aics', None)
+        scene_channel_names = getattr(active_reader, 'channel_names', None)
+        try:
+            scene_channel_names = (
+                list(scene_channel_names) if scene_channel_names is not None else []
+            )
+        except TypeError:
+            scene_channel_names = []
+        fallback_channel_names = list(channels) if channels is not None else []
+        if len(scene_channel_names) != self.number_color_channels:
+            scene_channel_names = (
+                fallback_channel_names
+                if len(fallback_channel_names) == self.number_color_channels
+                else []
+            )
+        self.channel_names = []
+        for index in range(self.number_color_channels):
+            name = scene_channel_names[index] if index < len(scene_channel_names) else None
+            self.channel_names.append(str(name) if name is not None else f"Ch {index}")
+        self.current_channel = 0
+        self.merged_mode = False
         self.data_folder_path = Path(file_path)
         self.selected_image_name = self.list_names[image_index]
         self.file_label.setText(self.data_folder_path.name)
@@ -3251,7 +3303,18 @@ class MicroLiveGUI(QMainWindow):
             return
         merged_img = self.compute_merged_image()
         if merged_img is None:
-            QMessageBox.information(self, "Merge Error", "Not enough channels to merge or unsupported image format.")
+            # Never leave the GUI in merge mode when the newly selected scene has
+            # only one channel (or otherwise cannot produce a merged image).
+            self.merged_mode = False
+            self.current_channel = 0
+            if hasattr(self, 'channelControlsTabs') and self.channelControlsTabs.count():
+                self.channelControlsTabs.setCurrentIndex(0)
+            self.plot_image()
+            QMessageBox.information(
+                self,
+                "Merge Error",
+                "Not enough channels to merge or unsupported image format.",
+            )
             return
         self.merged_mode = True
         self.figure_display.clear()
@@ -5259,7 +5322,7 @@ class MicroLiveGUI(QMainWindow):
         for btn in self.segmentation_channel_buttons:
             btn.setParent(None)
         self.segmentation_channel_buttons = []
-        for idx, channel_name in enumerate(self.channel_names):
+        for idx in range(self.number_color_channels):
             btn = QPushButton(f"Ch {idx}", self)
             btn.clicked.connect(partial(self.update_segmentation_channel, idx))
             self.segmentation_channel_buttons_layout.addWidget(btn)
@@ -11647,7 +11710,7 @@ class MicroLiveGUI(QMainWindow):
             self.channel_selection_layout.removeWidget(cb)
             cb.setParent(None)
         self.channel_checkboxes = []
-        for idx, channel_name in enumerate(self.channel_names):
+        for idx in range(self.number_color_channels):
             checkbox = QCheckBox(f"Ch {idx}")
             if idx == 0:
                 checkbox.setChecked(True)
@@ -18115,8 +18178,8 @@ class MicroLiveGUI(QMainWindow):
             self.fast_gaussian_fit = True
             self.fast_gaussian_fit_checkbox.setChecked(True)
         if hasattr(self, 'snr_peak_checkbox'):
-            self.snr_method = 'peak'
-            self.snr_peak_checkbox.setChecked(True)
+            self.snr_method = 'disk_doughnut'
+            self.snr_peak_checkbox.setChecked(False)
         # Reset fixed threshold button to default (off)
         if hasattr(self, 'fixed_threshold_btn'):
             self.use_fixed_threshold = False
