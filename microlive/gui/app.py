@@ -126,6 +126,7 @@ except ImportError:
 # positive intensity distribution helps preserve bright outliers without using
 # the absolute maximum, which can be dominated by a single hot pixel.
 THRESHOLD_HISTOGRAM_MAX_PERCENTILE = 99.95
+DEFAULT_USE_FIXED_THRESHOLD = True
 
 
 def _configure_windows_high_dpi_scaling():
@@ -1160,7 +1161,9 @@ class MicroLiveGUI(QMainWindow):
         # SNR calculation mode; use mean disk vs. doughnut background unless
         # the user explicitly enables the SNR Peak checkbox.
         self.snr_method = 'disk_doughnut'
-        self.use_fixed_threshold = False  # Fixed threshold mode for decreasing-signal experiments
+        # Use one absolute threshold derived from frame 0 unless the user opts
+        # back into per-frame threshold normalization.
+        self.use_fixed_threshold = DEFAULT_USE_FIXED_THRESHOLD
         # Frame-range crop state ("crop is the movie"): source_image_stack is the full
         # loaded movie; image_stack is the active (possibly cropped) view.
         self.source_image_stack = None
@@ -9222,7 +9225,18 @@ class MicroLiveGUI(QMainWindow):
             print("Random spots generation disabled.")
 
     def update_use_fixed_threshold(self, checked):
+        self.use_fixed_threshold = bool(checked)
+
+    def _set_fixed_threshold_mode(self, checked):
+        """Synchronize the fixed-threshold model state and toggle button."""
+        checked = bool(checked)
         self.use_fixed_threshold = checked
+        button = getattr(self, 'fixed_threshold_btn', None)
+        if button is None:
+            return
+        signals_were_blocked = button.blockSignals(True)
+        button.setChecked(checked)
+        button.blockSignals(signals_were_blocked)
 
     def _set_tracking_mode(self, is_2d):
         """Set the tracking mode and invalidate mode-dependent detection state."""
@@ -11167,7 +11181,7 @@ class MicroLiveGUI(QMainWindow):
         # Fixed-threshold toggle button (light gray, before Auto)
         self.fixed_threshold_btn = QPushButton("Fixed")
         self.fixed_threshold_btn.setCheckable(True)
-        self.fixed_threshold_btn.setChecked(False)
+        self.fixed_threshold_btn.setChecked(self.use_fixed_threshold)
         self.fixed_threshold_btn.setMinimumSize(72, 30)
         self.fixed_threshold_btn.setMaximumHeight(30)
         self.fixed_threshold_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -18471,7 +18485,13 @@ class MicroLiveGUI(QMainWindow):
         if hasattr(self, 'image_source_combo'):
             self.image_source_combo.setCurrentIndex(0)  # "Original Image"
 
-    def reset_tracking_tab(self):
+    def reset_tracking_tab(self, restore_fixed_threshold_default=False):
+        """Clear tracking results while optionally restoring new-image defaults.
+
+        Mask and segmentation updates also reset tracking results. Those resets
+        preserve the user's Fixed selection; only a full dataset reset restores
+        the application default.
+        """
         self.df_tracking = pd.DataFrame()
         self.detected_spots_frame = None
         
@@ -18519,9 +18539,11 @@ class MicroLiveGUI(QMainWindow):
             self.tracking_show_masks_checkbox.setChecked(True)  # Keep masks visible by default
         # Reset threshold slider and histogram
         if hasattr(self, 'threshold_slider'):
-            self.threshold_slider.setValue(0)
+            signals_were_blocked = self.threshold_slider.blockSignals(True)
             self.threshold_slider.setMinimum(0)
             self.threshold_slider.setMaximum(10000)
+            self.threshold_slider.setValue(0)
+            self.threshold_slider.blockSignals(signals_were_blocked)
         self.user_selected_threshold = None
         # Clear threshold histogram
         if hasattr(self, 'ax_threshold_hist'):
@@ -18539,10 +18561,10 @@ class MicroLiveGUI(QMainWindow):
         if hasattr(self, 'snr_peak_checkbox'):
             self.snr_method = 'disk_doughnut'
             self.snr_peak_checkbox.setChecked(False)
-        # Reset fixed threshold button to default (off)
-        if hasattr(self, 'fixed_threshold_btn'):
-            self.use_fixed_threshold = False
-            self.fixed_threshold_btn.setChecked(False)
+        if restore_fixed_threshold_default:
+            self._set_fixed_threshold_mode(DEFAULT_USE_FIXED_THRESHOLD)
+        else:
+            self._set_fixed_threshold_mode(self.use_fixed_threshold)
         # Keep the compact 2D/3D mode switch synchronized with the image Z-depth.
         self._sync_tracking_mode_toggle()
         
@@ -19799,7 +19821,7 @@ class MicroLiveGUI(QMainWindow):
         self.reset_registration_tab()
         self.reset_segmentation_tab()
         self.reset_photobleaching_tab()
-        self.reset_tracking_tab()
+        self.reset_tracking_tab(restore_fixed_threshold_default=True)
         self.reset_msd_tab()
         self.reset_distribution_tab()
         self.reset_time_course_tab()
