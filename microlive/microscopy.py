@@ -11,6 +11,7 @@ Authors: Luis U. Aguilera
 import getpass
 import glob
 import itertools
+from dataclasses import dataclass, field
 
 import math
 #import multiprocessing
@@ -61,7 +62,7 @@ from scipy.ndimage import gaussian_filter, binary_dilation, distance_transform_e
 from scipy.optimize import curve_fit, linear_sum_assignment
 #import scipy.stats as stats
 from scipy.spatial.distance import cdist
-from scipy.stats import linregress, pearsonr
+from scipy.stats import linregress, pearsonr, t as student_t
 from scipy.signal import find_peaks
 
 
@@ -5004,6 +5005,8 @@ class ParticleTracking:
             use_trackpy=self.use_trackpy,
             use_maximum_projection=self.use_maximum_projection,
             use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+            fast_gaussian_fit=self.fast_gaussian_fit,
+            snr_method=self.snr_method,
         ).get_dataframe()
         # Return the threshold from the first channel
         return thresholds[0] if thresholds else None
@@ -5276,6 +5279,7 @@ class ParticleTracking:
                     use_trackpy=self.use_trackpy,
                     use_maximum_projection=self.use_maximum_projection,
                     use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+                    fast_gaussian_fit=self.fast_gaussian_fit,
                     snr_method=self.snr_method,
                     reference_threshold=reference_threshold,
                 ).get_dataframe()
@@ -6266,6 +6270,50 @@ class DataProcessing():
         return new_dataframe
 
 
+@dataclass
+class MSDFitResult:
+    """Analysis-only result for one MSD model fit.
+
+    The object intentionally contains no plotting state.  Plotting code can
+    evaluate the stored model parameters over whatever display grid it needs.
+    """
+
+    model: str
+    success: bool
+    dimensions: int
+    dimension_factor: float
+    n_fit_points: int
+    fit_lag_start_s: float = np.nan
+    fit_lag_end_s: float = np.nan
+    parameter_values: dict = field(default_factory=dict)
+    parameter_standard_errors: dict = field(default_factory=dict)
+    parameter_ci95: dict = field(default_factory=dict)
+    offset_um2: float = np.nan
+    fit_times_s: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
+    observed_fit_msd_um2: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
+    predicted_fit_msd_um2: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
+    residuals_um2: np.ndarray = field(default_factory=lambda: np.array([], dtype=float))
+    rss: float = np.nan
+    rmse: float = np.nan
+    r_squared: float = np.nan
+    pseudo_r_squared: float = np.nan
+    aicc: float = np.nan
+    at_parameter_bound: bool = False
+    weakly_identified: bool = False
+    classification: str = "Indeterminate"
+    status_message: str = ""
+    warnings: list = field(default_factory=list)
+
+    @property
+    def fit_reliable(self):
+        """Whether the converged result is suitable for scientific reporting."""
+        return bool(
+            self.success
+            and not self.weakly_identified
+            and not self.at_parameter_bound
+        )
+
+
 class ParticleMotion:
     """Calculate Mean Squared Displacement (MSD) and diffusion coefficients.
     
@@ -6421,6 +6469,374 @@ class ParticleMotion:
                 "Reload/retrack the movie with the correct time calibration."
             )
 
+    @staticmethod
+    def _fit_metrics(observed, predicted, n_parameters):
+        """Return raw-domain fit metrics shared by both MSD models."""
+        observed = np.asarray(observed, dtype=float)
+        predicted = np.asarray(predicted, dtype=float)
+        residuals = observed - predicted
+        rss = float(np.sum(residuals ** 2))
+        n_points = int(observed.size)
+        rmse = float(np.sqrt(rss / n_points)) if n_points else np.nan
+        centered = observed - float(np.mean(observed)) if n_points else observed
+        total = float(np.sum(centered ** 2))
+        r_squared = float(1.0 - rss / total) if total > 0 else np.nan
+        aicc = np.nan
+        if n_points > int(n_parameters) + 1:
+            rss_safe = max(rss, np.finfo(float).tiny)
+            aic = n_points * np.log(rss_safe / n_points) + 2.0 * n_parameters
+            correction = (
+                2.0 * n_parameters * (n_parameters + 1)
+                / (n_points - n_parameters - 1)
+            )
+            aicc = float(aic + correction)
+        return residuals, rss, rmse, r_squared, aicc
+
+    @staticmethod
+    def _confidence_interval(value, standard_error, degrees_of_freedom):
+        """Return an approximate 95% interval for a fitted parameter."""
+        if not np.isfinite(value) or not np.isfinite(standard_error):
+            return (np.nan, np.nan)
+        if degrees_of_freedom > 0:
+            multiplier = float(student_t.ppf(0.975, degrees_of_freedom))
+        else:
+            multiplier = 1.96
+        half_width = multiplier * float(standard_error)
+        return (float(value - half_width), float(value + half_width))
+
+    def _fit_normal_model(self, fit_times_s, fit_msd_um2):
+        """Fit the existing linear normal-diffusion model."""
+        regression = linregress(fit_times_s, fit_msd_um2)
+        slope = float(regression.slope)
+        intercept = float(regression.intercept)
+        divisor = 6.0 if self.is_3d else 4.0
+        diffusion = float(slope / divisor)
+        predicted = slope * fit_times_s + intercept
+        residuals, rss, rmse, r_squared, aicc = self._fit_metrics(
+            fit_msd_um2, predicted, 2
+        )
+        dof = int(len(fit_times_s) - 2)
+        if dof > 0:
+            slope_stderr = float(regression.stderr)
+            intercept_stderr = float(getattr(
+                regression,
+                "intercept_stderr",
+                np.nan,
+            ))
+            diffusion_se = (
+                float(slope_stderr / divisor)
+                if np.isfinite(slope_stderr)
+                else np.nan
+            )
+        else:
+            # Two points determine a line exactly but leave no residual
+            # degrees of freedom from which to estimate uncertainty.
+            slope_stderr = np.nan
+            intercept_stderr = np.nan
+            diffusion_se = np.nan
+        ci_d = self._confidence_interval(diffusion, diffusion_se, dof)
+        ci_b = self._confidence_interval(intercept, intercept_stderr, dof)
+        return MSDFitResult(
+            model="normal",
+            success=bool(np.isfinite(diffusion) and np.isfinite(intercept)),
+            dimensions=3 if self.is_3d else 2,
+            dimension_factor=divisor,
+            n_fit_points=len(fit_times_s),
+            fit_lag_start_s=float(fit_times_s[0]),
+            fit_lag_end_s=float(fit_times_s[-1]),
+            parameter_values={"D": diffusion, "offset": float(intercept)},
+            parameter_standard_errors={
+                "D": diffusion_se,
+                "offset": intercept_stderr,
+            },
+            parameter_ci95={"D": ci_d, "offset": ci_b},
+            offset_um2=float(intercept),
+            fit_times_s=fit_times_s.copy(),
+            observed_fit_msd_um2=fit_msd_um2.copy(),
+            predicted_fit_msd_um2=predicted,
+            residuals_um2=residuals,
+            rss=rss,
+            rmse=rmse,
+            r_squared=r_squared,
+            aicc=aicc,
+            status_message="" if np.isfinite(diffusion) else "Normal fit is not finite.",
+        )
+
+    def _classify_anomalous_result(self, result):
+        """Classify alpha conservatively using its approximate fit interval."""
+        if (
+            not result.success
+            or result.weakly_identified
+            or result.at_parameter_bound
+        ):
+            return "Indeterminate"
+        alpha_ci = result.parameter_ci95.get("alpha", (np.nan, np.nan))
+        alpha_low, alpha_high = alpha_ci
+        if not np.isfinite(alpha_low) or not np.isfinite(alpha_high):
+            return "Indeterminate"
+        if alpha_high < 1.0:
+            return "Subdiffusive over the fitted lag-time range"
+        if alpha_low > 1.0:
+            return "Superdiffusive over the fitted lag-time range"
+        return "Compatible with normal diffusion over the fitted lag-time range"
+
+    def _fit_anomalous_model(self, fit_times_s, fit_msd_um2, normal_fit):
+        """Fit ``MSD = 2*d*K_alpha*t**alpha + offset`` in raw MSD units."""
+        n_points = len(fit_times_s)
+        dimensions = 3 if self.is_3d else 2
+        dimension_factor = 6.0 if self.is_3d else 4.0
+        unavailable = MSDFitResult(
+            model="anomalous",
+            success=False,
+            dimensions=dimensions,
+            dimension_factor=dimension_factor,
+            n_fit_points=n_points,
+            fit_lag_start_s=float(fit_times_s[0]) if n_points else np.nan,
+            fit_lag_end_s=float(fit_times_s[-1]) if n_points else np.nan,
+            fit_times_s=fit_times_s.copy(),
+            observed_fit_msd_um2=fit_msd_um2.copy(),
+            status_message="At least four lag points are required for alpha and K_alpha.",
+            warnings=["At least four lag points are required for the anomalous fit."],
+        )
+        if n_points < 4:
+            return unavailable
+
+        msd_scale = max(float(np.max(np.abs(fit_msd_um2))), np.finfo(float).eps)
+        time_scale = max(float(np.median(fit_times_s)), np.finfo(float).tiny)
+        k_reference = max(
+            msd_scale / (dimension_factor * time_scale),
+            np.finfo(float).tiny,
+        )
+        log_k_reference = float(np.log(k_reference))
+        log_k_span = float(np.log(1e12))
+        lower_bounds = np.array(
+            [log_k_reference - log_k_span, 0.05, -2.0 * msd_scale],
+            dtype=float,
+        )
+        upper_bounds = np.array(
+            [log_k_reference + log_k_span, 2.0, 2.0 * msd_scale],
+            dtype=float,
+        )
+
+        def anomalous_model_logk(tau_s, log_k_alpha, alpha, offset_um2):
+            return (
+                dimension_factor
+                * np.exp(log_k_alpha)
+                * np.power(tau_s, alpha)
+                + offset_um2
+            )
+
+        normal_offset = float(normal_fit.parameter_values.get("offset", 0.0))
+        b0 = float(np.clip(normal_offset, lower_bounds[2], upper_bounds[2]))
+        fit_solutions = []
+        for alpha0 in (0.5, 1.0, 1.5):
+            positive = (
+                fit_msd_um2 - b0
+            ) / (dimension_factor * np.power(fit_times_s, alpha0))
+            positive = positive[np.isfinite(positive) & (positive > 0)]
+            k0 = float(np.median(positive)) if positive.size else k_reference
+            log_k0 = float(np.clip(
+                np.log(max(k0, np.finfo(float).tiny)),
+                lower_bounds[0],
+                upper_bounds[0],
+            ))
+            p0 = np.array([log_k0, alpha0, b0], dtype=float)
+            try:
+                params, covariance = curve_fit(
+                    anomalous_model_logk,
+                    fit_times_s,
+                    fit_msd_um2,
+                    p0=p0,
+                    bounds=(lower_bounds, upper_bounds),
+                    maxfev=20_000,
+                )
+                predicted = anomalous_model_logk(fit_times_s, *params)
+                if not np.all(np.isfinite(predicted)) or np.any(predicted <= 0):
+                    continue
+                metrics = self._fit_metrics(fit_msd_um2, predicted, 3)
+                fit_solutions.append((metrics[1], params, covariance, predicted, metrics))
+            except (RuntimeError, ValueError, FloatingPointError, OverflowError) as exc:
+                logging.debug("Anomalous MSD fit start %s failed: %s", alpha0, exc)
+
+        if not fit_solutions:
+            unavailable.status_message = "Anomalous fit did not converge to a valid curve."
+            unavailable.warnings = [unavailable.status_message]
+            return unavailable
+
+        _rss, params, covariance, predicted, metrics = min(
+            fit_solutions, key=lambda item: item[0]
+        )
+        log_k_alpha, alpha, offset = [float(value) for value in params]
+        k_alpha = float(np.exp(log_k_alpha))
+        if (
+            not np.isfinite(k_alpha)
+            or k_alpha <= 0
+            or not np.isfinite(alpha)
+            or not np.isfinite(offset)
+        ):
+            unavailable.status_message = (
+                "Anomalous fit returned non-finite or non-positive parameters."
+            )
+            unavailable.warnings = [unavailable.status_message]
+            return unavailable
+        residuals, rss, rmse, pseudo_r_squared, aicc = metrics
+        dof = int(n_points - 3)
+        covariance_valid = (
+            np.shape(covariance) == (3, 3)
+            and np.all(np.isfinite(covariance))
+            and np.all(np.diag(covariance) >= 0)
+        )
+        warnings_list = []
+        standard_errors = {"K_alpha": np.nan, "alpha": np.nan, "offset": np.nan}
+        parameter_ci95 = {
+            "K_alpha": (np.nan, np.nan),
+            "alpha": (np.nan, np.nan),
+            "offset": (np.nan, np.nan),
+        }
+        weakly_identified = False
+        if covariance_valid:
+            raw_se = np.sqrt(np.diag(covariance))
+            standard_errors["K_alpha"] = float(k_alpha * raw_se[0])
+            standard_errors["alpha"] = float(raw_se[1])
+            standard_errors["offset"] = float(raw_se[2])
+            parameter_ci95["K_alpha"] = self._confidence_interval(
+                k_alpha, standard_errors["K_alpha"], dof
+            )
+            parameter_ci95["alpha"] = self._confidence_interval(
+                alpha, standard_errors["alpha"], dof
+            )
+            parameter_ci95["offset"] = self._confidence_interval(
+                offset, standard_errors["offset"], dof
+            )
+            try:
+                covariance_condition = float(np.linalg.cond(covariance))
+            except np.linalg.LinAlgError:
+                covariance_condition = np.inf
+            if not np.isfinite(covariance_condition) or covariance_condition > 1e12:
+                weakly_identified = True
+                warnings_list.append("Anomalous fit covariance is ill-conditioned.")
+            covariance_scale = covariance[0, 0] * covariance[2, 2]
+            if covariance[0, 2] != 0 and covariance_scale > 0:
+                correlation = covariance[0, 2] / np.sqrt(covariance_scale)
+                if np.isfinite(correlation) and abs(correlation) > 0.98:
+                    weakly_identified = True
+                    warnings_list.append(
+                        "K_alpha and the MSD offset are strongly correlated."
+                    )
+        else:
+            weakly_identified = True
+            warnings_list.append("Approximate uncertainty is unavailable for the anomalous fit.")
+
+        power_span = float(
+            np.power(fit_times_s[-1] / fit_times_s[0], alpha)
+        )
+        if power_span < 1.10:
+            weakly_identified = True
+            warnings_list.append(
+                "The fitted power-law term changes by less than 10% across the fit range."
+            )
+
+        offset_bound_tolerance = max(
+            np.finfo(float).eps,
+            0.01 * msd_scale,
+        )
+        at_bound = bool(
+            np.isclose(alpha, lower_bounds[1], atol=0.01, rtol=0.0)
+            or np.isclose(alpha, upper_bounds[1], atol=0.01, rtol=0.0)
+            or np.isclose(log_k_alpha, lower_bounds[0], atol=1e-6, rtol=0.0)
+            or np.isclose(log_k_alpha, upper_bounds[0], atol=1e-6, rtol=0.0)
+            or np.isclose(
+                offset,
+                lower_bounds[2],
+                atol=offset_bound_tolerance,
+                rtol=0.0,
+            )
+            or np.isclose(
+                offset,
+                upper_bounds[2],
+                atol=offset_bound_tolerance,
+                rtol=0.0,
+            )
+        )
+        if at_bound:
+            warnings_list.append("Anomalous fit reached a parameter bound.")
+
+        result = MSDFitResult(
+            model="anomalous",
+            success=True,
+            dimensions=dimensions,
+            dimension_factor=dimension_factor,
+            n_fit_points=n_points,
+            fit_lag_start_s=float(fit_times_s[0]),
+            fit_lag_end_s=float(fit_times_s[-1]),
+            parameter_values={
+                "K_alpha": k_alpha,
+                "alpha": alpha,
+                "offset": offset,
+            },
+            parameter_standard_errors=standard_errors,
+            parameter_ci95=parameter_ci95,
+            offset_um2=offset,
+            fit_times_s=fit_times_s.copy(),
+            observed_fit_msd_um2=fit_msd_um2.copy(),
+            predicted_fit_msd_um2=predicted,
+            residuals_um2=residuals,
+            rss=rss,
+            rmse=rmse,
+            pseudo_r_squared=pseudo_r_squared,
+            aicc=aicc,
+            at_parameter_bound=at_bound,
+            weakly_identified=weakly_identified,
+            warnings=warnings_list,
+        )
+        result.classification = self._classify_anomalous_result(result)
+        return result
+
+    def fit_msd_models(self, fit_times_s, fit_msd_um2):
+        """Fit normal and anomalous models over one shared lag-time window."""
+        fit_times_s = np.asarray(fit_times_s, dtype=float).reshape(-1)
+        fit_msd_um2 = np.asarray(fit_msd_um2, dtype=float).reshape(-1)
+        if fit_times_s.size != fit_msd_um2.size:
+            raise ValueError("MSD fit times and values must have the same length.")
+        valid = np.isfinite(fit_times_s) & np.isfinite(fit_msd_um2) & (fit_times_s > 0)
+        fit_times_s = fit_times_s[valid]
+        fit_msd_um2 = fit_msd_um2[valid]
+        if fit_times_s.size:
+            order = np.argsort(fit_times_s, kind="stable")
+            fit_times_s = fit_times_s[order]
+            fit_msd_um2 = fit_msd_um2[order]
+        if len(fit_times_s) < 2:
+            raise ValueError("At least two finite positive lag points are required for MSD fitting.")
+        normal_fit = self._fit_normal_model(fit_times_s, fit_msd_um2)
+        anomalous_fit = self._fit_anomalous_model(
+            fit_times_s, fit_msd_um2, normal_fit
+        )
+        self.normal_fit = normal_fit
+        self.anomalous_fit = anomalous_fit
+        self.fit_results = {"normal": normal_fit, "anomalous": anomalous_fit}
+        anomalous_values = anomalous_fit.parameter_values
+        anomalous_errors = anomalous_fit.parameter_standard_errors
+        anomalous_ci = anomalous_fit.parameter_ci95
+        self.alpha = float(anomalous_values.get("alpha", np.nan))
+        self.alpha_std_err = float(anomalous_errors.get("alpha", np.nan))
+        self.alpha_ci95 = anomalous_ci.get("alpha", (np.nan, np.nan))
+        self.K_alpha_um2_s_alpha = float(
+            anomalous_values.get("K_alpha", np.nan)
+        )
+        self.K_alpha_std_err_um2_s_alpha = float(
+            anomalous_errors.get("K_alpha", np.nan)
+        )
+        self.K_alpha_ci95_um2_s_alpha = anomalous_ci.get(
+            "K_alpha", (np.nan, np.nan)
+        )
+        self.K_alpha_px2_s_alpha = float(
+            self.K_alpha_um2_s_alpha / (self.microns_per_pixel ** 2)
+        ) if np.isfinite(self.K_alpha_um2_s_alpha) else np.nan
+        self.anomalous_fit_pseudo_r_squared = float(anomalous_fit.pseudo_r_squared)
+        self.anomalous_fit_aicc = float(anomalous_fit.aicc)
+        self.motion_classification = anomalous_fit.classification
+        return normal_fit, anomalous_fit
+
     def calculate_msd(self):
         """Calculate ensemble MSD and fit for diffusion coefficient.
         
@@ -6472,18 +6888,24 @@ class ParticleMotion:
         fit_times = np.asarray(em_um2.index[:max_fit_points], dtype=float)   # seconds
         fit_msd   = np.asarray(em_um2.values[:max_fit_points], dtype=float)  # µm²
 
-        slope, intercept, r_value, p_value, std_err = linregress(fit_times, fit_msd)
+        normal_fit, anomalous_fit = self.fit_msd_models(fit_times, fit_msd)
+        # Keep the returned fit provenance aligned with the finite, positive-
+        # lag subset actually used by both models.
+        fit_times = normal_fit.fit_times_s.copy()
+        fit_msd = normal_fit.observed_fit_msd_um2.copy()
+        slope = float(normal_fit.parameter_values["D"] * normal_fit.dimension_factor)
+        intercept = float(normal_fit.offset_um2)
+        std_err = float(normal_fit.parameter_standard_errors["D"] * normal_fit.dimension_factor)
         # Diffusion coefficient: MSD = 2*n*D*t where n=2 for 2D, n=3 for 3D
-        divisor = 6.0 if self.is_3d else 4.0
-        D_um2_s = slope / divisor
+        D_um2_s = float(normal_fit.parameter_values["D"])
         D_px2_s = D_um2_s / (self.microns_per_pixel ** 2)
         # Retain fit provenance for GUI reporting without changing the public
         # return tuple used by notebooks.
         self.fit_slope_um2_s = float(slope)
         self.fit_intercept_um2 = float(intercept)
-        self.fit_r_squared = float(r_value ** 2)
+        self.fit_r_squared = float(normal_fit.r_squared)
         self.fit_slope_std_err_um2_s = float(std_err)
-        self.D_std_err_um2_s = float(std_err / divisor)
+        self.D_std_err_um2_s = float(normal_fit.parameter_standard_errors["D"])
         self.D_std_err_px2_s = float(self.D_std_err_um2_s / (self.microns_per_pixel ** 2))
         # Fit line for viz
         fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
@@ -6494,7 +6916,24 @@ class ParticleMotion:
             fig, ax = plt.subplots(figsize=(6, 4))
             em_um2.plot(style='o', label=rf'D = {D_um2_s:.4f} µm²/s', ax=ax, alpha=0.6)
             ax.plot(fit_times, fit_msd, 'o', markersize=8, label='Fitted region')
-            ax.plot(fit_line_times, fit_line_msd, '-', linewidth=2, label=f'Linear fit (R²={r_value**2:.3f})')
+            ax.plot(fit_line_times, fit_line_msd, '-', linewidth=2, label=f'Linear fit (R²={normal_fit.r_squared:.3f})')
+            if anomalous_fit.success:
+                anomalous_times = np.linspace(float(fit_times[0]), float(fit_times[-1]), 50)
+                anomalous_values = (
+                    anomalous_fit.dimension_factor
+                    * anomalous_fit.parameter_values['K_alpha']
+                    * np.power(anomalous_times, anomalous_fit.parameter_values['alpha'])
+                    + anomalous_fit.offset_um2
+                )
+                ax.plot(
+                    anomalous_times,
+                    anomalous_values,
+                    '--',
+                    color='purple',
+                    linewidth=2,
+                    label=(f"Anomalous (α={anomalous_fit.parameter_values['alpha']:.3f}, "
+                           f"Kα={anomalous_fit.parameter_values['K_alpha']:.3g})"),
+                )
             ax.set(ylabel=r'$\langle \Delta r^2 \rangle$ [µm$^2$]', xlabel='Time lag (s)')
             ax.legend(loc='upper left', fontsize=10)
             ax.grid(True, alpha=0.3)

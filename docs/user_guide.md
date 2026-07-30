@@ -1017,6 +1017,18 @@ MSD(τ) = 4Dτ
 MSD(τ) = 6Dτ
 ```
 
+For anomalous diffusion, MicroLive also fits:
+
+```text
+MSD(τ) = 2d Kα τ^α + b
+```
+
+Here α is dimensionless, d is 2 or 3, and Kα has units of
+µm²/s^α. The pixel-coordinate value is reported in px²/s^α (or
+XY-equivalent px²/s^α for anisotropic 3D data). When α = 1, Kα is
+equivalent to the normal diffusion coefficient D. The fitted offset b helps
+account for localization and motion-blur effects.
+
 ### MSD Tab Overview
 
 The MSD tab provides tools for calculating diffusion coefficients from tracked particle trajectories. The analysis requires completed particle tracking with linked trajectories.
@@ -1026,19 +1038,19 @@ The MSD tab provides tools for calculating diffusion coefficients from tracked p
 1. **Complete Tracking**: Run particle detection and trajectory linking in the Tracking tab
 2. **Navigate to MSD Tab**: Open the MSD analysis tab
 3. **Set Parameters**: Configure fit points and verify mode (2D/3D auto-detected)
-4. **Calculate MSD**: Click "Calculate MSD" to run the analysis
-5. **Review Results**: Examine the MSD plot and diffusion coefficient
-6. **Export Data**: Save the MSD curve and per-trajectory data
+4. **Calculate MSD**: Click "Calculate MSD Fits" to run the normal and anomalous fits
+5. **Review Results**: Examine D, α, Kα, fit quality, and the fitted lag range
+6. **Export Data**: Save the MSD curve and fit summary
 
 ### MSD Parameters Reference
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| **Fit Points** | 2 to available tracked lags | 5 | Number of initial lag points used for linear fitting |
+| **Fit Points** | 2 to available tracked lags | 5 | Initial lag points shared by normal and anomalous fits; ≥4 are required for α/Kα |
 | **Mode** | 2D, 3D | Auto-detect | Dimensionality for diffusion calculation (D = slope/4 for 2D, slope/6 for 3D) |
 | **Max Lag Time** | 10-1000 frames | 100 | Maximum lag time for MSD calculation |
 | **Remove Drift** | Boolean | False | Subtract ensemble drift before MSD calculation |
-| **Log-Log Scale** | Boolean | False | Display MSD plot on logarithmic axes |
+| **Log-Log Scale** | Boolean | False | Display MSD plot on logarithmic axes; does not refit the data |
 
 ### Parameter Selection Guidelines
 
@@ -1051,6 +1063,8 @@ The MSD tab provides tools for calculating diffusion coefficients from tracked p
 - For directed motion: linear fitting may not be appropriate
 - **Rule of thumb**: Fit approximately the first 10% of the movie/trajectory,
   while retaining enough lag points to estimate a line
+- The anomalous fit uses the same lag window as the normal fit. A later MSD
+  plateau can reduce the apparent normal D and make α/Kα weakly identified.
 
 **Mode Selection (Auto-detected):**
 
@@ -1101,14 +1115,33 @@ single-trajectory fits; it is not the uncertainty of the ensemble coefficient.
   - Non-Brownian motion (confined, directed)
   - Insufficient trajectory data
   - Too many fit points beyond linear regime
+- With exactly two lag points, the line and D can be calculated, but there are
+  no residual degrees of freedom. The GUI and exports therefore report the
+  fitted standard error and confidence interval as unavailable rather than
+  zero.
+
+**Anomalous fit:**
+
+- **α ≈ 1**: compatible with normal diffusion over the fitted lag range
+- **α < 1**: subdiffusive behavior over the fitted lag range
+- **α > 1**: superdiffusive/directed behavior over the fitted lag range
+- The anomalous raw-domain score is labeled **pseudo-R²** and is descriptive;
+  it can be negative and is not the same as ordinary linear-model R².
+- AICc is a heuristic comparison here because residuals across MSD lag times
+  are correlated; it is not a formal model-selection test.
+- Confidence intervals are approximate covariance intervals because MSD values
+  at different lag times are correlated.
+- A low α alone does not prove confinement; inspect for a plateau and tracking
+  artifacts.
 
 #### MSD Plot Interpretation
 
 **Log-Log Scale Analysis:**
 
-The slope of MSD vs. τ on log-log scale indicates motion type:
+The anomalous fit estimates the power-law exponent α in the raw MSD domain.
+The log-log checkbox is for visualization only and does not refit the slope:
 
-| Slope (α) | Motion Type | Interpretation |
+| Fitted α | Motion Type | Interpretation |
 |-----------|-------------|----------------|
 | α ≈ 1.0 | Normal (Brownian) diffusion | Free diffusion, unconfined |
 | α < 1.0 | Subdiffusion (anomalous) | Confined motion, molecular crowding |
@@ -1120,7 +1153,9 @@ The slope of MSD vs. τ on log-log scale indicates motion type:
 When segmentation is available, MSD is calculated separately for each cell:
 
 - Each cell's trajectories are pooled for ensemble averaging
-- Results show per-cell ensemble diffusion coefficients and linear-fit R²
+- Results show per-cell ensemble D and, when sufficient lags exist, α/Kα
+- The anomalous fit is not performed per trajectory during live GUI refreshes;
+  per-trajectory MSD curves remain available for downstream analysis
 - Color-coded curves differentiate cells in the plot
 - A minimum of 10 particles per cell is required for display
 
@@ -1136,6 +1171,18 @@ When segmentation is available, MSD is calculated separately for each cell:
 
 - High-resolution PNG image of MSD curves
 - Includes fit line and diffusion coefficient annotation
+
+**Export Fit Summary:**
+
+- CSV containing overall and per-cell normal/anomalous fit results
+- Includes D, α, Kα, uncertainties, fit range, pseudo-R², AICc, classification,
+  calibration, and fit status
+- `optimizer_success` records whether the numerical fit converged, while
+  `fit_valid` additionally requires that the fit is not weakly identified and
+  has not reached a parameter bound
+- `at_parameter_bound` and `weakly_identified` preserve the reliability reason;
+  cells whose ensemble fit fails remain in the CSV with `fit_valid=False` and
+  a human-readable rejection reason instead of being silently omitted
 
 ### Troubleshooting
 

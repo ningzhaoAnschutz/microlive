@@ -807,6 +807,9 @@ class Metadata:
                         write_value(f'Channel {ch} Tracking Mode', mode)
                         fixed_thresh = 'Yes' if params.get('use_fixed_threshold', False) else 'No'
                         write_value(f'Channel {ch} Fixed Threshold', fixed_thresh)
+                        fast_fit = 'Yes' if params.get('fast_gaussian_fit', False) else 'No'
+                        write_value(f'Channel {ch} Fast Gaussian Fit', fast_fit)
+                        write_value(f'Channel {ch} SNR Method', params.get('snr_method', 'N/A'))
                         fd.write('\n')  # Blank line between channels
                 else:
                     # Fallback to current parameters if no per-channel data
@@ -877,6 +880,36 @@ class Metadata:
                 display_D_px = getattr(self, 'tracking_msd_display_D_px2_s', None)
                 display_std = getattr(self, 'tracking_msd_display_D_std_um2_s', None)
                 display_std_px = getattr(self, 'tracking_msd_display_D_std_px2_s', None)
+                msd_alpha = getattr(self, 'tracking_msd_alpha', None)
+                msd_alpha_se = getattr(self, 'tracking_msd_alpha_std_err', None)
+                msd_alpha_ci = (
+                    getattr(self, 'tracking_msd_alpha_ci95_low', None),
+                    getattr(self, 'tracking_msd_alpha_ci95_high', None),
+                )
+                msd_k_alpha = getattr(self, 'tracking_msd_K_alpha_um2_s_alpha', None)
+                msd_k_alpha_px = getattr(self, 'tracking_msd_K_alpha_px2_s_alpha', None)
+                k_alpha_pixel_label = (
+                    'Generalized K_alpha (XY-equivalent px²/s^alpha)'
+                    if msd_mode == '3D'
+                    else 'Generalized K_alpha (px²/s^alpha)'
+                )
+                msd_k_alpha_se = getattr(self, 'tracking_msd_K_alpha_std_err_um2_s_alpha', None)
+                msd_k_alpha_ci = (
+                    getattr(self, 'tracking_msd_K_alpha_ci95_low', None),
+                    getattr(self, 'tracking_msd_K_alpha_ci95_high', None),
+                )
+                anomalous_offset = getattr(self, 'tracking_msd_anomalous_offset_um2', None)
+                anomalous_pseudo_r2 = getattr(self, 'tracking_msd_anomalous_pseudo_r_squared', None)
+                anomalous_aicc = getattr(self, 'tracking_msd_anomalous_aicc', None)
+                normal_aicc = getattr(self, 'tracking_msd_normal_aicc', None)
+                normal_offset = getattr(self, 'tracking_msd_normal_offset_um2', None)
+                normal_r_squared = getattr(self, 'tracking_msd_normal_r_squared', None)
+                classification = getattr(self, 'tracking_msd_motion_classification', None)
+                normal_equation = getattr(self, 'tracking_msd_normal_fit_equation', None)
+                anomalous_equation = getattr(self, 'tracking_msd_anomalous_fit_equation', None)
+                fit_domain = getattr(self, 'tracking_msd_fit_domain', None)
+                display_model = getattr(self, 'tracking_msd_display_model', None)
+                anomalous_status = getattr(self, 'tracking_msd_anomalous_fit_status', None)
                 summary_method = getattr(self, 'tracking_msd_summary_method', None)
                 if msd_ch is not None:
                     write_value('MSD Calculated for Channel', msd_ch)
@@ -896,14 +929,59 @@ class Metadata:
                     write_value('Displayed Summary Method', summary_method)
                 if display_D is not None:
                     display_text = f'{display_D:.4e}'
-                    if display_std is not None:
+                    if display_std is not None and np.isfinite(display_std):
                         display_text += f' +/- {display_std:.4e}'
+                    else:
+                        display_text += ' (SE unavailable)'
                     write_value('Displayed Diffusion Coefficient (µm²/s)', display_text)
                 if display_D_px is not None:
                     display_px_text = f'{display_D_px:.4e}'
-                    if display_std_px is not None:
+                    if display_std_px is not None and np.isfinite(display_std_px):
                         display_px_text += f' +/- {display_std_px:.4e}'
+                    else:
+                        display_px_text += ' (SE unavailable)'
                     write_value('Displayed Diffusion Coefficient (px²/s)', display_px_text)
+                if msd_alpha is not None and np.isfinite(msd_alpha):
+                    alpha_text = f'{msd_alpha:.6g}'
+                    if msd_alpha_se is not None and np.isfinite(msd_alpha_se):
+                        alpha_text += f' +/- {msd_alpha_se:.6g}'
+                    write_value('Anomalous Exponent Alpha', alpha_text)
+                if all(value is not None and np.isfinite(value) for value in msd_alpha_ci):
+                    write_value('Approximate Alpha 95% CI', f'{msd_alpha_ci[0]:.6g} - {msd_alpha_ci[1]:.6g}')
+                if msd_k_alpha is not None and np.isfinite(msd_k_alpha):
+                    k_text = f'{msd_k_alpha:.6e}'
+                    if msd_k_alpha_se is not None and np.isfinite(msd_k_alpha_se):
+                        k_text += f' +/- {msd_k_alpha_se:.6e}'
+                    write_value('Generalized K_alpha (µm²/s^alpha)', k_text)
+                if msd_k_alpha_px is not None and np.isfinite(msd_k_alpha_px):
+                    write_value(k_alpha_pixel_label, f'{msd_k_alpha_px:.6e}')
+                if all(value is not None and np.isfinite(value) for value in msd_k_alpha_ci):
+                    write_value('Approximate K_alpha 95% CI (µm²/s^alpha)', f'{msd_k_alpha_ci[0]:.6e} - {msd_k_alpha_ci[1]:.6e}')
+                if anomalous_offset is not None and np.isfinite(anomalous_offset):
+                    write_value('Anomalous MSD Offset (µm²)', f'{anomalous_offset:.6e}')
+                if normal_aicc is not None and np.isfinite(normal_aicc):
+                    write_value('Normal Fit AICc', f'{normal_aicc:.6g}')
+                if normal_offset is not None and np.isfinite(normal_offset):
+                    write_value('Normal MSD Offset (µm²)', f'{normal_offset:.6e}')
+                if normal_r_squared is not None and np.isfinite(normal_r_squared):
+                    write_value('Normal Fit R²', f'{normal_r_squared:.6g}')
+                if anomalous_aicc is not None and np.isfinite(anomalous_aicc):
+                    write_value('Anomalous Fit AICc', f'{anomalous_aicc:.6g}')
+                if anomalous_pseudo_r2 is not None and np.isfinite(anomalous_pseudo_r2):
+                    write_value('Anomalous Pseudo-R²', f'{anomalous_pseudo_r2:.6g}')
+                if classification is not None:
+                    write_value('Fit-Based Motion Classification', classification)
+                if normal_equation:
+                    write_value('Normal Fit Equation', normal_equation)
+                if anomalous_equation:
+                    write_value('Anomalous Fit Equation', anomalous_equation)
+                if fit_domain:
+                    write_value('Fit Domain', fit_domain)
+                if display_model:
+                    write_value('MSD Display Choice (plot only)', display_model)
+                if anomalous_status:
+                    write_value('Anomalous Fit Status', anomalous_status)
+                write_value('Anomalous CI Caveat', 'Approximate covariance interval; MSD lag points are correlated')
                 if msd_ch is None and msd_D is None:
                     write_value('Note', 'MSD not yet calculated in MSD tab')
                 
@@ -1076,7 +1154,9 @@ class MicroLiveGUI(QMainWindow):
         self.image_source_combo_value = "Original Image"
         self.segmentation_mode = "None"
         self.use_fixed_size_for_intensity_calculation = True
-        self.fast_gaussian_fit = True  # Use fast moment-based PSF estimation by default
+        # Default to the full nonlinear Gaussian fit for quantitative PSF/FWHM
+        # measurements. Users can explicitly enable the faster moment estimate.
+        self.fast_gaussian_fit = False
         # SNR calculation mode; use mean disk vs. doughnut background unless
         # the user explicitly enables the SNR Peak checkbox.
         self.snr_method = 'disk_doughnut'
@@ -1613,6 +1693,27 @@ class MicroLiveGUI(QMainWindow):
         self.tracking_msd_display_D_px2_s = None
         self.tracking_msd_display_D_std_um2_s = None
         self.tracking_msd_display_D_std_px2_s = None
+        self.tracking_msd_alpha = None
+        self.tracking_msd_alpha_std_err = None
+        self.tracking_msd_alpha_ci95_low = None
+        self.tracking_msd_alpha_ci95_high = None
+        self.tracking_msd_K_alpha_um2_s_alpha = None
+        self.tracking_msd_K_alpha_px2_s_alpha = None
+        self.tracking_msd_K_alpha_std_err_um2_s_alpha = None
+        self.tracking_msd_K_alpha_ci95_low = None
+        self.tracking_msd_K_alpha_ci95_high = None
+        self.tracking_msd_anomalous_offset_um2 = None
+        self.tracking_msd_anomalous_pseudo_r_squared = None
+        self.tracking_msd_normal_aicc = None
+        self.tracking_msd_anomalous_aicc = None
+        self.tracking_msd_normal_offset_um2 = None
+        self.tracking_msd_normal_r_squared = None
+        self.tracking_msd_motion_classification = None
+        self.tracking_msd_normal_fit_equation = None
+        self.tracking_msd_anomalous_fit_equation = None
+        self.tracking_msd_fit_domain = None
+        self.tracking_msd_anomalous_fit_status = None
+        self.tracking_msd_display_model = 'both'
         self.tracking_msd_summary_method = None
         self.colocalization_results = None
         self.distance_coloc_results = None
@@ -1620,6 +1721,9 @@ class MicroLiveGUI(QMainWindow):
         self.msd_data = None
         self.msd_per_trajectory = None
         self.msd_per_cell = None
+        self.msd_per_cell_failures = []
+        self.msd_rejected_cell_ensemble_fits = 0
+        self.msd_fit_summary = None
         self.tracking_msd_channel = None
         # Crop changes invalidate the rendered MSD fit as well as its data.
         # Keep the user's fit-point selection; _sync_active_frame_dimensions
@@ -8546,6 +8650,8 @@ class MicroLiveGUI(QMainWindow):
         maximum_range_search_pixels          = parameters['maximum_range_search_pixels']
         use_fixed_size_for_intensity_calculation = parameters['use_fixed_size_for_intensity_calculation']
         link_using_3d_coordinates            = parameters['link_using_3d_coordinates']
+        fast_gaussian_fit                    = parameters.get('fast_gaussian_fit', self.fast_gaussian_fit)
+        snr_method                           = parameters.get('snr_method', self.snr_method)
         memory           = parameters['memory']
         list_voxels      = parameters['list_voxels']
 
@@ -8578,8 +8684,8 @@ class MicroLiveGUI(QMainWindow):
                 use_fixed_size_for_intensity_calculation=use_fixed_size_for_intensity_calculation,
                 link_using_3d_coordinates=link_using_3d_coordinates,
                 step_size_in_sec=float(self.time_interval_value) if self.time_interval_value is not None else 1.0,
-                fast_gaussian_fit=self.fast_gaussian_fit,
-                snr_method=self.snr_method,
+                fast_gaussian_fit=fast_gaussian_fit,
+                snr_method=snr_method,
                 use_fixed_threshold=self.use_fixed_threshold,
             ).run()
         except SubnetOversizeException as e:
@@ -9336,6 +9442,8 @@ class MicroLiveGUI(QMainWindow):
                 'cluster_radius_nm': self.cluster_radius_nm,
                 'maximum_spots_cluster': self.maximum_spots_cluster,
                 'use_fixed_threshold': self.use_fixed_threshold,
+                'fast_gaussian_fit': self.fast_gaussian_fit,
+                'snr_method': self.snr_method,
                 'detection_only': True,  # Flag to indicate detection without linking
                 'requested_image_source': tracking_source_requested,
                 'actual_image_source': tracking_source_actual,
@@ -10396,6 +10504,8 @@ class MicroLiveGUI(QMainWindow):
             'list_voxels': list_voxels,
             'use_fixed_size_for_intensity_calculation': self.use_fixed_size_for_intensity_calculation,
             'link_using_3d_coordinates': self.link_using_3d_coordinates,
+            'fast_gaussian_fit': self.fast_gaussian_fit,
+            'snr_method': self.snr_method,
             'requested_image_source': tracking_source_requested,
             'actual_image_source': tracking_source_actual,
             'used_photobleaching_corrected_image': tracking_source_actual == 'photobleaching_corrected',
@@ -10535,6 +10645,8 @@ class MicroLiveGUI(QMainWindow):
                     'cluster_radius_nm': self.cluster_radius_nm,
                     'maximum_spots_cluster': self.maximum_spots_cluster,
                     'use_fixed_threshold': self.use_fixed_threshold,
+                    'fast_gaussian_fit': self.fast_gaussian_fit,
+                    'snr_method': self.snr_method,
                     'requested_image_source': last_source_info.get('requested_image_source'),
                     'actual_image_source': last_source_info.get('actual_image_source'),
                     'used_photobleaching_corrected_image': bool(last_source_info.get('used_photobleaching_corrected_image')),
@@ -11294,7 +11406,7 @@ class MicroLiveGUI(QMainWindow):
         intensity_calc_layout.addWidget(self.fixed_size_intensity_checkbox)
         
         self.fast_gaussian_fit_checkbox = QCheckBox("Fast Gaussian Fit")
-        self.fast_gaussian_fit_checkbox.setChecked(True)  # Default to fast mode
+        self.fast_gaussian_fit_checkbox.setChecked(self.fast_gaussian_fit)
         self.fast_gaussian_fit_checkbox.setToolTip("Use moment-based PSF estimation (faster but less accurate)")
         self.fast_gaussian_fit_checkbox.stateChanged.connect(self.update_fast_gaussian_fit)
         intensity_calc_layout.addWidget(self.fast_gaussian_fit_checkbox)
@@ -16119,12 +16231,26 @@ class MicroLiveGUI(QMainWindow):
         self.msd_loglog_checkbox.setChecked(False)
         self.msd_loglog_checkbox.stateChanged.connect(self.plot_msd)
         msd_left_layout.addWidget(self.msd_loglog_checkbox)
+
+        fit_display_layout = QHBoxLayout()
+        fit_display_layout.addWidget(QLabel("Fit display:"))
+        self.msd_fit_display_combo = QComboBox()
+        self.msd_fit_display_combo.addItem("Both overall fits", "both")
+        self.msd_fit_display_combo.addItem("Normal fit with per-cell fits", "normal")
+        self.msd_fit_display_combo.addItem("Anomalous fit with per-cell fits", "anomalous")
+        self.msd_fit_display_combo.currentIndexChanged.connect(self._on_msd_display_model_changed)
+        fit_display_layout.addWidget(self.msd_fit_display_combo, 1)
+        msd_left_layout.addLayout(fit_display_layout)
         
         # Export buttons
         export_layout = QHBoxLayout()
         self.export_msd_dataframe_button = QPushButton("Export DataFrame")
         self.export_msd_dataframe_button.clicked.connect(self.export_msd_dataframe)
         export_layout.addWidget(self.export_msd_dataframe_button)
+
+        self.export_msd_fit_summary_button = QPushButton("Export Fit Summary")
+        self.export_msd_fit_summary_button.clicked.connect(self.export_msd_fit_summary)
+        export_layout.addWidget(self.export_msd_fit_summary_button)
         
         self.export_msd_plot_button = QPushButton("Export Plot")
         self.export_msd_plot_button.clicked.connect(self.export_msd_plot)
@@ -16132,8 +16258,14 @@ class MicroLiveGUI(QMainWindow):
         msd_left_layout.addLayout(export_layout)
         
         # Right panel: Parameters and results
-        msd_right_layout = QVBoxLayout()
-        msd_main_layout.addLayout(msd_right_layout, 2)
+        msd_right_scroll = QScrollArea()
+        msd_right_scroll.setWidgetResizable(True)
+        msd_right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        msd_right_widget = QWidget()
+        msd_right_layout = QVBoxLayout(msd_right_widget)
+        msd_right_layout.setContentsMargins(4, 4, 4, 4)
+        msd_right_scroll.setWidget(msd_right_widget)
+        msd_main_layout.addWidget(msd_right_scroll, 2)
         
         # Tracking Channel group (first/prominent)
         tracking_group = QGroupBox("Tracking Channel")
@@ -16158,8 +16290,9 @@ class MicroLiveGUI(QMainWindow):
         self.msd_fit_points_slider.setValue(2)
         self.msd_fit_points_slider.setPageStep(1)
         self.msd_fit_points_slider.setToolTip(
-            "Number of initial MSD lag points used for the linear fit. "
-            "Use only the early linear regime; five points is the default."
+            "Number of initial MSD lag points shared by normal and anomalous fits. "
+            "Four points are required for alpha and K_alpha; use an early-lag "
+            "window and five points is the default."
         )
         self.msd_fit_points_slider.valueChanged.connect(self._on_msd_fit_points_changed)
         fit_frames_layout.addWidget(self.msd_fit_points_slider, 1)
@@ -16171,7 +16304,7 @@ class MicroLiveGUI(QMainWindow):
         fit_frames_layout.addWidget(self.msd_fit_points_value_label)
         params_layout.addRow("Fit lag points:", fit_frames_layout)
 
-        self.msd_fit_points_range_label = QLabel("Requires at least 3 tracked frames")
+        self.msd_fit_points_range_label = QLabel("Requires at least 3 tracked frames; ≥4 lags for alpha")
         self.msd_fit_points_range_label.setObjectName("msdFitPointsRange")
         self.msd_fit_points_range_label.setStyleSheet("color: gray; font-style: italic;")
         params_layout.addRow(self.msd_fit_points_range_label)
@@ -16190,7 +16323,7 @@ class MicroLiveGUI(QMainWindow):
         msd_right_layout.addWidget(params_group)
         
         # Calculate button
-        self.calculate_msd_button = QPushButton("Calculate MSD")
+        self.calculate_msd_button = QPushButton("Calculate MSD Fits")
         self.calculate_msd_button.clicked.connect(self.calculate_msd_from_gui)
         self.calculate_msd_button.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
         msd_right_layout.addWidget(self.calculate_msd_button)
@@ -16215,9 +16348,62 @@ class MicroLiveGUI(QMainWindow):
         
         self.msd_r_squared_label = QLabel("R² = --")
         results_layout.addRow("R² (Linear Fit):", self.msd_r_squared_label)
+
+        self.msd_normal_aicc_label = QLabel("AICc = --")
+        results_layout.addRow("Normal AICc:", self.msd_normal_aicc_label)
+
+        self.msd_normal_offset_label = QLabel("b = --")
+        results_layout.addRow("Normal offset:", self.msd_normal_offset_label)
+
+        self.msd_alpha_label = QLabel("α = --")
+        self.msd_alpha_label.setWordWrap(True)
+        self.msd_alpha_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        results_layout.addRow("Anomalous α:", self.msd_alpha_label)
+
+        self.msd_k_alpha_label = QLabel("Kα = --")
+        self.msd_k_alpha_label.setWordWrap(True)
+        self.msd_k_alpha_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        results_layout.addRow("Kα:", self.msd_k_alpha_label)
+
+        self.msd_k_alpha_px_label = QLabel("Kα = --")
+        self.msd_k_alpha_px_label.setWordWrap(True)
+        self.msd_k_alpha_px_units_label = QLabel("Kα (px²/s^α):")
+        results_layout.addRow(self.msd_k_alpha_px_units_label, self.msd_k_alpha_px_label)
+
+        self.msd_anomalous_fit_quality_label = QLabel("pseudo-R² = --; AICc = --")
+        self.msd_anomalous_fit_quality_label.setWordWrap(True)
+        results_layout.addRow("Anomalous fit:", self.msd_anomalous_fit_quality_label)
+
+        self.msd_anomalous_offset_label = QLabel("b = --")
+        results_layout.addRow("Anomalous offset:", self.msd_anomalous_offset_label)
+
+        self.msd_motion_classification_label = QLabel("Fit-based interpretation: --")
+        self.msd_motion_classification_label.setWordWrap(True)
+        self.msd_motion_classification_label.setStyleSheet("color: #ffd166; font-weight: bold;")
+        results_layout.addRow("Interpretation:", self.msd_motion_classification_label)
+
+        self.msd_anomalous_status_label = QLabel("Status: --")
+        self.msd_anomalous_status_label.setWordWrap(True)
+        self.msd_anomalous_status_label.setStyleSheet("color: #ffb4a2;")
+        results_layout.addRow("Anomalous status:", self.msd_anomalous_status_label)
+
+        self.msd_anomalous_ci_caveat_label = QLabel(
+            "Approximate covariance CI; MSD lag points are correlated"
+        )
+        self.msd_anomalous_ci_caveat_label.setWordWrap(True)
+        self.msd_anomalous_ci_caveat_label.setStyleSheet("color: #b8b8b8; font-style: italic;")
+        results_layout.addRow("CI caveat:", self.msd_anomalous_ci_caveat_label)
         
         self.msd_n_particles_label = QLabel("N = --")
         results_layout.addRow("Particles:", self.msd_n_particles_label)
+
+        self.msd_cell_fit_failures_label = QLabel("Rejected = 0")
+        results_layout.addRow("Per-cell fit failures:", self.msd_cell_fit_failures_label)
+
+        self.msd_fit_provenance_label = QLabel("Provenance: --")
+        self.msd_fit_provenance_label.setWordWrap(True)
+        self.msd_fit_provenance_label.setStyleSheet("color: #b8b8b8;")
+        results_layout.addRow("Fit provenance:", self.msd_fit_provenance_label)
         
         results_group.setLayout(results_layout)
         msd_right_layout.addWidget(results_group)
@@ -16227,6 +16413,18 @@ class MicroLiveGUI(QMainWindow):
         # Initialize MSD data storage
         self.msd_data = None
         self.msd_per_trajectory = None
+        self.msd_per_cell = None
+        self.msd_per_cell_failures = []
+        self.msd_rejected_cell_ensemble_fits = 0
+        self.msd_fit_summary = None
+        # Initialize metadata-facing MSD state even before the first movie is
+        # loaded. The combo's default is an analysis-neutral plot choice.
+        self.tracking_msd_display_model = 'both'
+        self.tracking_msd_normal_offset_um2 = None
+        self.tracking_msd_normal_r_squared = None
+        self.tracking_msd_normal_fit_equation = None
+        self.tracking_msd_anomalous_fit_equation = None
+        self.tracking_msd_fit_domain = None
 
         self._sync_msd_fit_points_slider(0, reset_value=True)
 
@@ -16297,6 +16495,29 @@ class MicroLiveGUI(QMainWindow):
             self.calculate_msd_from_gui()
         finally:
             self._msd_auto_refresh_in_progress = False
+
+    def _on_msd_display_model_changed(self, _index):
+        """Change only the MSD rendering mode; stored fits remain unchanged."""
+        combo = getattr(self, 'msd_fit_display_combo', None)
+        if combo is not None:
+            self.tracking_msd_display_model = combo.currentData() or 'both'
+        msd_data = getattr(self, 'msd_data', None)
+        if msd_data is not None:
+            msd_data['display_model'] = self.tracking_msd_display_model
+            normal_fit = msd_data.get('normal_fit')
+            dimension_factor = (
+                normal_fit.dimension_factor if normal_fit is not None else np.nan
+            )
+            if hasattr(self, 'msd_fit_provenance_label'):
+                self.msd_fit_provenance_label.setText(
+                    f"Channel {msd_data.get('tracking_channel')}; "
+                    f"{msd_data.get('fit_points_used')}/"
+                    f"{msd_data.get('fit_points_requested')} lag points "
+                    f"used/requested; factor {dimension_factor:g}; "
+                    f"{msd_data.get('fit_domain', 'Raw MSD domain')}; "
+                    f"display={self.tracking_msd_display_model} (plot only)"
+                )
+            self.plot_msd()
 
     
     def setup_tracking_visualization_tab(self):
@@ -16670,6 +16891,17 @@ class MicroLiveGUI(QMainWindow):
                             print(f"Error exporting MSD data: {e}")
                     else:
                         print("No MSD data to export. Run MSD calculation first.")
+
+                elif label_text == "Export MSD Fit Summary":
+                    if getattr(self, 'msd_fit_summary', None) is not None:
+                        default_filename = self.get_default_export_filename(prefix="msd_fit_summary", extension="csv")
+                        out_path = results_folder / default_filename
+                        try:
+                            self.msd_fit_summary.to_csv(out_path, index=False)
+                        except Exception as e:
+                            print(f"Error exporting MSD fit summary: {e}")
+                    else:
+                        print("No MSD fit summary to export. Run MSD calculation first.")
 
                 elif label_text == "Export MSD Image":
                     if hasattr(self, 'figure_msd') and self.msd_data is not None:
@@ -17332,6 +17564,7 @@ class MicroLiveGUI(QMainWindow):
             
             image_source_combo=img_source,
             use_fixed_size_for_intensity_calculation=self.use_fixed_size_for_intensity_calculation,
+            fast_gaussian_fit=self.fast_gaussian_fit,
             
             # Updated Correlation Params (Values)
             correlation_fit_type=corr_fit,
@@ -17359,6 +17592,27 @@ class MicroLiveGUI(QMainWindow):
             tracking_msd_display_D_px2_s=getattr(self, 'tracking_msd_display_D_px2_s', None),
             tracking_msd_display_D_std_um2_s=getattr(self, 'tracking_msd_display_D_std_um2_s', None),
             tracking_msd_display_D_std_px2_s=getattr(self, 'tracking_msd_display_D_std_px2_s', None),
+            tracking_msd_alpha=getattr(self, 'tracking_msd_alpha', None),
+            tracking_msd_alpha_std_err=getattr(self, 'tracking_msd_alpha_std_err', None),
+            tracking_msd_alpha_ci95_low=getattr(self, 'tracking_msd_alpha_ci95_low', None),
+            tracking_msd_alpha_ci95_high=getattr(self, 'tracking_msd_alpha_ci95_high', None),
+            tracking_msd_K_alpha_um2_s_alpha=getattr(self, 'tracking_msd_K_alpha_um2_s_alpha', None),
+            tracking_msd_K_alpha_px2_s_alpha=getattr(self, 'tracking_msd_K_alpha_px2_s_alpha', None),
+            tracking_msd_K_alpha_std_err_um2_s_alpha=getattr(self, 'tracking_msd_K_alpha_std_err_um2_s_alpha', None),
+            tracking_msd_K_alpha_ci95_low=getattr(self, 'tracking_msd_K_alpha_ci95_low', None),
+            tracking_msd_K_alpha_ci95_high=getattr(self, 'tracking_msd_K_alpha_ci95_high', None),
+            tracking_msd_anomalous_offset_um2=getattr(self, 'tracking_msd_anomalous_offset_um2', None),
+            tracking_msd_anomalous_pseudo_r_squared=getattr(self, 'tracking_msd_anomalous_pseudo_r_squared', None),
+            tracking_msd_normal_aicc=getattr(self, 'tracking_msd_normal_aicc', None),
+            tracking_msd_anomalous_aicc=getattr(self, 'tracking_msd_anomalous_aicc', None),
+            tracking_msd_normal_offset_um2=getattr(self, 'tracking_msd_normal_offset_um2', None),
+            tracking_msd_normal_r_squared=getattr(self, 'tracking_msd_normal_r_squared', None),
+            tracking_msd_motion_classification=getattr(self, 'tracking_msd_motion_classification', None),
+            tracking_msd_normal_fit_equation=getattr(self, 'tracking_msd_normal_fit_equation', None),
+            tracking_msd_anomalous_fit_equation=getattr(self, 'tracking_msd_anomalous_fit_equation', None),
+            tracking_msd_fit_domain=getattr(self, 'tracking_msd_fit_domain', None),
+            tracking_msd_anomalous_fit_status=getattr(self, 'tracking_msd_anomalous_fit_status', None),
+            tracking_msd_display_model=getattr(self, 'tracking_msd_display_model', None),
             tracking_msd_summary_method=getattr(self, 'tracking_msd_summary_method', None),
             
             file_path=file_path,
@@ -17931,6 +18185,7 @@ class MicroLiveGUI(QMainWindow):
             ("Export Tracking Data", "tracking_data"),
             ("Export Tracking Image", "tracking_image"),
             ("Export MSD Data", "msd_data"),
+            ("Export MSD Fit Summary", "msd_fit_summary"),
             ("Export MSD Image", "msd_image"),
             ("Export Distributions Image", "distribution"),
             ("Export Time Course Image", "time_course"),
@@ -18277,10 +18532,10 @@ class MicroLiveGUI(QMainWindow):
         # Reset threshold value label
         if hasattr(self, 'threshold_value_label'):
             self.threshold_value_label.setText("Value: --")
-        # Reset fast gaussian fit checkbox to default (True)
+        # Reset fast Gaussian fitting to the GUI default (off).
         if hasattr(self, 'fast_gaussian_fit_checkbox'):
-            self.fast_gaussian_fit = True
-            self.fast_gaussian_fit_checkbox.setChecked(True)
+            self.fast_gaussian_fit = False
+            self.fast_gaussian_fit_checkbox.setChecked(False)
         if hasattr(self, 'snr_peak_checkbox'):
             self.snr_method = 'disk_doughnut'
             self.snr_peak_checkbox.setChecked(False)
@@ -18323,8 +18578,36 @@ class MicroLiveGUI(QMainWindow):
             self.msd_per_track_diffusion_label.setText("Mean ± SD = --")
         if hasattr(self, 'msd_r_squared_label'):
             self.msd_r_squared_label.setText("R² = --")
+        if hasattr(self, 'msd_normal_aicc_label'):
+            self.msd_normal_aicc_label.setText("AICc = --")
+        if hasattr(self, 'msd_normal_offset_label'):
+            self.msd_normal_offset_label.setText("b = --")
+        if hasattr(self, 'msd_alpha_label'):
+            self.msd_alpha_label.setText("α = --")
+        if hasattr(self, 'msd_k_alpha_label'):
+            self.msd_k_alpha_label.setText("Kα = --")
+        if hasattr(self, 'msd_k_alpha_px_label'):
+            self.msd_k_alpha_px_label.setText("Kα = --")
+        if hasattr(self, 'msd_k_alpha_px_units_label'):
+            self.msd_k_alpha_px_units_label.setText("Kα (px²/s^α):")
+        if hasattr(self, 'msd_anomalous_fit_quality_label'):
+            self.msd_anomalous_fit_quality_label.setText("pseudo-R² = --; AICc = --")
+        if hasattr(self, 'msd_anomalous_offset_label'):
+            self.msd_anomalous_offset_label.setText("b = --")
+        if hasattr(self, 'msd_motion_classification_label'):
+            self.msd_motion_classification_label.setText("Fit-based interpretation: --")
+        if hasattr(self, 'msd_anomalous_status_label'):
+            self.msd_anomalous_status_label.setText("Status: --")
+        if hasattr(self, 'msd_anomalous_ci_caveat_label'):
+            self.msd_anomalous_ci_caveat_label.setText(
+                "Approximate covariance CI; MSD lag points are correlated"
+            )
         if hasattr(self, 'msd_n_particles_label'):
             self.msd_n_particles_label.setText("N = --")
+        if hasattr(self, 'msd_cell_fit_failures_label'):
+            self.msd_cell_fit_failures_label.setText("Rejected = 0")
+        if hasattr(self, 'msd_fit_provenance_label'):
+            self.msd_fit_provenance_label.setText("Provenance: --")
         
         # Reset mode label to default
         if hasattr(self, 'msd_mode_label'):
@@ -18352,6 +18635,9 @@ class MicroLiveGUI(QMainWindow):
         self.msd_data = None
         self.msd_per_trajectory = None
         self.msd_per_cell = None
+        self.msd_per_cell_failures = []
+        self.msd_rejected_cell_ensemble_fits = 0
+        self.msd_fit_summary = None
         
         # Also reset tracking D values for metadata consistency
         self.tracking_D_um2_s = None
@@ -18366,6 +18652,31 @@ class MicroLiveGUI(QMainWindow):
         self.tracking_msd_display_D_px2_s = None
         self.tracking_msd_display_D_std_um2_s = None
         self.tracking_msd_display_D_std_px2_s = None
+        self.tracking_msd_alpha = None
+        self.tracking_msd_alpha_std_err = None
+        self.tracking_msd_alpha_ci95_low = None
+        self.tracking_msd_alpha_ci95_high = None
+        self.tracking_msd_K_alpha_um2_s_alpha = None
+        self.tracking_msd_K_alpha_px2_s_alpha = None
+        self.tracking_msd_K_alpha_std_err_um2_s_alpha = None
+        self.tracking_msd_K_alpha_ci95_low = None
+        self.tracking_msd_K_alpha_ci95_high = None
+        self.tracking_msd_anomalous_offset_um2 = None
+        self.tracking_msd_anomalous_pseudo_r_squared = None
+        self.tracking_msd_normal_aicc = None
+        self.tracking_msd_anomalous_aicc = None
+        self.tracking_msd_normal_offset_um2 = None
+        self.tracking_msd_normal_r_squared = None
+        self.tracking_msd_motion_classification = None
+        self.tracking_msd_normal_fit_equation = None
+        self.tracking_msd_anomalous_fit_equation = None
+        self.tracking_msd_fit_domain = None
+        self.tracking_msd_anomalous_fit_status = None
+        self.tracking_msd_display_model = 'both'
+        if hasattr(self, 'msd_fit_display_combo'):
+            self.msd_fit_display_combo.blockSignals(True)
+            self.msd_fit_display_combo.setCurrentIndex(0)
+            self.msd_fit_display_combo.blockSignals(False)
         self.tracking_msd_summary_method = None
 
 
@@ -18477,11 +18788,38 @@ class MicroLiveGUI(QMainWindow):
             
             # Calculate MSD
             D_um2_s, D_px2_s, em_um2, em_px2, fit_times, fit_line_msd, trackpy_df = motion.calculate_msd()
+            normal_fit = motion.normal_fit
+            anomalous_fit = motion.anomalous_fit
+            anomalous_values = anomalous_fit.parameter_values
+            alpha = float(anomalous_values.get('alpha', np.nan))
+            alpha_se = float(anomalous_fit.parameter_standard_errors.get('alpha', np.nan))
+            alpha_ci = anomalous_fit.parameter_ci95.get('alpha', (np.nan, np.nan))
+            k_alpha_um2_s_alpha = float(anomalous_values.get('K_alpha', np.nan))
+            k_alpha_se = float(anomalous_fit.parameter_standard_errors.get('K_alpha', np.nan))
+            k_alpha_ci = anomalous_fit.parameter_ci95.get('K_alpha', (np.nan, np.nan))
+            k_alpha_px2_s_alpha = (
+                k_alpha_um2_s_alpha / (microns_per_pixel ** 2)
+                if np.isfinite(k_alpha_um2_s_alpha) else np.nan
+            )
             
             # Get the selected tracking channel
             selected_tracking_ch = None
             if hasattr(self, 'msd_tracking_channel_combo'):
                 selected_tracking_ch = self.msd_tracking_channel_combo.currentData()
+            dimension_factor = normal_fit.dimension_factor
+            normal_model_equation = (
+                f"MSD(tau) = {dimension_factor:g} * D * tau + b"
+            )
+            anomalous_model_equation = (
+                f"MSD(tau) = {dimension_factor:g} * K_alpha * tau^alpha + b"
+            )
+            fit_domain = "Raw MSD (µm²) versus lag time (s)"
+            display_combo = getattr(self, 'msd_fit_display_combo', None)
+            display_model = (
+                display_combo.currentData()
+                if display_combo is not None
+                else 'both'
+            ) or 'both'
             
             # Store results with channel info
             self.msd_data = {
@@ -18502,6 +18840,28 @@ class MicroLiveGUI(QMainWindow):
                 'fit_r_squared': motion.fit_r_squared,
                 'D_std_err_um2_s': motion.D_std_err_um2_s,
                 'D_std_err_px2_s': motion.D_std_err_px2_s,
+                'normal_fit': normal_fit,
+                'anomalous_fit': anomalous_fit,
+                'alpha': alpha,
+                'alpha_std_err': alpha_se,
+                'alpha_ci95': alpha_ci,
+                'K_alpha_um2_s_alpha': k_alpha_um2_s_alpha,
+                'K_alpha_px2_s_alpha': k_alpha_px2_s_alpha,
+                'K_alpha_std_err_um2_s_alpha': k_alpha_se,
+                'K_alpha_ci95': k_alpha_ci,
+                'anomalous_offset_um2': anomalous_fit.offset_um2,
+                'anomalous_pseudo_r_squared': anomalous_fit.pseudo_r_squared,
+                'normal_aicc': normal_fit.aicc,
+                'anomalous_aicc': anomalous_fit.aicc,
+                'normal_offset_um2': normal_fit.offset_um2,
+                'normal_r_squared': normal_fit.r_squared,
+                'motion_classification': anomalous_fit.classification,
+                'normal_model_equation': normal_model_equation,
+                'anomalous_model_equation': anomalous_model_equation,
+                'fit_domain': fit_domain,
+                'display_model': display_model,
+                'anomalous_fit_status': anomalous_fit.status_message,
+                'anomalous_fit_warnings': list(anomalous_fit.warnings),
                 'microns_per_pixel': microns_per_pixel,
                 'step_size_in_sec': step_size_in_sec,
                 'microns_per_pixel_z': microns_per_pixel_z,
@@ -18521,27 +18881,130 @@ class MicroLiveGUI(QMainWindow):
             self.tracking_msd_display_D_px2_s = D_px2_s
             self.tracking_msd_display_D_std_um2_s = motion.D_std_err_um2_s
             self.tracking_msd_display_D_std_px2_s = motion.D_std_err_px2_s
+            self.tracking_msd_alpha = alpha
+            self.tracking_msd_alpha_std_err = alpha_se
+            self.tracking_msd_alpha_ci95_low = float(alpha_ci[0]) if np.isfinite(alpha_ci[0]) else None
+            self.tracking_msd_alpha_ci95_high = float(alpha_ci[1]) if np.isfinite(alpha_ci[1]) else None
+            self.tracking_msd_K_alpha_um2_s_alpha = k_alpha_um2_s_alpha
+            self.tracking_msd_K_alpha_px2_s_alpha = k_alpha_px2_s_alpha
+            self.tracking_msd_K_alpha_std_err_um2_s_alpha = k_alpha_se
+            self.tracking_msd_K_alpha_ci95_low = float(k_alpha_ci[0]) if np.isfinite(k_alpha_ci[0]) else None
+            self.tracking_msd_K_alpha_ci95_high = float(k_alpha_ci[1]) if np.isfinite(k_alpha_ci[1]) else None
+            self.tracking_msd_anomalous_offset_um2 = float(anomalous_fit.offset_um2)
+            self.tracking_msd_anomalous_pseudo_r_squared = float(anomalous_fit.pseudo_r_squared)
+            self.tracking_msd_normal_aicc = float(normal_fit.aicc)
+            self.tracking_msd_anomalous_aicc = float(anomalous_fit.aicc)
+            self.tracking_msd_normal_offset_um2 = float(normal_fit.offset_um2)
+            self.tracking_msd_normal_r_squared = float(normal_fit.r_squared)
+            self.tracking_msd_motion_classification = anomalous_fit.classification
+            self.tracking_msd_normal_fit_equation = normal_model_equation
+            self.tracking_msd_anomalous_fit_equation = anomalous_model_equation
+            self.tracking_msd_fit_domain = fit_domain
+            self.tracking_msd_display_model = display_model
+            status_parts = []
+            if anomalous_fit.status_message:
+                status_parts.append(anomalous_fit.status_message)
+            status_parts.extend(anomalous_fit.warnings)
+            self.tracking_msd_anomalous_fit_status = (
+                "; ".join(dict.fromkeys(status_parts))
+                if status_parts else "Fit valid; covariance CI is approximate"
+            )
+            # Preserve the legacy summary-method value consumed by existing
+            # metadata/tests; anomalous-fit provenance is stored separately.
             self.tracking_msd_summary_method = "Ensemble MSD linear fit"
             
             # Calculate per-trajectory MSD for export (use filtered df_to_analyze to preserve cell_id)
             self._calculate_per_trajectory_msd(df_to_analyze, microns_per_pixel, step_size_in_sec)
+            self._build_msd_fit_summary()
+            self.msd_cell_fit_failures_label.setText(
+                f"Rejected = {self.msd_rejected_cell_ensemble_fits}"
+            )
             
             # Report the same ensemble estimator used by the overall fit line.
             # Per-track values remain visible as a separate distribution summary.
             n_particles = trackpy_df['particle'].nunique()
-            self.msd_diffusion_label.setText(
-                f"D = {D_um2_s:.2e} µm²/s "
-                f"(fit SE {motion.D_std_err_um2_s:.1e})"
-            )
+            if np.isfinite(motion.D_std_err_um2_s):
+                diffusion_text = (
+                    f"D = {D_um2_s:.2e} µm²/s "
+                    f"(fit SE {motion.D_std_err_um2_s:.1e})"
+                )
+            else:
+                diffusion_text = (
+                    f"D = {D_um2_s:.2e} µm²/s "
+                    "(fit SE unavailable)"
+                )
+            self.msd_diffusion_label.setText(diffusion_text)
             self.msd_diffusion_px_label.setText(f"D = {D_px2_s:.2e} px²/s")
             self.msd_n_particles_label.setText(f"N = {n_particles}")
             self.msd_r_squared_label.setText(f"R² = {motion.fit_r_squared:.4f}")
-            self.msd_calibration_label.setText(
-                f"XY = {microns_per_pixel:.4g} µm/px; "
-                f"Δt = {step_size_in_sec:.4g} s/frame; "
+            self.msd_normal_aicc_label.setText(
+                f"AICc = {normal_fit.aicc:.4g}" if np.isfinite(normal_fit.aicc) else "AICc = --"
+            )
+            self.msd_normal_offset_label.setText(
+                f"b = {normal_fit.offset_um2:.3e} µm²"
+            )
+            if np.isfinite(alpha):
+                alpha_text = f"α = {alpha:.3g}"
+                if np.isfinite(alpha_se):
+                    alpha_text += f" ± {alpha_se:.2g}"
+                if np.isfinite(alpha_ci[0]) and np.isfinite(alpha_ci[1]):
+                    alpha_text += f" (approx. 95% CI {alpha_ci[0]:.3g}–{alpha_ci[1]:.3g})"
+                self.msd_alpha_label.setText(alpha_text)
+            else:
+                self.msd_alpha_label.setText("α = unavailable")
+            if np.isfinite(k_alpha_um2_s_alpha):
+                k_text = f"Kα = {k_alpha_um2_s_alpha:.3e} µm²/s^{alpha:.3g}"
+                if np.isfinite(k_alpha_se):
+                    k_text += f" ± {k_alpha_se:.2g}"
+                self.msd_k_alpha_label.setText(k_text)
+                pixel_units = "XY-equiv px²/s^α" if is_3d else "px²/s^α"
+                self.msd_k_alpha_px_units_label.setText(f"Kα ({pixel_units}):")
+                self.msd_k_alpha_px_label.setText(
+                    f"Kα = {k_alpha_px2_s_alpha:.3e} {pixel_units.replace('^α', f'^{alpha:.3g}')}"
+                )
+            else:
+                self.msd_k_alpha_label.setText("Kα = unavailable")
+                pixel_units = "XY-equiv px²/s^α" if is_3d else "px²/s^α"
+                self.msd_k_alpha_px_units_label.setText(f"Kα ({pixel_units}):")
+                self.msd_k_alpha_px_label.setText("Kα = unavailable")
+            quality_text = []
+            if np.isfinite(anomalous_fit.pseudo_r_squared):
+                quality_text.append(f"pseudo-R² = {anomalous_fit.pseudo_r_squared:.4f}")
+            if np.isfinite(anomalous_fit.aicc):
+                quality_text.append(f"AICc = {anomalous_fit.aicc:.4g}")
+            self.msd_anomalous_fit_quality_label.setText(
+                "; ".join(quality_text) if quality_text else "Quality metrics unavailable"
+            )
+            self.msd_anomalous_offset_label.setText(
+                f"b = {anomalous_fit.offset_um2:.3e} µm²"
+                if np.isfinite(anomalous_fit.offset_um2)
+                else "b = unavailable"
+            )
+            self.msd_motion_classification_label.setText(
+                f"Fit-based interpretation: {anomalous_fit.classification}"
+            )
+            self.msd_anomalous_status_label.setText(
+                "Status: " + self.tracking_msd_anomalous_fit_status
+            )
+            calibration_parts = [
+                f"XY = {microns_per_pixel:.4g} µm/px",
+                f"Δt = {step_size_in_sec:.4g} s/frame",
+            ]
+            if microns_per_pixel_z is not None:
+                calibration_parts.append(
+                    f"Z = {microns_per_pixel_z:.4g} µm/px"
+                )
+            calibration_parts.append(
                 f"fit = {fit_times[0]:.4g}–{fit_times[-1]:.4g} s"
             )
+            self.msd_calibration_label.setText("; ".join(calibration_parts))
             self.msd_calibration_label.setStyleSheet("color: cyan;")
+            self.msd_fit_provenance_label.setText(
+                f"Channel {selected_tracking_ch}; "
+                f"{len(fit_times)}/{max_fit_points} lag points used/requested; "
+                f"factor {dimension_factor:g}; {fit_domain}; "
+                f"display={display_model} (plot only)"
+            )
 
             valid_track_D = [
                 value
@@ -18581,7 +19044,10 @@ class MicroLiveGUI(QMainWindow):
         
         msd_dict = {}  # {(cell_id, particle_id): em}
         # Per-cell results for plotting
+        self.msd_per_trajectory = None
         self.msd_per_cell = {}
+        self.msd_per_cell_failures = []
+        self.msd_rejected_cell_ensemble_fits = 0
         is_3d = bool(self.msd_data.get('is_3d', False))
         microns_per_pixel_z = self.msd_data.get('microns_per_pixel_z')
         particle_column = (
@@ -18646,6 +19112,13 @@ class MicroLiveGUI(QMainWindow):
                     continue
             
             if not cell_msd_values:
+                self.msd_per_cell_failures.append({
+                    'cell_id': cell_id,
+                    'n_particles': len(particles),
+                    'reason': (
+                        "No trajectories in this cell produced a usable MSD curve."
+                    ),
+                })
                 continue
 
             # Fit a pair-weighted ensemble MSD for the cell, using the same
@@ -18672,7 +19145,17 @@ class MicroLiveGUI(QMainWindow):
                     _,
                 ) = cell_motion.calculate_msd()
             except Exception as exc:
-                logging.debug(f"MSD: Failed ensemble fit for Cell {cell_id}: {exc}")
+                failure_reason = f"Per-cell ensemble fit failed: {exc}"
+                logging.debug(
+                    "MSD: Failed ensemble fit for Cell %s: %s",
+                    cell_id,
+                    exc,
+                )
+                self.msd_per_cell_failures.append({
+                    'cell_id': cell_id,
+                    'n_particles': len(cell_msd_values),
+                    'reason': failure_reason,
+                })
                 continue
             self.msd_per_cell[cell_id] = {
                 'D_values': cell_D_values,
@@ -18682,6 +19165,12 @@ class MicroLiveGUI(QMainWindow):
                 'fit_slope': cell_motion.fit_slope_um2_s,
                 'fit_intercept': cell_motion.fit_intercept_um2,
                 'fit_r_squared': cell_motion.fit_r_squared,
+                'normal_fit': cell_motion.normal_fit,
+                'anomalous_fit': cell_motion.anomalous_fit,
+                'K_alpha_ensemble': cell_motion.anomalous_fit.parameter_values.get('K_alpha', np.nan),
+                'alpha_ensemble': cell_motion.anomalous_fit.parameter_values.get('alpha', np.nan),
+                'anomalous_pseudo_r_squared': cell_motion.anomalous_fit.pseudo_r_squared,
+                'anomalous_classification': cell_motion.anomalous_fit.classification,
                 'fit_times': cell_fit_times,
                 'ensemble_msd': cell_ensemble_msd,
                 'n_particles': len(cell_msd_values),
@@ -18689,6 +19178,10 @@ class MicroLiveGUI(QMainWindow):
                 'n_rejected_D_fits': rejected_D_fits,
                 'msd_values': cell_msd_values,
             }
+
+        self.msd_rejected_cell_ensemble_fits = len(
+            self.msd_per_cell_failures
+        )
         
         # Create DataFrame with time as first column and MSD per trajectory_X_cell_Y
         if msd_dict:
@@ -18706,17 +19199,155 @@ class MicroLiveGUI(QMainWindow):
             
             self.msd_per_trajectory = df_msd
 
+    @staticmethod
+    def _msd_fit_summary_row(result, scope, microns_per_pixel, step_size_in_sec,
+                             channel=None, cell_id=None, particle_id=None,
+                             n_particles=None, track_length_frames=None,
+                             fit_points_requested=None, microns_per_pixel_z=None):
+        """Convert one analytical fit to a machine-readable export row."""
+        values = result.parameter_values
+        errors = result.parameter_standard_errors
+        ci_alpha = result.parameter_ci95.get('alpha', (np.nan, np.nan))
+        ci_k = result.parameter_ci95.get('K_alpha', (np.nan, np.nan))
+        row = {
+            'scope': scope,
+            'channel': channel,
+            'cell_id': cell_id,
+            'particle_id': particle_id,
+            'model': result.model,
+            'dimensions': result.dimensions,
+            'n_particles': n_particles,
+            'track_length_frames': track_length_frames,
+            'fit_points_requested': fit_points_requested,
+            'fit_points_used': result.n_fit_points,
+            'fit_lag_start_s': result.fit_lag_start_s,
+            'fit_lag_end_s': result.fit_lag_end_s,
+            'D_um2_s': values.get('D', np.nan),
+            'D_se_um2_s': errors.get('D', np.nan),
+            'D_px2_s': values.get('D', np.nan) / (microns_per_pixel ** 2) if 'D' in values else np.nan,
+            'D_se_px2_s': errors.get('D', np.nan) / (microns_per_pixel ** 2) if 'D' in errors else np.nan,
+            'K_alpha_um2_s_alpha': values.get('K_alpha', np.nan),
+            'K_alpha_se_um2_s_alpha': errors.get('K_alpha', np.nan),
+            'K_alpha_px2_s_alpha': values.get('K_alpha', np.nan) / (microns_per_pixel ** 2) if 'K_alpha' in values else np.nan,
+            'K_alpha_se_px2_s_alpha': errors.get('K_alpha', np.nan) / (microns_per_pixel ** 2) if 'K_alpha' in errors else np.nan,
+            'alpha': values.get('alpha', np.nan),
+            'alpha_se': errors.get('alpha', np.nan),
+            'alpha_ci95_low': ci_alpha[0],
+            'alpha_ci95_high': ci_alpha[1],
+            'offset_um2': result.offset_um2,
+            'r_squared': result.r_squared,
+            'pseudo_r_squared': result.pseudo_r_squared,
+            'rss': result.rss,
+            'rmse': result.rmse,
+            'aicc': result.aicc,
+            'classification': result.classification,
+            'optimizer_success': result.success,
+            'fit_valid': result.fit_reliable,
+            'at_parameter_bound': result.at_parameter_bound,
+            'weakly_identified': result.weakly_identified,
+            'fit_status': result.status_message or '; '.join(result.warnings),
+            'xy_um_per_px': microns_per_pixel,
+            'z_um_per_px': microns_per_pixel_z,
+            'frame_interval_s': step_size_in_sec,
+            'K_alpha_ci95_low_um2_s_alpha': ci_k[0],
+            'K_alpha_ci95_high_um2_s_alpha': ci_k[1],
+            'unit_D': 'µm²/s',
+            'unit_K_alpha': 'µm²/s^alpha',
+            'unit_K_alpha_px': (
+                'XY-equivalent px²/s^alpha' if result.dimensions == 3
+                else 'px²/s^alpha'
+            ),
+        }
+        return row
+
+    def _build_msd_fit_summary(self):
+        """Build overall and per-cell normal/anomalous fit export rows."""
+        if not self.msd_data:
+            self.msd_fit_summary = None
+            return
+        mpp = float(self.msd_data['microns_per_pixel'])
+        dt = float(self.msd_data['step_size_in_sec'])
+        channel = self.msd_data.get('tracking_channel')
+        fit_points_requested = self.msd_data.get('fit_points_requested')
+        microns_per_pixel_z = self.msd_data.get('microns_per_pixel_z')
+        trackpy_df = self.msd_data.get('trackpy_df')
+        n_particles = int(trackpy_df['particle'].nunique()) if trackpy_df is not None else None
+        rows = []
+        for result in (
+            self.msd_data.get('normal_fit'),
+            self.msd_data.get('anomalous_fit'),
+        ):
+            if result is not None:
+                rows.append(self._msd_fit_summary_row(
+                    result, 'overall', mpp, dt, channel=channel,
+                    n_particles=n_particles,
+                    fit_points_requested=fit_points_requested,
+                    microns_per_pixel_z=microns_per_pixel_z,
+                ))
+        for cell_id, cell_data in sorted((self.msd_per_cell or {}).items()):
+            for result in (cell_data.get('normal_fit'), cell_data.get('anomalous_fit')):
+                if result is not None:
+                    rows.append(self._msd_fit_summary_row(
+                        result, 'cell', mpp, dt, channel=channel,
+                        cell_id=cell_id,
+                        n_particles=cell_data.get('n_particles'),
+                        fit_points_requested=fit_points_requested,
+                        microns_per_pixel_z=microns_per_pixel_z,
+                    ))
+        dimensions = 3 if self.msd_data.get('is_3d') else 2
+        dimension_factor = 6.0 if dimensions == 3 else 4.0
+        for failure in getattr(self, 'msd_per_cell_failures', None) or []:
+            for model in ('normal', 'anomalous'):
+                failed_result = mi.MSDFitResult(
+                    model=model,
+                    success=False,
+                    dimensions=dimensions,
+                    dimension_factor=dimension_factor,
+                    n_fit_points=0,
+                    status_message=failure.get(
+                        'reason',
+                        'Per-cell ensemble fit failed.',
+                    ),
+                )
+                rows.append(self._msd_fit_summary_row(
+                    failed_result,
+                    'cell',
+                    mpp,
+                    dt,
+                    channel=channel,
+                    cell_id=failure.get('cell_id'),
+                    n_particles=failure.get('n_particles'),
+                    fit_points_requested=fit_points_requested,
+                    microns_per_pixel_z=microns_per_pixel_z,
+                ))
+        self.msd_fit_summary = pd.DataFrame(rows)
+
     def plot_msd(self):
         """Plot MSD vs lag time with per-cell coloring and optional log-log scale."""
         if self.msd_data is None:
             return
-        
+
         em_um2 = self.msd_data['em_um2']
-        fit_times = self.msd_data['fit_times']
-        fit_line_msd = self.msd_data['fit_line_msd']
-        D_um2_s = self.msd_data['D_um2_s']
+        fit_times = np.asarray(self.msd_data['fit_times'], dtype=float)
         is_3d = self.msd_data['is_3d']
-        
+        normal_fit = self.msd_data.get('normal_fit')
+        anomalous_fit = self.msd_data.get('anomalous_fit')
+        display_model = getattr(self, 'tracking_msd_display_model', 'both') or 'both'
+
+        def evaluate_fit(result, times):
+            if result is None or not result.success:
+                return None
+            values = result.parameter_values
+            times = np.asarray(times, dtype=float)
+            if result.model == 'normal':
+                return result.dimension_factor * values['D'] * times + result.offset_um2
+            return (
+                result.dimension_factor
+                * values['K_alpha']
+                * np.power(times, values['alpha'])
+                + result.offset_um2
+            )
+
         self.figure_msd.clear()
         self.ax_msd = self.figure_msd.add_subplot(111)
         
@@ -18737,9 +19368,10 @@ class MicroLiveGUI(QMainWindow):
             '#6C5CE7', '#00CEC9', '#FD79A8', '#FFEAA7', '#74B9FF'
         ]
         
-        # Check if we have per-cell data
+        # Plot per-cell data.  Per-cell fit lines are shown only when a
+        # model-specific display mode is selected; the default keeps both
+        # overall model fits readable.
         if hasattr(self, 'msd_per_cell') and self.msd_per_cell:
-            # Plot per-cell MSD curves (mean with error)
             stats_lines = []
             MIN_TRAJECTORIES_PER_LAG = 5  # Filter lags with fewer trajectories
             MIN_PARTICLES_PER_CELL = 10  # Minimum particles to display a cell
@@ -18804,36 +19436,35 @@ class MicroLiveGUI(QMainWindow):
                                     fmt='o', color=color, markersize=4, 
                                     linewidth=1.5, alpha=0.8, capsize=2)
                 
-                # Add the per-cell ensemble fit. This uses the same pair-weighted
-                # estimator and fitted intercept as the overall white line.
-                D_cell = cell_data['D_ensemble']
                 n_particles = cell_data['n_particles']
-                slope = cell_data['fit_slope']
-                intercept = cell_data['fit_intercept']
                 cell_fit_times = cell_data['fit_times']
-                fit_max_time = (
-                    float(cell_fit_times[-1])
-                    if len(cell_fit_times) > 0
-                    else valid_lags.max()
-                )
-                fit_x = np.linspace(0, fit_max_time, 50)
-                fit_y = slope * fit_x + intercept
-                self.ax_msd.plot(fit_x, fit_y, '--', color=color, linewidth=2, alpha=0.7)
-                
-                # Add to legend with D value
-                cell_label = f"Cell {cell_id}: ensemble D={D_cell:.2e} (n={n_particles})"
+                selected_cell_fit = None
+                if display_model == 'normal':
+                    selected_cell_fit = cell_data.get('normal_fit')
+                elif display_model == 'anomalous':
+                    selected_cell_fit = cell_data.get('anomalous_fit')
+                if selected_cell_fit is not None and selected_cell_fit.success and len(cell_fit_times) > 0 and display_model != 'both':
+                    fit_x = np.linspace(float(cell_fit_times[0]), float(cell_fit_times[-1]), 50)
+                    fit_y = evaluate_fit(selected_cell_fit, fit_x)
+                    self.ax_msd.plot(fit_x, fit_y, '--', color=color, linewidth=2, alpha=0.7)
+                if display_model == 'normal':
+                    cell_label = (
+                        f"Cell {cell_id}: D={cell_data['D_ensemble']:.2e} µm²/s "
+                        f"(n={n_particles})"
+                    )
+                    stat = f"Cell {cell_id}: D={cell_data['D_ensemble']:.2e} (R²={cell_data['fit_r_squared']:.3f})"
+                elif display_model == 'anomalous':
+                    cell_anom = cell_data.get('anomalous_fit')
+                    cell_alpha = cell_anom.parameter_values.get('alpha', np.nan) if cell_anom else np.nan
+                    cell_k = cell_anom.parameter_values.get('K_alpha', np.nan) if cell_anom else np.nan
+                    cell_label = f"Cell {cell_id}: Kα={cell_k:.2e}, α={cell_alpha:.2f} (n={n_particles})"
+                    stat = f"Cell {cell_id}: Kα={cell_k:.2e}, α={cell_alpha:.2f}"
+                else:
+                    cell_label = f"Cell {cell_id}: MSD (n={n_particles})"
+                    stat = f"Cell {cell_id}: MSD (n={n_particles})"
                 self.ax_msd.plot([], [], 'o--', color=color, label=cell_label)
-                
-                stats_lines.append(
-                    f"Cell {cell_id}: ensemble D={D_cell:.2e} µm²/s "
-                    f"(R²={cell_data['fit_r_squared']:.3f})"
-                )
-            
-            # Plot overall fit line
-            fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
-            self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd,
-                            linewidth=2, color='white', linestyle='--', label=f'Overall D={D_um2_s:.2e}')
-            
+                stats_lines.append(stat)
+
             # Add stats text box
             if stats_lines:
                 stats_text = '\n'.join(stats_lines[:10])  # Limit to 10 cells
@@ -18845,9 +19476,39 @@ class MicroLiveGUI(QMainWindow):
             # Fallback: single combined MSD plot
             self.ax_msd.plot(em_um2.index, em_um2.values, 'o', alpha=0.6, color='cyan', label='MSD data')
             self.ax_msd.plot(fit_times, em_um2.values[:len(fit_times)], 'o', markersize=8, color='orange', label='Fitted region')
-            fit_line_times = np.linspace(0.0, float(fit_times[-1]) * 1.2, 50)
-            self.ax_msd.plot(fit_line_times, fit_line_msd[:len(fit_line_times)] if len(fit_line_msd) >= 50 else fit_line_msd,
-                            '-', linewidth=2, color='lime', label=f'D = {D_um2_s:.2e} µm²/s')
+
+        # Overall model fits are always available in the default view.  The
+        # fit curves stop at the measured fit interval and are never extrapolated.
+        if len(fit_times) > 0:
+            fit_x = np.linspace(float(fit_times[0]), float(fit_times[-1]), 100)
+            self.ax_msd.axvspan(
+                float(fit_times[0]), float(fit_times[-1]),
+                color='gray', alpha=0.10, label='Fit interval'
+            )
+            if display_model in ('both', 'normal') and normal_fit is not None and normal_fit.success:
+                normal_y = evaluate_fit(normal_fit, fit_x)
+                self.ax_msd.plot(
+                    fit_x, normal_y, '--', color='white', linewidth=2,
+                    label=(f"Normal: D={normal_fit.parameter_values['D']:.2e} µm²/s; "
+                           f"R²={normal_fit.r_squared:.3f}"),
+                )
+            if display_model in ('both', 'anomalous') and anomalous_fit is not None and anomalous_fit.success:
+                anomalous_y = evaluate_fit(anomalous_fit, fit_x)
+                self.ax_msd.plot(
+                    fit_x, anomalous_y, '-', color='#d18cff', linewidth=2,
+                    label=(f"Anomalous: Kα={anomalous_fit.parameter_values['K_alpha']:.2e}; "
+                           f"α={anomalous_fit.parameter_values['alpha']:.2f}; "
+                           f"pseudo-R²={anomalous_fit.pseudo_r_squared:.3f}"),
+                )
+            if anomalous_fit is not None and anomalous_fit.warnings:
+                self.ax_msd.text(
+                    0.98, 0.98,
+                    "Anomalous: " + '; '.join(anomalous_fit.warnings[:2]),
+                    transform=self.ax_msd.transAxes,
+                    fontsize=8, color='#ffb4a2',
+                    verticalalignment='top', horizontalalignment='right',
+                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.8, edgecolor='#ffb4a2'),
+                )
         
         # Labels
         dim_text = "3D" if is_3d else "2D"
@@ -18883,6 +19544,22 @@ class MicroLiveGUI(QMainWindow):
         if file_path:
             self.msd_per_trajectory.to_csv(file_path, index=False)
             QMessageBox.information(self, "Export Complete", f"MSD DataFrame exported to:\n{file_path}")
+
+    def export_msd_fit_summary(self):
+        """Export overall and per-cell normal/anomalous fit results as CSV."""
+        if getattr(self, 'msd_fit_summary', None) is None:
+            QMessageBox.warning(self, "No Data", "No MSD fit summary available. Calculate MSD first.")
+            return
+        base_name = self.file_label.text().split('.')[0] if hasattr(self, 'file_label') else 'data'
+        base_name = re.sub(r'[^\w\-_\. ]', '_', base_name)
+        default_name = f"msd_fit_summary_{base_name}.csv"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export MSD Fit Summary", default_name,
+            "CSV Files (*.csv);;All Files (*)"
+        )
+        if file_path:
+            self.msd_fit_summary.to_csv(file_path, index=False)
+            QMessageBox.information(self, "Export Complete", f"MSD fit summary exported to:\n{file_path}")
 
     def export_msd_plot(self):
         """Export MSD plot as PNG."""
@@ -20544,12 +21221,16 @@ class AuroraGUI(MicroLiveGUI):
         range_label = getattr(self, "msd_fit_points_range_label", None)
         if range_label is not None:
             if has_usable_range:
-                range_label.setText(f"Available: {minimum}–{maximum} lag points")
+                range_label.setText(
+                    f"Available: {minimum}–{maximum} lag points (≥4 for α/Kα)"
+                )
                 range_label.setToolTip(
                     "Maximum is based on the current tracked channel's valid MSD lag support."
                 )
             else:
-                range_label.setText("Run tracking with at least 3 tracked frames")
+                range_label.setText(
+                    "Run tracking with at least 3 tracked frames (≥4 lags for α/Kα)"
+                )
                 range_label.setToolTip("")
             range_label.setEnabled(has_usable_range)
 

@@ -469,38 +469,44 @@ Calculate Mean Squared Displacement (MSD) curves and diffusion coefficients from
 
 ### Step 4: Configure MSD Parameters
 
-1. **Fit Points**: Number of lag-time points used for the linear diffusion fit (default: 20)
-   - Fewer points = fit dominated by short lags (more accurate for free diffusion)
-   - More points = fit includes longer lags (useful for confined/directed motion detection)
+1. **Fit Points**: Number of initial lag-time points shared by the normal and anomalous fits (default: 5)
+   - At least 2 points are required for normal D; at least 4 are required for α and Kα
+   - Use an early-lag interval supported by enough trajectories; including a later plateau can bias normal D downward
 2. **Mode**: Automatically detected from trajectory dimensionality (2D or 3D)
    - Shown as a read-only label: "Mode: Auto-detect"
+3. **Fit display**: Choose both overall fits, normal with per-cell fits, or anomalous with per-cell fits. This changes only the plot.
 
 ### Step 5: Calculate MSD
 
-1. Click **"Calculate MSD"** (green button)
-2. MSD curves are plotted for each trajectory and the ensemble mean is overlaid
+1. Click **"Calculate MSD Fits"** (green button)
+2. The MSD curves and both model fits are plotted over the selected fit interval
 3. Results are displayed in the right panel:
    - **D (μm²/s)**: Diffusion coefficient in physical units (requires calibrated voxel size)
    - **D (px²/s)**: Diffusion coefficient in pixel units
-   - **R²**: Goodness of linear fit
+   - **α**: Anomalous exponent; α = 1 is compatible with normal diffusion
+   - **Kα**: Generalized diffusion coefficient in µm²/s^α and px²/s^α
+   - **R²**: Goodness of the normal linear fit
+   - **pseudo-R²**: Descriptive raw-domain goodness of the anomalous fit
    - **N**: Number of trajectories analyzed
 
 ### Step 6: Interpret Results
 
-1. **Linear MSD vs. lag time** → Free (Brownian) diffusion
-2. **Sub-linear (flattening) MSD** → Confined diffusion
-3. **Super-linear (accelerating) MSD** → Directed/active transport
-4. Toggle **"Log-Log Scale"** to visualize the MSD power-law exponent (α = 1 for free diffusion)
+1. **α ≈ 1** → Compatible with normal diffusion over the fitted lag range
+2. **α < 1** → Subdiffusive behavior over the fitted lag range
+3. **α > 1** → Superdiffusive/directed behavior over the fitted lag range
+4. A low α is not by itself proof of confinement; inspect for a plateau and fit-window effects
+5. Toggle **"Log-Log Scale"** to change visualization only; it does not refit α or Kα
 
 ### Step 7: Export MSD Results
 
 1. Click **"Export DataFrame"** to save per-trajectory MSD values as CSV
-2. Click **"Export Plot"** to save the MSD figure as a PNG
+2. Click **"Export Fit Summary"** to save overall and per-cell normal/anomalous fit values as CSV
+3. Click **"Export Plot"** to save the MSD figure as a PNG
 
 ### Expected Results (Tutorial 6)
 
 - Ensemble MSD curve with per-trajectory overlay
-- Diffusion coefficient D and R² fit quality
+- Diffusion coefficient D, anomalous α/Kα, and fit-quality metrics
 - Exported CSV and plot for publication
 
 ---

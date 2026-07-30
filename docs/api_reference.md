@@ -225,6 +225,7 @@ __init__(icon_path)
 | `calculate_msd_from_gui()` | Compute MSD from loaded trajectories |
 | `plot_msd()` | Render MSD curve |
 | `export_msd_dataframe()` | Save MSD results to CSV |
+| `export_msd_fit_summary()` | Save normal/anomalous overall and per-cell fit results to CSV |
 | `export_msd_plot()` | Save MSD plot to file |
 
 #### Distributions & Time Course
@@ -711,7 +712,17 @@ __init__(trackpy_dataframe, microns_per_pixel=1, step_size_in_sec=1,
          microns_per_pixel_z=None)
 ```
 
-**Methods:** `calculate_msd()`
+**Methods:** `calculate_msd()` — Returns the backward-compatible seven-element
+tuple and stores structured `normal_fit` and `anomalous_fit` results;
+`fit_msd_models(fit_times_s, fit_msd_um2)` can be used for fit-only analysis.
+
+The anomalous result reports dimensionless `alpha`, generalized `K_alpha` in
+µm²/s^alpha, approximate covariance-based confidence intervals, fit quality,
+and a fit-based motion classification. `MSDFitResult.success` reports optimizer
+convergence, while `MSDFitResult.fit_reliable` additionally rejects
+weakly-identified and parameter-bound fits. Fit-summary exports preserve these
+states separately as `optimizer_success`, `fit_valid`,
+`weakly_identified`, and `at_parameter_bound`.
 
 ---
 
