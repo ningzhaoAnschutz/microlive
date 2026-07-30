@@ -1071,6 +1071,34 @@ Organize and export all analysis results in a structured, documented format for 
 
 ---
 
+## Export Processed LIF Scenes as Renamed TIFFs
+
+Use
+[`Export_Final_tifs.ipynb`](../notebooks/export_data/Export_Final_tifs.ipynb)
+to export only LIF scenes that have a matching `results_*` folder containing
+tracking data. The notebook writes sequentially renamed OME-TIFF files and an
+`export_manifest.csv` table that maps each new name to its original LIF scene.
+
+1. Start Jupyter Lab with `/opt/anaconda3/bin/jupyter lab`.
+2. Open the notebook and select the existing `microlive` kernel.
+3. In the configuration cell, set `DATA_ROOT_DIR`, `DATASETS`, and
+   `OUTPUT_BASE_DIR` for your data.
+4. Keep `DRY_RUN = True`, run all cells, and review the validation and mapping
+   tables.
+5. Set `DRY_RUN = False` and run the export cell again when the preview is
+   correct.
+
+The main options enable TIFF or AVI output and optional maximum-Z projection
+for TIFF files. AVI output always uses maximum-Z projection. The exporter
+currently processes all frames; limiting the export to a frame range is not
+supported.
+
+If multiple suffixed `results_*` folders refer to the same LIF scene, the
+source scene is exported only once. All matching results-folder names and
+their count are recorded in the manifest.
+
+---
+
 ## Troubleshooting Common Issues
 
 ### Loading and Display Issues

@@ -1144,8 +1144,8 @@ class MicroLiveGUI(QMainWindow):
         self.cluster_radius_nm = 500
         self.maximum_spots_cluster = None
         self.separate_clusters_and_spots = False
-        self.maximum_range_search_pixels = 7
-        self.memory = 0
+        self.maximum_range_search_pixels = 15
+        self.memory = 1
         self.de_correlation_threshold = 0.01
         self.max_spots_for_threshold = 3000
         self.index_max_lag_for_fit = None

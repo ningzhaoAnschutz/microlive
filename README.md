@@ -28,6 +28,7 @@
 - **MSD analysis**: Per-cell diffusion coefficient calculation
 - **Correlation**: Auto- and cross-correlation with exponential/linear fitting
 - **Export**: PNG, TIFF, CSV, MP4/GIF with full metadata logging
+- **Filtered LIF export**: Export analyzed scenes once as renamed OME-TIFF/AVI files with an original-to-new-name manifest
 
 ---
 

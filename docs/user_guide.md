@@ -1696,3 +1696,18 @@ All DataFrames are exported as CSV files with UTF-8 encoding:
   - When colocalization has been run, the tracking CSV includes `is_colocalized` and/or `is_colocalized_distance` columns alongside the standard tracking data. If manual verification was performed, the exported values reflect the verified labels.
 - **Colocalization results**: `colocalization_[filename]_[imagename].csv`
 - **Manual colocalization**: `manual_colocalization_[filename]_[imagename].csv`
+
+#### Filtered LIF Scene Export
+
+The
+[`Export_Final_tifs.ipynb`](../notebooks/export_data/Export_Final_tifs.ipynb)
+notebook exports only LIF scenes with matching `results_*` folders that
+contain tracking data. It supports sequentially renamed OME-TIFF files,
+optional AVI files, optional maximum-Z projection for TIFFs, and an
+`export_manifest.csv` mapping original scene names to exported names.
+
+Always run the notebook first with `DRY_RUN = True`. If multiple suffixed
+results folders refer to the same source scene, the scene is exported once
+and every matching results folder is recorded in the manifest. See the
+[filtered LIF export tutorial](tutorial.md#export-processed-lif-scenes-as-renamed-tiffs)
+for configuration and execution steps.
